@@ -166,216 +166,220 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_config = context.bot_data['bot_config']
         user = update.effective_user
         message = update.effective_message
-    except Exception:
-        return
 
-    try:
-        # Если это чат модерации — это не "предложение", а ответы/действия менеджера.
-        chat_id = int(update.effective_chat.id) if update.effective_chat else 0
-    except Exception:
-        chat_id = 0
+        if not message:
+            return
 
-    if chat_id and _is_admin_chat(context, chat_id):
-        # Reply-to: менеджер отвечает на пересланную заявку -> отправляем пользователю
-        if message and message.text and getattr(message, 'reply_to_message', None):
-            replied = message.reply_to_message
-            replied_text = (getattr(replied, 'text', None) or getattr(replied, 'caption', None) or '') or ''
-            user_id = _extract_user_id_from_admin_caption(replied_text)
-            if user_id:
-                try:
-                    await context.bot.send_message(chat_id=user_id, text=message.text)
-                except Exception as e:
-                    await message.reply_text(f'Не удалось отправить пользователю: {e}')
+        try:
+            # Если это чат модерации — это не "предложение", а ответы/действия менеджера.
+            chat_id = int(update.effective_chat.id) if update.effective_chat else 0
+        except Exception:
+            chat_id = 0
+
+        if chat_id and _is_admin_chat(context, chat_id):
+            # Reply-to: менеджер отвечает на пересланную заявку -> отправляем пользователю
+            if message.text and getattr(message, 'reply_to_message', None):
+                replied = message.reply_to_message
+                replied_text = (getattr(replied, 'text', None) or getattr(replied, 'caption', None) or '') or ''
+                user_id = _extract_user_id_from_admin_caption(replied_text)
+                if user_id:
+                    try:
+                        await context.bot.send_message(chat_id=user_id, text=message.text)
+                    except Exception as e:
+                        await message.reply_text(f'Не удалось отправить пользователю: {e}')
+                        return
+
+                    @sync_to_async
+                    def save_outgoing():
+                        from bots.models import BotConversation, BotConversationMessage
+                        conv, _ = BotConversation.objects.get_or_create(
+                            bot=bot_config,
+                            platform_user_id=str(user_id),
+                            defaults={'last_message_at': timezone.now()},
+                        )
+                        conv.last_message_at = timezone.now()
+                        conv.status = 'open'
+                        conv.save(update_fields=['last_message_at', 'status'])
+                        BotConversationMessage.objects.create(
+                            conversation=conv,
+                            direction='out',
+                            sender_user=None,
+                            text=message.text,
+                            raw_data=message.to_dict(),
+                        )
+                    await save_outgoing()
+
+                    await message.reply_text('✅ Отправлено пользователю.')
                     return
 
-                @sync_to_async
-                def save_outgoing():
-                    from bots.models import BotConversation, BotConversationMessage
-                    conv, _ = BotConversation.objects.get_or_create(
-                        bot=bot_config,
-                        platform_user_id=str(user_id),
-                        defaults={'last_message_at': timezone.now()},
-                    )
-                    conv.last_message_at = timezone.now()
-                    conv.status = 'open'
-                    conv.save(update_fields=['last_message_at', 'status'])
-                    BotConversationMessage.objects.create(
-                        conversation=conv,
-                        direction='out',
-                        sender_user=None,
-                        text=message.text,
-                        raw_data=message.to_dict() if message else {},
-                    )
-                await save_outgoing()
+            # В чате модерации, если не reply — игнорируем, чтобы не плодить "предложения"
+            return
 
-                await message.reply_text('✅ Отправлено пользователю.')
+        # Не считаем команды предложениями
+        if message.text and str(message.text).strip().startswith('/'):
+            return
+
+        # Contact flow: user wants to talk to manager (MVP: text only)
+        if context.user_data.get('contact_mode'):
+            if not message.text:
+                await message.reply_text('Пожалуйста, отправьте текстовое сообщение для менеджера.')
                 return
 
-        # В чате модерации, если не reply — игнорируем, чтобы не плодить "предложения"
-        return
+            @sync_to_async
+            def save_dialog():
+                from bots.models import BotConversation, BotConversationMessage
+                conv, _ = BotConversation.objects.get_or_create(
+                    bot=bot_config,
+                    platform_user_id=str(user.id),
+                    defaults={
+                        'platform_username': user.username or '',
+                        'display_name': _build_display_name(user),
+                        'last_message_at': timezone.now(),
+                    }
+                )
+                conv.platform_username = user.username or conv.platform_username
+                conv.display_name = _build_display_name(user)
+                conv.last_message_at = timezone.now()
+                conv.status = 'open'
+                conv.save(update_fields=['platform_username', 'display_name', 'last_message_at', 'status'])
+                BotConversationMessage.objects.create(
+                    conversation=conv,
+                    direction='in',
+                    text=message.text or '',
+                    raw_data=message.to_dict(),
+                )
+                return conv.pk
 
-    # Не считаем команды предложениями
-    try:
-        if message and message.text and str(message.text).strip().startswith('/'):
+            conv_id = await save_dialog()
+            context.user_data['contact_mode'] = False
+
+            await message.reply_text('Сообщение отправлено менеджеру. Мы ответим здесь в чате.')
+
+            # Notify moderation chats with link to site dialog
+            admin_chat_ids = []
+            try:
+                admin_chat_ids = bot_config.get_moderation_chat_ids()
+            except Exception:
+                admin_chat_ids = [bot_config.admin_chat_id] if bot_config.admin_chat_id else []
+            try:
+                from django.conf import settings
+                url = f'{settings.SITE_URL}/bots/conversations/{conv_id}/'
+            except Exception:
+                url = ''
+            if admin_chat_ids:
+                text_notify = f'💬 Новое сообщение для менеджера от @{user.username or user.id}\nДиалог: {url}'.strip()
+                for admin_chat_id in admin_chat_ids:
+                    try:
+                        await context.bot.send_message(chat_id=admin_chat_id, text=text_notify)
+                    except Exception:
+                        pass
             return
-    except Exception:
-        pass
 
-    # Contact flow: user wants to talk to manager (MVP: text only)
-    if context.user_data.get('contact_mode'):
-        if not message.text:
-            await update.message.reply_text('Пожалуйста, отправьте текстовое сообщение для менеджера.')
+        # Explicit "send news" mode (optional). If user clicked menu_send we ask to send content;
+        # here we just reset mode after first accepted message.
+        send_mode = bool(context.user_data.get('send_mode'))
+        if send_mode:
+            context.user_data['send_mode'] = False
+
+        # Определяем тип контента и собираем медиа-ID
+        from bots.models import Suggestion
+
+        if message.photo:
+            content_type = Suggestion.CONTENT_PHOTO
+            media_ids = [message.photo[-1].file_id]  # берём максимальное разрешение
+            text = message.caption or ''
+        elif message.video:
+            content_type = Suggestion.CONTENT_VIDEO
+            media_ids = [message.video.file_id]
+            text = message.caption or ''
+        elif message.document:
+            content_type = Suggestion.CONTENT_DOCUMENT
+            media_ids = [message.document.file_id]
+            text = message.caption or ''
+        elif message.audio:
+            content_type = Suggestion.CONTENT_AUDIO
+            media_ids = [message.audio.file_id]
+            text = message.caption or ''
+        elif message.voice:
+            content_type = Suggestion.CONTENT_VOICE
+            media_ids = [message.voice.file_id]
+            text = ''
+        elif message.text:
+            content_type = Suggestion.CONTENT_TEXT
+            media_ids = []
+            text = message.text
+        else:
+            await message.reply_text('Извините, этот тип контента не поддерживается.')
             return
 
         @sync_to_async
-        def save_dialog():
-            from bots.models import BotConversation, BotConversationMessage
-            conv, _ = BotConversation.objects.get_or_create(
+        def save_suggestion():
+            from bots.models import SuggestionUserStats
+            suggestion = Suggestion.objects.create(
+                bot=bot_config,
+                platform_user_id=str(user.id),
+                platform_username=user.username or '',
+                platform_first_name=user.first_name or '',
+                platform_last_name=user.last_name or '',
+                content_type=content_type,
+                text=text,
+                media_file_ids=media_ids,
+                raw_data=message.to_dict(),
+            )
+            # Создаём/обновляем статистику пользователя
+            stats, created = SuggestionUserStats.objects.get_or_create(
                 bot=bot_config,
                 platform_user_id=str(user.id),
                 defaults={
                     'platform_username': user.username or '',
                     'display_name': _build_display_name(user),
-                    'last_message_at': timezone.now(),
                 }
             )
-            conv.platform_username = user.username or conv.platform_username
-            conv.display_name = _build_display_name(user)
-            conv.last_message_at = timezone.now()
-            conv.status = 'open'
-            conv.save(update_fields=['platform_username', 'display_name', 'last_message_at', 'status'])
-            BotConversationMessage.objects.create(
-                conversation=conv,
-                direction='in',
-                text=message.text or '',
-                raw_data=message.to_dict(),
-            )
-            return conv.pk
+            if not created:
+                if user.username:
+                    stats.platform_username = user.username
+                stats.display_name = _build_display_name(user)
+            stats.total += 1
+            stats.pending += 1
+            stats.last_submission = timezone.now()
+            stats.save()
+            return suggestion
 
-        conv_id = await save_dialog()
-        context.user_data['contact_mode'] = False
+        try:
+            suggestion = await save_suggestion()
+        except Exception as e:
+            logger.exception('Ошибка сохранения предложения: %s', e)
+            await message.reply_text('Не удалось принять новость. Попробуйте ещё раз через минуту.')
+            return
 
-        await update.message.reply_text('Сообщение отправлено менеджеру. Мы ответим здесь в чате.')
+        # Подтверждение пользователю
+        confirm = bot_config.success_message.replace('{tracking_id}', suggestion.short_tracking_id)
+        if send_mode:
+            confirm = '✅ Новость получена!\n\n' + confirm
+        await message.reply_text(confirm)
 
-        # Notify moderation chats with link to site dialog
+        # Пересылаем в чат модерации (если настроен)
         admin_chat_ids = []
         try:
             admin_chat_ids = bot_config.get_moderation_chat_ids()
         except Exception:
             admin_chat_ids = [bot_config.admin_chat_id] if bot_config.admin_chat_id else []
+
+        for admin_chat_id in admin_chat_ids:
+            await _forward_to_admin(update, context, suggestion, admin_chat_id)
         try:
-            from django.conf import settings
-            url = f'{settings.SITE_URL}/bots/conversations/{conv_id}/'
+            await _send_menu(update, context, text='Готово. Хотите сделать что-то ещё?')
         except Exception:
-            url = ''
-        if admin_chat_ids:
-            text_notify = f'💬 Новое сообщение для менеджера от @{user.username or user.id}\nДиалог: {url}'.strip()
-            for admin_chat_id in admin_chat_ids:
-                try:
-                    await context.bot.send_message(chat_id=admin_chat_id, text=text_notify)
-                except Exception:
-                    pass
-        return
+            pass
 
-    # Explicit "send news" mode (optional). If user clicked menu_send we ask to send content;
-    # here we just reset mode after first accepted message.
-    send_mode = bool(context.user_data.get('send_mode'))
-    if send_mode:
-        context.user_data['send_mode'] = False
-
-    # Определяем тип контента и собираем медиа-ID
-    from bots.models import Suggestion
-
-    if message.photo:
-        content_type = Suggestion.CONTENT_PHOTO
-        media_ids = [message.photo[-1].file_id]  # берём максимальное разрешение
-        text = message.caption or ''
-    elif message.video:
-        content_type = Suggestion.CONTENT_VIDEO
-        media_ids = [message.video.file_id]
-        text = message.caption or ''
-    elif message.document:
-        content_type = Suggestion.CONTENT_DOCUMENT
-        media_ids = [message.document.file_id]
-        text = message.caption or ''
-    elif message.audio:
-        content_type = Suggestion.CONTENT_AUDIO
-        media_ids = [message.audio.file_id]
-        text = message.caption or ''
-    elif message.voice:
-        content_type = Suggestion.CONTENT_VOICE
-        media_ids = [message.voice.file_id]
-        text = ''
-    elif message.text:
-        content_type = Suggestion.CONTENT_TEXT
-        media_ids = []
-        text = message.text
-    else:
-        await update.message.reply_text('Извините, этот тип контента не поддерживается.')
-        return
-
-    @sync_to_async
-    def save_suggestion():
-        from bots.models import SuggestionUserStats
-        suggestion = Suggestion.objects.create(
-            bot=bot_config,
-            platform_user_id=str(user.id),
-            platform_username=user.username or '',
-            platform_first_name=user.first_name or '',
-            platform_last_name=user.last_name or '',
-            content_type=content_type,
-            text=text,
-            media_file_ids=media_ids,
-            raw_data=message.to_dict(),
-        )
-        # Создаём/обновляем статистику пользователя
-        stats, created = SuggestionUserStats.objects.get_or_create(
-            bot=bot_config,
-            platform_user_id=str(user.id),
-            defaults={
-                'platform_username': user.username or '',
-                'display_name': _build_display_name(user),
-            }
-        )
-        if not created:
-            if user.username:
-                stats.platform_username = user.username
-            stats.display_name = _build_display_name(user)
-        stats.total += 1
-        stats.pending += 1
-        stats.last_submission = timezone.now()
-        stats.save()
-        return suggestion
-
-    try:
-        suggestion = await save_suggestion()
     except Exception as e:
-        logger.exception('Ошибка сохранения предложения: %s', e)
+        logger.exception('handle_suggestion failed: %s', e)
         try:
-            await update.message.reply_text('Не удалось принять новость. Попробуйте ещё раз через минуту.')
+            if update and update.effective_chat:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text='Произошла ошибка. Попробуйте ещё раз.')
         except Exception:
             pass
         return
-
-    # Подтверждение пользователю
-    confirm = bot_config.success_message.replace('{tracking_id}', suggestion.short_tracking_id)
-    if send_mode:
-        confirm = '✅ Новость получена!\n\n' + confirm
-    await update.message.reply_text(confirm)
-
-    # Пересылаем в чат модерации (если настроен)
-    admin_chat_ids = []
-    try:
-        admin_chat_ids = bot_config.get_moderation_chat_ids()
-    except Exception:
-        admin_chat_ids = [bot_config.admin_chat_id] if bot_config.admin_chat_id else []
-
-    for admin_chat_id in admin_chat_ids:
-        await _forward_to_admin(update, context, suggestion, admin_chat_id)
-    try:
-        await _send_menu(update, context, text='Готово. Хотите сделать что-то ещё?')
-    except Exception:
-        pass
 
 
 def _build_display_name(user) -> str:
