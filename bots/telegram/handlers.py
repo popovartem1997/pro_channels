@@ -140,12 +140,15 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Любое сообщение (текст, фото, видео, документ, аудио, голос) — новое предложение.
     """
-    bot_config = context.bot_data['bot_config']
-    user = update.effective_user
-    message = update.effective_message
-
-    # Если это чат модерации — это не "предложение", а ответы/действия менеджера.
     try:
+        bot_config = context.bot_data['bot_config']
+        user = update.effective_user
+        message = update.effective_message
+    except Exception:
+        return
+
+    try:
+        # Если это чат модерации — это не "предложение", а ответы/действия менеджера.
         chat_id = int(update.effective_chat.id) if update.effective_chat else 0
     except Exception:
         chat_id = 0
@@ -188,6 +191,13 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # В чате модерации, если не reply — игнорируем, чтобы не плодить "предложения"
         return
+
+    # Не считаем команды предложениями
+    try:
+        if message and message.text and str(message.text).strip().startswith('/'):
+            return
+    except Exception:
+        pass
 
     # Contact flow: user wants to talk to manager (MVP: text only)
     if context.user_data.get('contact_mode'):
@@ -247,7 +257,8 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Explicit "send news" mode (optional). If user clicked menu_send we ask to send content;
     # here we just reset mode after first accepted message.
-    if context.user_data.get('send_mode'):
+    send_mode = bool(context.user_data.get('send_mode'))
+    if send_mode:
         context.user_data['send_mode'] = False
 
     # Определяем тип контента и собираем медиа-ID
@@ -314,10 +325,20 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stats.save()
         return suggestion
 
-    suggestion = await save_suggestion()
+    try:
+        suggestion = await save_suggestion()
+    except Exception as e:
+        logger.exception('Ошибка сохранения предложения: %s', e)
+        try:
+            await update.message.reply_text('Не удалось принять новость. Попробуйте ещё раз через минуту.')
+        except Exception:
+            pass
+        return
 
     # Подтверждение пользователю
     confirm = bot_config.success_message.replace('{tracking_id}', suggestion.short_tracking_id)
+    if send_mode:
+        confirm = '✅ Новость получена!\n\n' + confirm
     await update.message.reply_text(confirm)
 
     # Пересылаем в чат модерации (если настроен)
@@ -329,6 +350,10 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for admin_chat_id in admin_chat_ids:
         await _forward_to_admin(update, context, suggestion, admin_chat_id)
+    try:
+        await _send_menu(update, context, text='Готово. Хотите сделать что-то ещё?')
+    except Exception:
+        pass
 
 
 def _build_display_name(user) -> str:
