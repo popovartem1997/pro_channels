@@ -60,3 +60,15 @@ def api_keys(request):
         form = GlobalApiKeysForm(instance=obj)
 
     return render(request, 'core/api_keys.html', {'form': form, 'obj': obj})
+
+
+@login_required
+def audit_log(request):
+    """Журнал действий и посещений (доступ: staff/superuser/owner)."""
+    if not (request.user.is_staff or request.user.is_superuser or getattr(request.user, 'role', '') == 'owner'):
+        return HttpResponse(status=403)
+    from bots.models import AuditLog
+    from core.models import PageVisit
+    audit = AuditLog.objects.select_related('actor', 'owner').all().order_by('-created_at')[:300]
+    visits = PageVisit.objects.select_related('user').all().order_by('-created_at')[:300]
+    return render(request, 'core/audit_log.html', {'audit': audit, 'visits': visits})

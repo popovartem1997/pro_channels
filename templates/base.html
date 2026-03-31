@@ -142,6 +142,9 @@
       <li><a class="nav-link {% if '/settings/api-keys/' in request.path %}active{% endif %}" href="{% url 'core:api_keys' %}">
         <i class="bi bi-key"></i> Ключи API
       </a></li>
+      <li><a class="nav-link {% if '/settings/audit/' in request.path %}active{% endif %}" href="{% url 'core:audit_log' %}">
+        <i class="bi bi-journal-text"></i> Журнал действий
+      </a></li>
       {% endif %}
     </ul>
 

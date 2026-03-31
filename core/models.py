@@ -90,3 +90,22 @@ def get_global_api_keys() -> GlobalApiKeys:
     obj, _ = GlobalApiKeys.objects.get_or_create(pk=1)
     return obj
 
+
+class PageVisit(models.Model):
+    """Лог посещений страниц (аудит поведения пользователей)."""
+    user = models.ForeignKey('accounts.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='page_visits')
+    method = models.CharField(max_length=10, blank=True)
+    path = models.CharField(max_length=500, db_index=True)
+    query_string = models.TextField(blank=True)
+    referer = models.CharField(max_length=500, blank=True)
+    user_agent = models.TextField(blank=True)
+    ip = models.CharField(max_length=64, blank=True)
+    status_code = models.PositiveSmallIntegerField(null=True, blank=True)
+    duration_ms = models.PositiveIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'Посещение страницы'
+        verbose_name_plural = 'Посещения страниц'
+        ordering = ['-created_at']
+
