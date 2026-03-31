@@ -49,8 +49,8 @@ async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_menu(update, context, text='Выберите действие:')
 
 
-async def _send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, *, text: str):
-    keyboard = InlineKeyboardMarkup([
+def _menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
         [
             InlineKeyboardButton('📰 Прислать новость', callback_data='menu_send'),
             InlineKeyboardButton('💬 Связаться', callback_data='menu_contact'),
@@ -63,6 +63,10 @@ async def _send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, *, text
             InlineKeyboardButton('🔄 Обновить меню', callback_data='menu'),
         ]
     ])
+
+
+async def _send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, *, text: str):
+    keyboard = _menu_keyboard()
     if update.message:
         await update.message.reply_text(text, reply_markup=keyboard)
     elif update.callback_query and update.callback_query.message:
@@ -71,17 +75,17 @@ async def _send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, *, text
         await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=keyboard)
 
 
-async def _safe_edit_or_reply(query, *, text: str):
+async def _safe_edit_or_reply(query, *, text: str, reply_markup=None):
     """
     Иногда Telegram возвращает 400 'Message is not modified' если пытаться
     edit_message_text тем же содержимым. Тогда просто отправляем новое сообщение.
     """
     try:
-        await query.edit_message_text(text)
+        await query.edit_message_text(text, reply_markup=reply_markup)
     except BadRequest as e:
         if 'Message is not modified' in str(e):
             try:
-                await query.message.reply_text(text)
+                await query.message.reply_text(text, reply_markup=reply_markup)
             except Exception:
                 pass
         else:
@@ -456,15 +460,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── User menu actions (private chat) ─────────────────────────────────────
     if data in ('menu', 'menu_send', 'menu_contact', 'menu_my', 'menu_stats'):
         if data == 'menu':
-            await _send_menu(update, context, text='Меню:')
+            # Меняем текст у пользователя, но оставляем меню-кнопки
+            await _safe_edit_or_reply(query, text='Меню:', reply_markup=_menu_keyboard())
             return
         if data == 'menu_send':
             context.user_data['send_mode'] = True
-            await _safe_edit_or_reply(query, text='Отправьте новость одним сообщением (текст/фото/видео/файл).')
+            await _safe_edit_or_reply(
+                query,
+                text='Отправьте новость одним сообщением (текст/фото/видео/файл).',
+                reply_markup=_menu_keyboard(),
+            )
             return
         if data == 'menu_contact':
             context.user_data['contact_mode'] = True
-            await _safe_edit_or_reply(query, text='Напишите текст сообщения для менеджера одним сообщением.')
+            await _safe_edit_or_reply(
+                query,
+                text='Напишите текст сообщения для менеджера одним сообщением.',
+                reply_markup=_menu_keyboard(),
+            )
             return
         if data == 'menu_my':
             await _send_my_news(update, context)
