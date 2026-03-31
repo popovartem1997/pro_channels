@@ -8,6 +8,56 @@ from .models import ParseSource, ParseKeyword, ParsedItem, ParseTask, AIRewriteJ
 from django.http import JsonResponse
 
 
+def _ensure_parse_scheduler_every_20m():
+    """
+    Убедиться, что Celery Beat запускает parsing.tasks.check_parse_tasks каждые 20 минут.
+    Best-effort: если django_celery_beat не установлен/не настроен — тихо пропускаем.
+    """
+    try:
+        from django_celery_beat.models import IntervalSchedule, PeriodicTask
+        every_20m, _ = IntervalSchedule.objects.get_or_create(
+            every=20, period=IntervalSchedule.MINUTES
+        )
+        PeriodicTask.objects.update_or_create(
+            name='parsing: check parse tasks (every 20m)',
+            defaults={
+                'interval': every_20m,
+                'task': 'parsing.tasks.check_parse_tasks',
+                'enabled': True,
+            }
+        )
+    except Exception:
+        return
+
+
+def _ensure_auto_parse_task(owner, channel):
+    """
+    Автоматически создать/обновить задачу парсинга для канала владельца.
+    Задача каждые 20 минут по всем активным источникам и ключевикам выбранного канала.
+    """
+    if not owner or not channel:
+        return None
+    _ensure_parse_scheduler_every_20m()
+    task, _ = ParseTask.objects.get_or_create(
+        owner=owner,
+        name=f'Auto parsing (channel {channel.pk})',
+        defaults={'schedule_cron': '*/20 * * * *', 'is_active': True},
+    )
+    # Keep schedule fixed
+    if task.schedule_cron != '*/20 * * * *':
+        task.schedule_cron = '*/20 * * * *'
+        task.is_active = True
+        task.save(update_fields=['schedule_cron', 'is_active'])
+
+    sources = list(ParseSource.objects.filter(owner=owner, channel=channel, is_active=True).values_list('pk', flat=True))
+    keywords = list(ParseKeyword.objects.filter(owner=owner, channel=channel, is_active=True).values_list('pk', flat=True))
+    if sources:
+        task.sources.set(sources)
+    if keywords:
+        task.keywords.set(keywords)
+    return task
+
+
 def _get_selected_channel(request):
     from channels.models import Channel
     # 1) querystring has priority
@@ -68,6 +118,10 @@ def source_create(request):
                 platform=platform,
                 source_id=source_id
             )
+            try:
+                _ensure_auto_parse_task(request.user, selected_channel)
+            except Exception:
+                pass
             messages.success(request, f'Источник "{name}" добавлен.')
         return redirect('parsing:sources')
     from channels.models import Channel
@@ -108,6 +162,10 @@ def keyword_create(request):
                 for cid in channel_ids:
                     kw = ParseKeyword.objects.create(owner=request.user, channel_id=cid, keyword=keyword)
                     created += 1
+                    try:
+                        _ensure_auto_parse_task(request.user, kw.channel)
+                    except Exception:
+                        pass
                 messages.success(request, f'Ключевое слово "{keyword}" добавлено для {created} канал(ов).')
             else:
                 if not selected_channel:
@@ -116,6 +174,10 @@ def keyword_create(request):
                 kw = ParseKeyword.objects.create(owner=request.user, channel=selected_channel, keyword=keyword)
                 if source_ids:
                     kw.sources.set(source_ids)
+                try:
+                    _ensure_auto_parse_task(request.user, selected_channel)
+                except Exception:
+                    pass
                 messages.success(request, f'Ключевое слово "{keyword}" добавлено.')
         return redirect('parsing:sources')
     sources = ParseSource.objects.filter(owner=request.user, channel=selected_channel) if selected_channel else ParseSource.objects.filter(owner=request.user)
