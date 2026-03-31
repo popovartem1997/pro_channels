@@ -30,7 +30,8 @@
 <div class="card p-0">
   <ul class="list-group list-group-flush">
     {% for post in posts %}
-    <li class="list-group-item px-4 py-3">
+    <li class="list-group-item px-4 py-3 position-relative">
+      <a href="{% url 'content:detail' post.pk %}" class="stretched-link" aria-label="Открыть пост"></a>
       <div class="d-flex align-items-start gap-3">
         <div class="pt-1 flex-shrink-0">
           <span class="status-dot {{ post.status }}"></span>
@@ -65,7 +66,7 @@
           </div>
         </div>
 
-        <a href="{% url 'content:detail' post.pk %}" class="btn btn-outline-secondary btn-sm flex-shrink-0">
+        <a href="{% url 'content:detail' post.pk %}" class="btn btn-outline-secondary btn-sm flex-shrink-0 position-relative" style="z-index:2;">
           <i class="bi bi-eye"></i>
         </a>
       </div>
