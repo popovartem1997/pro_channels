@@ -291,12 +291,13 @@ def _publish_vk(post, channel):
 
 
 def _publish_max(post, channel):
-    """Публикация в MAX через MAX Bot API (https://dev.max.ru/).
+    """Публикация в MAX (https://dev.max.ru/).
 
-    MAX Bot API отличается от Telegram:
-    - Base URL: https://botapi.max.ru
-    - Аутентификация: access_token как query-параметр (не в URL пути)
-    - Отправка сообщения: POST /messages
+    Важно: MAX больше не поддерживает access_token в query-параметрах.
+    Нужно использовать:
+    - Base URL: https://platform-api.max.ru
+    - Authorization: <access_token> (header)
+    - Отправка сообщения: POST /messages?chat_id=...
     """
     import requests
     bot_token = channel.get_max_token()
@@ -305,25 +306,27 @@ def _publish_max(post, channel):
     if not bot_token or not channel_id:
         raise ValueError('Не настроен токен или channel_id для MAX')
 
-    base_url = 'https://botapi.max.ru'
-    params = {'access_token': bot_token}
-
     text = _build_text(post, channel)
     media_files = list(post.media_files.all())
 
-    if media_files:
-        # Отправляем с вложениями
-        attachments = []
-        for mf in media_files[:10]:
-            if mf.media_type == 'photo':
-                attachments.append({'type': 'image', 'payload': {'url': mf.file.url}})
-            elif mf.media_type == 'video':
-                attachments.append({'type': 'video', 'payload': {'url': mf.file.url}})
-        payload = {'chat_id': channel_id, 'text': text, 'attachments': attachments}
-    else:
-        payload = {'chat_id': channel_id, 'text': text}
+    # Пока отправляем стабильно текстом (как тестовая кнопка).
+    # MAX attachments отличаются от Telegram/VK, а локальные URLs файлов
+    # не всегда доступны MAX-серверам. Медиа добавим отдельным этапом.
+    _ = media_files  # silence "unused" intent-wise
 
-    resp = requests.post(f'{base_url}/messages', params=params, json=payload, timeout=30)
+    chat_id_raw = str(channel_id).strip()
+    try:
+        chat_id = int(chat_id_raw)
+    except Exception:
+        chat_id = chat_id_raw
+
+    resp = requests.post(
+        'https://platform-api.max.ru/messages',
+        params={'chat_id': chat_id},
+        headers={'Authorization': bot_token},
+        json={'text': text, 'format': 'html'},
+        timeout=30,
+    )
     # MAX API may return non-JSON or plain string error bodies.
     try:
         data = resp.json()
@@ -331,20 +334,30 @@ def _publish_max(post, channel):
         data = resp.text
 
     if isinstance(data, dict):
-        # Some MAX responses may contain "message" dict; some may return message fields at top-level.
+        # Ошибка обычно имеет вид {"code":"...","message":"..."} + http>=400
+        if resp.status_code >= 400 or data.get('code'):
+            raise ValueError(f'MAX API error (chat_id={chat_id_raw}, http={resp.status_code}): {data}')
+
+        # Успех: обычно возвращается Message объект
+        msg_id = (
+            data.get('mid', '')
+            or data.get('message_id', '')
+            or data.get('id', '')
+            or ''
+        )
+        if msg_id:
+            return {'message_id': msg_id}
+
+        # Иногда Message может быть вложен
         msg = data.get('message')
         if isinstance(msg, dict):
             msg_id = msg.get('mid', '') or msg.get('id', '') or ''
-            return {'message_id': msg_id}
-        # Fallback: try common id keys
-        msg_id = data.get('mid', '') or data.get('message_id', '') or data.get('id', '') or ''
-        if msg_id:
-            return {'message_id': msg_id}
-        raise ValueError(f'MAX API error: {data}')
+            if msg_id:
+                return {'message_id': msg_id}
 
-    raise ValueError(f'MAX API error: {data}')
+        return {'message_id': ''}
 
-    return {'message_id': msg_id}
+    raise ValueError(f'MAX API error (chat_id={chat_id_raw}, http={resp.status_code}): {data}')
 
 
 def _publish_instagram(post, channel):
