@@ -208,10 +208,41 @@ def max_webhook(request, bot_id: int):
         return HttpResponse(status=400)
 
     try:
+        # Диагностика: логируем факт получения вебхука (best-effort)
+        try:
+            from .models import AuditLog
+            ut = ''
+            if isinstance(update_data, dict):
+                ut = str(update_data.get('update_type') or update_data.get('type') or '')
+            AuditLog.objects.create(
+                actor=None,
+                owner=bot_config.owner,
+                action='max.webhook.received',
+                object_type='SuggestionBot',
+                object_id=str(bot_config.pk),
+                data={
+                    'update_type': ut,
+                    'keys': list(update_data.keys())[:30] if isinstance(update_data, dict) else [],
+                }
+            )
+        except Exception:
+            pass
         from .max_bot.bot import process_max_webhook
         process_max_webhook(bot_config, update_data)
     except Exception as e:
         logger.exception('[MAX Webhook] Ошибка: %s', e)
+        try:
+            from .models import AuditLog
+            AuditLog.objects.create(
+                actor=None,
+                owner=bot_config.owner,
+                action='max.webhook.error',
+                object_type='SuggestionBot',
+                object_id=str(bot_config.pk),
+                data={'error': str(e)[:500]},
+            )
+        except Exception:
+            pass
 
     return HttpResponse(status=200)
 

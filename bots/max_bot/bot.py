@@ -511,6 +511,15 @@ def process_max_webhook(bot_config, update_data: dict):
                 process_max_webhook(bot_config, u)
         return
 
+    # Реальность иногда отличается от доков: часть полей может быть внутри payload
+    if isinstance(update_data, dict) and isinstance(update_data.get('payload'), dict):
+        payload = update_data.get('payload') or {}
+        merged = dict(update_data)
+        for k in ('message', 'callback', 'chat_id', 'update_type', 'user_locale'):
+            if k in payload and k not in merged:
+                merged[k] = payload.get(k)
+        update_data = merged
+
     update_type = (update_data or {}).get('update_type', '') if isinstance(update_data, dict) else ''
 
     if update_type == 'bot_started':
