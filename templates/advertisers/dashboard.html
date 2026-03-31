@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block title %}Кабинет рекламодателя{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <div>
+    <h1><i class="bi bi-megaphone me-2" style="color:var(--brand)"></i>Кабинет рекламодателя</h1>
+    <p class="text-muted small mb-0">{{ advertiser.company_name|default:advertiser.contact_name }}</p>
+  </div>
+  <a href="{% url 'advertisers:order_create' %}" class="btn btn-brand">
+    <i class="bi bi-plus-lg me-1"></i> Новый заказ
+  </a>
+</div>
+
+<!-- Stats -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card-stat card">
+      <div class="text-muted small mb-1">Всего заказов</div>
+      <div class="value">{{ orders_total_count }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card-stat card">
+      <div class="text-muted small mb-1">Активных</div>
+      <div class="value">{{ active_orders_count }}</div>
+    </div>
+  </div>
+</div>
+
+<!-- Orders -->
+<div class="card">
+  <div class="card-header bg-transparent border-bottom d-flex align-items-center justify-content-between py-3">
+    <h6 class="fw-bold mb-0">Заказы</h6>
+  </div>
+  <div class="card-body p-0">
+    {% if orders %}
+    <ul class="list-group list-group-flush">
+      {% for order in orders %}
+      <li class="list-group-item px-4 py-3">
+        <div class="d-flex align-items-start gap-3 justify-content-between">
+          <div>
+            <div class="fw-semibold small mb-1">{{ order.title|default:"Рекламный заказ" }}</div>
+            <div class="d-flex gap-2 flex-wrap align-items-center">
+              {% if order.status == 'submitted' %}
+                <span class="badge bg-warning-subtle text-warning">На рассмотрении</span>
+              {% elif order.status == 'approved' %}
+                <span class="badge bg-info-subtle text-info">Одобрен, ожидает оплаты</span>
+              {% elif order.status == 'active' %}
+                <span class="badge bg-success-subtle text-success">Выполняется</span>
+              {% elif order.status == 'completed' %}
+                <span class="badge bg-secondary-subtle text-secondary">Завершён</span>
+              {% elif order.status == 'rejected' %}
+                <span class="badge bg-danger-subtle text-danger">Отклонён</span>
+              {% endif %}
+              <span class="text-muted" style="font-size:.75rem;">{{ order.created_at|date:"d.m.Y" }}</span>
+              {% if order.budget %}
+              <span class="fw-semibold small">{{ order.budget }} ₽</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="d-flex gap-2 flex-shrink-0">
+            {% if order.invoice and order.invoice.status != 'paid' %}
+              <a href="{% url 'billing:pay' order.invoice.pk %}" class="btn btn-brand btn-sm">
+                <i class="bi bi-credit-card me-1"></i> Оплатить
+              </a>
+            {% endif %}
+            <a href="{% url 'advertisers:order_detail' order.pk %}" class="btn btn-outline-secondary btn-sm">
+              <i class="bi bi-eye"></i>
+            </a>
+          </div>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+      <p class="small mb-3">Заказов пока нет</p>
+      <a href="{% url 'advertisers:order_create' %}" class="btn btn-brand btn-sm">
+        Создать заказ
+      </a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

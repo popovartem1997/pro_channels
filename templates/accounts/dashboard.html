@@ -1,0 +1,210 @@
+{% extends 'base.html' %}
+{% load platform_icons %}
+{% block title %}Главная{% endblock %}
+
+{% block extra_css %}
+.stat-icon { width:48px;height:48px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;flex-shrink:0; }
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="fw-bold mb-0">Добро пожаловать, {{ user.first_name|default:user.email }}!</h4>
+    <p class="text-muted mb-0">
+      {% if user.is_on_trial %}
+        Пробный период: осталось <b>{{ user.trial_days_left }} дней</b>
+      {% else %}
+        Активных подписок: <b>{{ user.active_subscriptions.count }}</b>
+      {% endif %}
+    </p>
+  </div>
+  <a href="{% url 'channels:create' %}" class="btn btn-brand">
+    <i class="bi bi-plus-lg me-1"></i> Добавить канал
+  </a>
+</div>
+
+<!-- Статистика верхняя -->
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-xl-3">
+    <div class="card p-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-icon" style="background:#eef0ff;">
+          <i class="bi bi-broadcast" style="color:var(--brand)"></i>
+        </div>
+        <div>
+          <div class="fw-bold fs-4">{{ channels_count }}</div>
+          <div class="text-muted small">Каналов</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card p-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-icon" style="background:#fff8e1;">
+          <i class="bi bi-hourglass-split text-warning"></i>
+        </div>
+        <div>
+          <div class="fw-bold fs-4">{{ pending_count }}</div>
+          <div class="text-muted small">На модерации</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card p-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-icon" style="background:#e8f5e9;">
+          <i class="bi bi-pencil-square text-success"></i>
+        </div>
+        <div>
+          <div class="fw-bold fs-4">{{ posts_today }}</div>
+          <div class="text-muted small">Постов сегодня</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card p-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-icon" style="background:#fce4ec;">
+          <i class="bi bi-robot" style="color:#c62828"></i>
+        </div>
+        <div>
+          <div class="fw-bold fs-4">{{ bots_count }}</div>
+          <div class="text-muted small">Ботов активно</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- Последние посты -->
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h5 class="fw-bold mb-0"><i class="bi bi-pencil-square me-2" style="color:var(--brand)"></i>Последние посты</h5>
+          <a href="{% url 'content:list' %}" class="small text-decoration-none" style="color:var(--brand)">Все посты →</a>
+        </div>
+        {% if recent_posts %}
+        <ul class="list-group list-group-flush">
+          {% for post in recent_posts %}
+          <li class="list-group-item px-0 py-2">
+            <div class="d-flex align-items-center gap-2">
+              <span class="status-dot {{ post.status }}"></span>
+              <span class="flex-grow-1 text-truncate small">{{ post.text|truncatechars:70 }}</span>
+              <span class="text-muted" style="font-size:.7rem;white-space:nowrap;">{{ post.created_at|date:"d.m H:i" }}</span>
+              <a href="{% url 'content:detail' post.pk %}" class="btn btn-outline-secondary btn-sm py-0 px-2">
+                <i class="bi bi-eye" style="font-size:.75rem;"></i>
+              </a>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="text-center py-4 text-muted">
+          <i class="bi bi-pencil-square fs-2 opacity-25 d-block mb-2"></i>
+          <p class="mb-2 small">Постов пока нет</p>
+          <a href="{% url 'content:create' %}" class="btn btn-brand btn-sm">Создать пост</a>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Быстрые действия + каналы -->
+  <div class="col-lg-5">
+    <!-- Быстрый старт -->
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <h6 class="fw-bold mb-0"><i class="bi bi-flag me-2" style="color:var(--brand)"></i>Быстрый старт</h6>
+          <a href="{% url 'core:quickstart' %}" class="small text-decoration-none" style="color:var(--brand)">Открыть →</a>
+        </div>
+        <div class="small text-muted">
+          Подключи канал, включи рекламу и цену, настрой бота предложки и планировщик постов.
+        </div>
+      </div>
+    </div>
+
+    <!-- Быстрые действия -->
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3"><i class="bi bi-lightning text-warning me-2"></i>Быстрые действия</h6>
+        <div class="d-flex flex-column gap-2">
+          <a href="{% url 'content:create' %}" class="btn btn-outline-secondary btn-sm text-start">
+            <i class="bi bi-pencil-square me-2"></i> Написать пост
+          </a>
+          <a href="{% url 'channels:create' %}" class="btn btn-outline-secondary btn-sm text-start">
+            <i class="bi bi-broadcast me-2"></i> Добавить канал
+          </a>
+          <a href="{% url 'bots:create' %}" class="btn btn-outline-secondary btn-sm text-start">
+            <i class="bi bi-robot me-2"></i> Создать бота предложки
+          </a>
+          <a href="{% url 'parsing:sources' %}" class="btn btn-outline-secondary btn-sm text-start">
+            <i class="bi bi-search me-2"></i> Настроить парсинг
+          </a>
+          {% if pending_count %}
+          <a href="{% url 'bots:list' %}" class="btn btn-warning btn-sm text-start">
+            <i class="bi bi-hourglass-split me-2"></i>
+            Модерировать предложения ({{ pending_count }})
+          </a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Каналы -->
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h6 class="fw-bold mb-0"><i class="bi bi-broadcast me-2" style="color:var(--brand)"></i>Каналы</h6>
+          <a href="{% url 'channels:list' %}" class="small text-decoration-none" style="color:var(--brand)">Все →</a>
+        </div>
+        {% if channels %}
+        {% for ch in channels|slice:":5" %}
+        <div class="d-flex align-items-center justify-content-between py-1">
+          <div class="d-flex align-items-center gap-2">
+            {% platform_badge ch.platform %}
+            <span class="small">{{ ch.name }}</span>
+          </div>
+          {% if ch.subscribers_count %}
+          <span class="text-muted" style="font-size:.72rem;">{{ ch.subscribers_count }}</span>
+          {% endif %}
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="text-center py-3 text-muted small">
+          <a href="{% url 'channels:create' %}" class="btn btn-brand btn-sm">Добавить первый канал</a>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Запланированные посты -->
+{% if scheduled_posts %}
+<div class="card mt-3">
+  <div class="card-body">
+    <h6 class="fw-bold mb-3"><i class="bi bi-calendar-event me-2 text-warning"></i>Запланированные посты</h6>
+    <div class="row g-2">
+      {% for post in scheduled_posts %}
+      <div class="col-12 col-md-6">
+        <div class="d-flex align-items-center gap-2 p-2 rounded" style="background:#fffbeb;">
+          <i class="bi bi-clock text-warning"></i>
+          <span class="small text-truncate flex-grow-1">{{ post.text|truncatechars:60 }}</span>
+          <span class="badge bg-warning-subtle text-warning" style="font-size:.7rem;white-space:nowrap;">
+            {{ post.scheduled_at|date:"d.m H:i" }}
+          </span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

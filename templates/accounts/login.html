@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block title %}Вход{% endblock %}
+
+{% block extra_css %}
+.auth-wrap { min-height: calc(100vh - 70px); display: flex; align-items: center; background: #f0f2f8; }
+.auth-card { width: 100%; max-width: 420px; margin: 0 auto; padding: 24px 16px; }
+{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="card shadow-sm">
+      <div class="card-body p-4 p-md-5">
+        <div class="text-center mb-4">
+          <div style="width:56px;height:56px;background:var(--brand-light);border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;">
+            <i class="bi bi-broadcast-pin fs-3" style="color:var(--brand)"></i>
+          </div>
+          <h4 class="fw-bold mb-1">Войти в ProChannels</h4>
+          <p class="text-muted small mb-0">Управляйте каналами в одном месте</p>
+        </div>
+
+        <form method="post" novalidate>
+          {% csrf_token %}
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Email или логин</label>
+            {{ form.username }}
+            {% if form.username.errors %}
+              <div class="text-danger small mt-1">{{ form.username.errors.0 }}</div>
+            {% endif %}
+          </div>
+
+          <div class="mb-2">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <label class="form-label fw-semibold small mb-0">Пароль</label>
+              <a href="{% url 'reset_password' %}" class="small text-primary text-decoration-none">Забыли пароль?</a>
+            </div>
+            <div class="input-group">
+              {{ form.password }}
+              <button class="btn btn-outline-secondary" type="button" id="togglePassword" tabindex="-1">
+                <i class="bi bi-eye" id="toggleIcon"></i>
+              </button>
+            </div>
+            {% if form.password.errors %}
+              <div class="text-danger small mt-1">{{ form.password.errors.0 }}</div>
+            {% endif %}
+          </div>
+
+          <div class="mb-4">
+            {% if form.non_field_errors %}
+              <div class="alert alert-danger py-2 small">{{ form.non_field_errors.0 }}</div>
+            {% endif %}
+          </div>
+
+          <button type="submit" class="btn btn-brand w-100 py-2 fw-bold">
+            <i class="bi bi-box-arrow-in-right me-1"></i> Войти
+          </button>
+        </form>
+
+        <hr class="my-4">
+        <p class="text-center text-muted small mb-0">
+          Нет аккаунта?
+          <a href="{% url 'register' %}" class="fw-semibold text-decoration-none" style="color:var(--brand)">
+            30 дней бесплатно →
+          </a>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('togglePassword').addEventListener('click', function() {
+  const pwd = document.getElementById('{{ form.password.auto_id }}');
+  const icon = document.getElementById('toggleIcon');
+  if (pwd.type === 'password') {
+    pwd.type = 'text';
+    icon.className = 'bi bi-eye-slash';
+  } else {
+    pwd.type = 'password';
+    icon.className = 'bi bi-eye';
+  }
+});
+</script>
+{% endblock %}

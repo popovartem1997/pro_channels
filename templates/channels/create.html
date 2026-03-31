@@ -1,0 +1,153 @@
+{% extends 'base.html' %}
+{% block title %}Добавить канал{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'channels:list' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К списку каналов
+  </a>
+  <h1>Добавить канал</h1>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-body p-4 p-md-5">
+        <form method="post" novalidate>
+          {% csrf_token %}
+
+          <!-- Название -->
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_name">Название канала</label>
+            <input type="text" name="name" id="id_name"
+                   class="form-control"
+                   placeholder="Например: Новости компании" required>
+          </div>
+
+          <!-- Платформа -->
+          <div class="mb-4">
+            <label class="form-label fw-semibold" for="id_platform">Платформа</label>
+            <select name="platform" id="id_platform"
+                    class="form-select"
+                    onchange="showPlatformFields(this.value)" required>
+              <option value="">— Выберите платформу —</option>
+              {% for val, label in platforms %}
+                <option value="{{ val }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Telegram fields -->
+          <div id="fields-telegram" class="platform-fields d-none">
+            <h6 class="fw-bold text-muted mb-3 border-top pt-3">
+              <i class="bi bi-telegram me-1" style="color:var(--brand)"></i> Настройки Telegram
+            </h6>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_tg_bot_token">Bot Token</label>
+              <input type="text" name="tg_bot_token" id="id_tg_bot_token"
+                     class="form-control font-monospace"
+                     placeholder="123456789:ABC-DEF...">
+              <div class="form-text">Получите у @BotFather в Telegram</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_tg_chat_id">ID канала (Telegram)</label>
+              <input type="text" name="tg_chat_id" id="id_tg_chat_id"
+                     class="form-control font-monospace"
+                     placeholder="-1001234567890">
+              <div class="form-text">Укажите числовой ID канала, например <code>-1001234567890</code></div>
+            </div>
+          </div>
+
+          <!-- VK fields -->
+          <div id="fields-vk" class="platform-fields d-none">
+            <h6 class="fw-bold text-muted mb-3 border-top pt-3">
+              <i class="bi bi-badge-vo me-1" style="color:var(--brand)"></i> Настройки ВКонтакте
+            </h6>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_vk_access_token">Access Token</label>
+              <input type="text" name="vk_access_token" id="id_vk_access_token"
+                     class="form-control font-monospace"
+                     placeholder="vk1.a.xxxxx...">
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_vk_group_id">ID группы / сообщества</label>
+              <input type="text" name="vk_group_id" id="id_vk_group_id"
+                     class="form-control font-monospace"
+                     placeholder="123456789">
+            </div>
+          </div>
+
+          <!-- MAX fields -->
+          <div id="fields-max" class="platform-fields d-none">
+            <h6 class="fw-bold text-muted mb-3 border-top pt-3">
+              <i class="bi bi-chat-dots me-1" style="color:var(--brand)"></i> Настройки MAX
+            </h6>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_max_bot_token">Bot Token (access_token)</label>
+              <input type="text" name="max_bot_token" id="id_max_bot_token"
+                     class="form-control font-monospace"
+                     placeholder="Токен бота MAX">
+              <div class="form-text">Получите в разделе «Боты» на dev.max.ru</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_max_channel_id">Chat ID канала</label>
+              <input type="text" name="max_channel_id" id="id_max_channel_id"
+                     class="form-control font-monospace"
+                     placeholder="Числовой ID чата/канала">
+              <div class="form-text">ID чата MAX куда бот будет постить</div>
+            </div>
+          </div>
+
+          <!-- Instagram fields -->
+          <div id="fields-instagram" class="platform-fields d-none">
+            <h6 class="fw-bold text-muted mb-3 border-top pt-3">
+              <i class="bi bi-instagram me-1" style="color:var(--brand)"></i> Настройки Instagram
+            </h6>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_ig_access_token">Access Token</label>
+              <input type="text" name="ig_access_token" id="id_ig_access_token"
+                     class="form-control font-monospace"
+                     placeholder="EAAxxxxxxx...">
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_ig_account_id">Account ID</label>
+              <input type="text" name="ig_account_id" id="id_ig_account_id"
+                     class="form-control font-monospace"
+                     placeholder="17841400000000000">
+            </div>
+          </div>
+
+          <div class="d-flex gap-2 mt-4">
+            <button type="submit" class="btn btn-brand px-4 fw-semibold">
+              <i class="bi bi-check-lg me-1"></i> Добавить канал
+            </button>
+            <a href="{% url 'channels:list' %}" class="btn btn-outline-secondary">Отмена</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function showPlatformFields(platform) {
+  document.querySelectorAll('.platform-fields').forEach(el => el.classList.add('d-none'));
+  const map = {
+    'telegram': 'fields-telegram',
+    'vk': 'fields-vk',
+    'max': 'fields-max',
+    'instagram': 'fields-instagram',
+  };
+  if (map[platform]) {
+    document.getElementById(map[platform]).classList.remove('d-none');
+  }
+}
+// Init on load if platform pre-selected
+document.addEventListener('DOMContentLoaded', function() {
+  const sel = document.getElementById('id_platform');
+  if (sel.value) showPlatformFields(sel.value);
+});
+</script>
+{% endblock %}

@@ -1,0 +1,133 @@
+{% extends 'base.html' %}
+{% block title %}{{ bot.name }}{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <div>
+    <a href="{% url 'bots:list' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+      <i class="bi bi-arrow-left me-1"></i> К ботам
+    </a>
+    <h1>{{ bot.name }}</h1>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{% url 'bots:suggestions' %}?bot={{ bot.pk }}" class="btn btn-brand">
+      <i class="bi bi-inbox me-1"></i> Предложения
+      {% if bot.pending_count %}
+      <span class="badge bg-light text-dark ms-1">{{ bot.pending_count }}</span>
+      {% endif %}
+    </a>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-12 col-lg-4">
+    <div class="card mb-3">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3 text-muted small text-uppercase">Информация</h6>
+        <dl style="font-size:.875rem;">
+          <dt class="text-muted fw-normal">Платформа</dt>
+          <dd class="mb-2">
+            {% if bot.platform == 'telegram' %}
+              <span class="badge badge-tg">Telegram</span>
+            {% elif bot.platform == 'vk' %}
+              <span class="badge badge-vk">ВКонтакте</span>
+            {% elif bot.platform == 'max' %}
+              <span class="badge badge-max">MAX</span>
+            {% endif %}
+          </dd>
+          <dt class="text-muted fw-normal">Статус</dt>
+          <dd class="mb-2 d-flex align-items-center gap-2">
+            <span class="status-dot {% if bot.is_active %}published{% else %}draft{% endif %}"></span>
+            {% if bot.is_active %}Активен{% else %}Неактивен{% endif %}
+          </dd>
+          <dt class="text-muted fw-normal">Создан</dt>
+          <dd class="mb-0">{{ bot.created_at|date:"d.m.Y" }}</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3 text-muted small text-uppercase">Запуск</h6>
+        {% if bot.platform == 'telegram' %}
+          <p class="small text-muted mb-2">
+            Чтобы бот начал принимать сообщения, Telegram должен отправлять обновления на наш webhook.
+            На локальном <code>127.0.0.1</code> это не работает — нужен публичный домен/туннель.
+          </p>
+          <div class="small mb-2"><b>Webhook URL</b></div>
+          <div class="font-monospace small p-2 rounded border bg-light">
+            {{ SITE_URL }}{% url 'bots:telegram_webhook' bot.pk %}
+          </div>
+          <div class="small mt-3 mb-2"><b>Команда setWebhook</b></div>
+          <div class="font-monospace small p-2 rounded border bg-light">
+            https://api.telegram.org/bot&lt;TOKEN&gt;/setWebhook?url={{ SITE_URL }}{% url 'bots:telegram_webhook' bot.pk %}
+          </div>
+          <div class="form-text">
+            Замените <code>&lt;TOKEN&gt;</code> на токен бота. После установки webhook, напишите боту любое сообщение.
+          </div>
+        {% elif bot.platform == 'vk' %}
+          <p class="small text-muted mb-2">
+            Для VK включите Callback API в настройках сообщества и укажите URL ниже.
+          </p>
+          <div class="small mb-2"><b>Callback URL</b></div>
+          <div class="font-monospace small p-2 rounded border bg-light">
+            {{ SITE_URL }}{% url 'bots:vk_webhook' bot.pk %}
+          </div>
+        {% elif bot.platform == 'max' %}
+          <p class="small text-muted mb-2">
+            Для MAX настройте webhook в кабинете бота/платформы и укажите URL ниже.
+          </p>
+          <div class="small mb-2"><b>Webhook URL</b></div>
+          <div class="font-monospace small p-2 rounded border bg-light">
+            {{ SITE_URL }}{% url 'bots:max_webhook' bot.pk %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-8">
+    <div class="card">
+      <div class="card-header bg-transparent border-bottom d-flex align-items-center justify-content-between py-3">
+        <h6 class="fw-bold mb-0">Последние предложения</h6>
+        <a href="{% url 'bots:suggestions' %}?bot={{ bot.pk }}" class="btn btn-outline-secondary btn-sm">
+          Все предложения
+        </a>
+      </div>
+      <div class="card-body p-0">
+        {% if recent_suggestions %}
+        <ul class="list-group list-group-flush">
+          {% for s in recent_suggestions %}
+          <li class="list-group-item px-4 py-3">
+            <div class="d-flex align-items-start gap-3">
+              <div class="flex-grow-1">
+                <div class="small fw-semibold text-muted mb-1">
+                  {{ s.sender_display|default:"Аноним" }}
+                  <span class="text-muted fw-normal">· {{ s.submitted_at|date:"d.m H:i" }}</span>
+                </div>
+                <p class="mb-1 small">{{ s.text|truncatechars:120 }}</p>
+              </div>
+              <div>
+                {% if s.status == 'pending' %}
+                  <span class="badge bg-warning-subtle text-warning">На рассмотрении</span>
+                {% elif s.status == 'approved' %}
+                  <span class="badge bg-success-subtle text-success">Одобрено</span>
+                {% elif s.status == 'rejected' %}
+                  <span class="badge bg-danger-subtle text-danger">Отклонено</span>
+                {% endif %}
+              </div>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+          Предложений пока нет
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

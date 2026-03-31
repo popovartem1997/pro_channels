@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% block title %}Быстрый старт{% endblock %}
+{% block meta_description %}Быстрый старт ProChannels: подключение канала, настройка цены рекламы, создание бота предложки, планирование постов и запуск парсинга.{% endblock %}
+
+{% block content %}
+<div class="container py-4" style="max-width: 920px;">
+  <div class="card">
+    <div class="card-body p-4 p-md-5">
+      <h1 class="fw-bold mb-2" style="font-size:1.6rem;">Быстрый старт за 10 минут</h1>
+      <p class="text-muted mb-4">
+        Короткий чеклист, чтобы сервис начал приносить пользу (и деньги).
+      </p>
+
+      <div class="row g-3">
+        <div class="col-12 col-lg-6">
+          <div class="p-3 rounded" style="background:#f8fafc;border:1px solid #e2e8f0;">
+            <div class="fw-bold mb-2"><i class="bi bi-broadcast me-2"></i>1) Подключи канал</div>
+            <ol class="mb-0 small text-muted">
+              <li>Открой раздел <b>Каналы</b> → <b>Добавить канал</b>.</li>
+              <li>Заполни токен/ID и нажми <b>Проверить подключение</b>.</li>
+            </ol>
+          </div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <div class="p-3 rounded" style="background:#f8fafc;border:1px solid #e2e8f0;">
+            <div class="fw-bold mb-2"><i class="bi bi-cash-coin me-2"></i>2) Включи рекламу и цену</div>
+            <ol class="mb-0 small text-muted">
+              <li>Открой канал → <b>Редактировать</b>.</li>
+              <li>Включи <b>Принимать рекламу</b> и укажи <b>цену</b> за 1 размещение.</li>
+              <li>Проверь витрину: <b>Каталог каналов</b>.</li>
+            </ol>
+          </div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <div class="p-3 rounded" style="background:#f8fafc;border:1px solid #e2e8f0;">
+            <div class="fw-bold mb-2"><i class="bi bi-pencil-square me-2"></i>3) Сделай планировщик постов</div>
+            <ol class="mb-0 small text-muted">
+              <li>Раздел <b>Посты</b> → <b>Создать</b>.</li>
+              <li>Выбери канал(ы), дату и (если нужно) повтор.</li>
+            </ol>
+          </div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <div class="p-3 rounded" style="background:#f8fafc;border:1px solid #e2e8f0;">
+            <div class="fw-bold mb-2"><i class="bi bi-robot me-2"></i>4) Подключи предложку</div>
+            <ol class="mb-0 small text-muted">
+              <li>Раздел <b>Боты предложки</b> → <b>Создать</b>.</li>
+              <li>Укажи токен и чат модерации, чтобы заявки приходили с кнопками.</li>
+            </ol>
+          </div>
+        </div>
+        <div class="col-12">
+          <div class="p-3 rounded" style="background:#fff7ed;border:1px solid #fed7aa;">
+            <div class="fw-bold mb-2"><i class="bi bi-search me-2"></i>5) Контент-воронка (парсинг + AI)</div>
+            <div class="small text-muted">
+              В разделе <b>Парсинг</b> добавь источники и ключевики, затем запускай AI‑рерайт и превращай находки в посты.
+              Это самый быстрый способ делать контент “потоком”.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="my-4">
+      <div class="d-flex gap-2 flex-wrap">
+        {% if user.is_authenticated %}
+          <a class="btn btn-brand" href="{% url 'dashboard' %}"><i class="bi bi-house-door me-1"></i>В кабинет</a>
+          <a class="btn btn-outline-secondary" href="{% url 'channels:list' %}">Каналы</a>
+          <a class="btn btn-outline-secondary" href="{% url 'advertisers:catalog' %}">Каталог каналов</a>
+        {% else %}
+          <a class="btn btn-brand" href="{% url 'register' %}">Создать аккаунт</a>
+          <a class="btn btn-outline-secondary" href="{% url 'login' %}">Войти</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+

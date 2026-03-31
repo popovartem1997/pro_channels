@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}Импорт из Telegram{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'content:list' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К постам
+  </a>
+  <h1><i class="bi bi-telegram me-2" style="color:var(--brand)"></i>Импорт из Telegram</h1>
+  <p class="text-muted small mb-0">Для Premium/Custom emoji и entities — без JSON вручную</p>
+</div>
+
+<div class="card" style="max-width:760px;">
+  <div class="card-body p-4">
+    <h6 class="fw-bold mb-3">Шаги</h6>
+    <ol class="small mb-4">
+      <li>Открой своего служебного бота импорта (токен задаётся в настройках проекта).</li>
+      <li>Отправь ему команду: <code>/start {{ link.code }}</code></li>
+      <li>Перешли (forward) сообщение с Premium emoji в этого бота.</li>
+      <li>Вернись в редактор поста и нажми «Вставить из Telegram».</li>
+    </ol>
+
+    <div class="alert alert-info py-2 small mb-3">
+      Твой код привязки: <span class="font-monospace fw-bold">{{ link.code }}</span>
+      {% if link.telegram_user_id %}
+        <span class="badge bg-success-subtle text-success ms-2">Привязано</span>
+      {% else %}
+        <span class="badge bg-warning-subtle text-warning ms-2">Не привязано</span>
+      {% endif %}
+    </div>
+
+    <form method="post">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-outline-secondary btn-sm">
+        Обновить код
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+

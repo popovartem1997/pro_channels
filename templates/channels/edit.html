@@ -1,0 +1,442 @@
+{% extends 'base.html' %}
+{% block title %}Редактировать — {{ channel.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+  .fmt-toolbar { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+  .fmt-btn {
+    border: 1px solid #dee2e6; background: #fff; border-radius: 6px;
+    padding: 3px 9px; font-size: .8rem; cursor: pointer; color: #374151;
+    transition: all .1s;
+  }
+  .fmt-btn:hover { background: var(--brand-light); border-color: var(--brand); color: var(--brand); }
+  .footer-textarea { font-family: monospace; font-size: .875rem; }
+  .footer-preview {
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+    padding: 12px 16px; font-size: .875rem; min-height: 60px; white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .footer-preview blockquote {
+    margin: 8px 0;
+    padding: 6px 10px;
+    border-left: 3px solid var(--brand);
+    background: rgba(91,110,245,.06);
+    border-radius: 6px;
+  }
+  .footer-preview code {
+    background: rgba(15,23,42,.06);
+    padding: 0 4px;
+    border-radius: 4px;
+  }
+  .footer-preview pre {
+    background: rgba(15,23,42,.06);
+    padding: 10px 12px;
+    border-radius: 8px;
+    overflow: auto;
+  }
+  /* На некоторых браузерах в проекте могли быть глобальные user-select правила */
+  .footer-textarea, .footer-preview { user-select: text; -webkit-user-select: text; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'channels:detail' channel.pk %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К каналу
+  </a>
+  <h1>Редактировать канал</h1>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-8">
+    <div class="card">
+      <div class="card-body p-4 p-md-5">
+        <form method="post" novalidate>
+          {% csrf_token %}
+
+          <!-- Название -->
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_name">Название канала</label>
+            <input type="text" name="name" id="id_name" class="form-control"
+                   value="{{ channel.name }}" required>
+          </div>
+
+          <!-- Платформа (нередактируемая) -->
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Платформа</label>
+            <input type="text" class="form-control" value="{{ channel.get_platform_display }}" disabled>
+            <input type="hidden" name="platform" value="{{ channel.platform }}">
+          </div>
+
+          <!-- Монетизация -->
+          <h6 class="fw-bold mb-3 border-top pt-3 text-muted">
+            <i class="bi bi-cash-coin me-1"></i> Реклама (витрина)
+          </h6>
+          <div class="row g-3 mb-4">
+            <div class="col-12 col-md-6">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch"
+                       id="id_ad_enabled" name="ad_enabled"
+                       {% if channel.ad_enabled %}checked{% endif %}>
+                <label class="form-check-label fw-semibold" for="id_ad_enabled">
+                  Принимать рекламу в этот канал
+                </label>
+              </div>
+              <div class="form-text">Если выключено — канал не показывается рекламодателям.</div>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-semibold" for="id_ad_price">Цена за 1 размещение (₽)</label>
+              <input type="number" step="0.01" min="0"
+                     class="form-control"
+                     id="id_ad_price" name="ad_price"
+                     value="{{ channel.ad_price }}">
+            </div>
+          </div>
+
+          <!-- ── TELEGRAM ── -->
+          <div id="fields-telegram" class="platform-fields d-none">
+            <h6 class="fw-bold mb-3 border-top pt-3" style="color:var(--brand)">
+              <i class="bi bi-telegram me-1"></i> Telegram — настройки
+            </h6>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Bot Token</label>
+              <input type="text" name="tg_bot_token" class="form-control font-monospace"
+                     placeholder="Оставьте пустым, чтобы не менять">
+              <div class="form-text">
+                {% if channel.tg_bot_token_enc %}
+                  <i class="bi bi-check-circle-fill text-success me-1"></i>Токен задан. Введите новый, чтобы заменить.
+                {% else %}
+                  <i class="bi bi-exclamation-circle text-warning me-1"></i>Токен не задан.
+                {% endif %}
+              </div>
+            </div>
+            <div class="mb-4">
+              <label class="form-label fw-semibold">ID канала (Telegram)</label>
+              <input type="text" name="tg_chat_id" class="form-control font-monospace"
+                     value="{{ channel.tg_chat_id }}" placeholder="-1001234567890">
+              <div class="form-text">Числовой ID канала, например <code>-1001234567890</code></div>
+            </div>
+
+            <!-- Подпись Telegram -->
+            <h6 class="fw-bold mb-2 text-muted">
+              <i class="bi bi-text-paragraph me-1"></i> Подпись Telegram
+            </h6>
+            <p class="small text-muted mb-2">
+              Поддерживает HTML-разметку. Добавляется к каждому посту (кроме рекламных с ОРД).
+            </p>
+            <div class="fmt-toolbar js-footer-toolbar" data-target="id_tg_footer" data-preview="tg-preview">
+              <button type="button" class="fmt-btn" data-action="wrap" data-open="<b>" data-close="</b>" title="Жирный"><b>Ж</b></button>
+              <button type="button" class="fmt-btn" data-action="wrap" data-open="<i>" data-close="</i>" title="Курсив"><i>К</i></button>
+              <button type="button" class="fmt-btn" data-action="wrap" data-open="<u>" data-close="</u>" title="Подчёркнутый"><u>П</u></button>
+              <button type="button" class="fmt-btn" data-action="wrap" data-open="<s>" data-close="</s>" title="Зачёркнутый"><s>З</s></button>
+              <button type="button" class="fmt-btn" data-action="link" title="Ссылка"><i class="bi bi-link-45deg"></i> Ссылка</button>
+              <button type="button" class="fmt-btn" data-action="wrap" data-open="<blockquote>" data-close="</blockquote>" title="Цитата"><i class="bi bi-quote"></i> Цитата</button>
+              <button type="button" class="fmt-btn" data-action="wrap" data-open="<code>" data-close="</code>" title="Код"><i class="bi bi-code"></i> Код</button>
+              <button type="button" class="fmt-btn text-danger" data-action="clear" title="Очистить"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <textarea name="tg_footer" id="id_tg_footer" rows="4"
+                      class="form-control footer-textarea mb-2"
+                      placeholder="Щ-3   Питомцы     Бот&#10;Чат    Барахолка   Админ&#10;Не грузит? 👉 MAX 📲"
+                      data-preview="tg-preview">{{ channel.tg_footer }}</textarea>
+            <div class="small text-muted mb-1">Предпросмотр:</div>
+            <div class="footer-preview" id="tg-preview">{{ channel.tg_footer|safe }}</div>
+          </div>
+
+          <!-- ── MAX ── -->
+          <div id="fields-max" class="platform-fields d-none">
+            <h6 class="fw-bold mb-3 border-top pt-3" style="color:#e65100">
+              <i class="bi bi-chat-dots me-1"></i> MAX — настройки
+            </h6>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Bot Token</label>
+              <input type="text" name="max_bot_token" class="form-control font-monospace"
+                     placeholder="Оставьте пустым, чтобы не менять">
+              <div class="form-text">
+                {% if channel.max_bot_token_enc %}
+                  <i class="bi bi-check-circle-fill text-success me-1"></i>Токен задан. Введите новый, чтобы заменить.
+                {% else %}
+                  <i class="bi bi-exclamation-circle text-warning me-1"></i>Токен не задан.
+                {% endif %}
+              </div>
+            </div>
+            <div class="mb-4">
+              <label class="form-label fw-semibold">Chat ID канала</label>
+              <input type="text" name="max_channel_id" class="form-control font-monospace"
+                     value="{{ channel.max_channel_id }}" placeholder="Числовой ID чата">
+            </div>
+
+            <!-- Подпись MAX -->
+            <h6 class="fw-bold mb-2 text-muted">
+              <i class="bi bi-text-paragraph me-1"></i> Подпись MAX
+            </h6>
+            <p class="small text-muted mb-2">
+              Поддерживает HTML-разметку.
+            </p>
+            <div class="fmt-toolbar js-footer-toolbar" data-target="id_max_footer" data-preview="max-preview">
+              <button type="button" class="fmt-btn" data-action="wrap" data-open="<b>" data-close="</b>"><b>Ж</b></button>
+              <button type="button" class="fmt-btn" data-action="wrap" data-open="<i>" data-close="</i>"><i>К</i></button>
+              <button type="button" class="fmt-btn" data-action="wrap" data-open="<u>" data-close="</u>"><u>П</u></button>
+              <button type="button" class="fmt-btn" data-action="link"><i class="bi bi-link-45deg"></i> Ссылка</button>
+              <button type="button" class="fmt-btn" data-action="wrap" data-open="<blockquote>" data-close="</blockquote>"><i class="bi bi-quote"></i> Цитата</button>
+              <button type="button" class="fmt-btn" data-action="wrap" data-open="<code>" data-close="</code>"><i class="bi bi-code"></i> Код</button>
+              <button type="button" class="fmt-btn text-danger" data-action="clear"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <textarea name="max_footer" id="id_max_footer" rows="4"
+                      class="form-control footer-textarea mb-2"
+                      placeholder="Текст подписи для MAX..."
+                      data-preview="max-preview">{{ channel.max_footer }}</textarea>
+            <div class="small text-muted mb-1">Предпросмотр:</div>
+            <div class="footer-preview" id="max-preview">{{ channel.max_footer|safe }}</div>
+          </div>
+
+          <!-- ── VK ── -->
+          <div id="fields-vk" class="platform-fields d-none">
+            <h6 class="fw-bold mb-3 border-top pt-3" style="color:#3949ab">
+              <i class="bi bi-badge-vo me-1"></i> ВКонтакте — настройки
+            </h6>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Access Token</label>
+              <input type="text" name="vk_access_token" class="form-control font-monospace"
+                     placeholder="Оставьте пустым, чтобы не менять">
+              <div class="form-text">
+                {% if channel.vk_access_token_enc %}
+                  <i class="bi bi-check-circle-fill text-success me-1"></i>Токен задан. Введите новый, чтобы заменить.
+                {% else %}
+                  <i class="bi bi-exclamation-circle text-warning me-1"></i>Токен не задан.
+                {% endif %}
+              </div>
+            </div>
+            <div class="mb-4">
+              <label class="form-label fw-semibold">ID группы / сообщества</label>
+              <input type="text" name="vk_group_id" class="form-control font-monospace"
+                     value="{{ channel.vk_group_id }}" placeholder="123456789">
+            </div>
+
+            <!-- Подпись VK -->
+            <h6 class="fw-bold mb-2 text-muted">
+              <i class="bi bi-text-paragraph me-1"></i> Подпись ВКонтакте
+            </h6>
+            <p class="small text-muted mb-2">
+              Обычный текст. Ссылка на группу: <code>[club123|Название]</code>
+            </p>
+            <textarea name="vk_footer" id="id_vk_footer" rows="4"
+                      class="form-control footer-textarea mb-2"
+                      placeholder="Текст подписи для ВКонтакте...">{{ channel.vk_footer }}</textarea>
+          </div>
+
+          <!-- ── Instagram ── -->
+          <div id="fields-instagram" class="platform-fields d-none">
+            <h6 class="fw-bold mb-3 border-top pt-3" style="color:#c62828">
+              <i class="bi bi-instagram me-1"></i> Instagram — настройки
+            </h6>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Access Token</label>
+              <input type="text" name="ig_access_token" class="form-control font-monospace"
+                     placeholder="Оставьте пустым, чтобы не менять">
+              <div class="form-text">
+                {% if channel.ig_access_token_enc %}
+                  <i class="bi bi-check-circle-fill text-success me-1"></i>Токен задан.
+                {% else %}
+                  <i class="bi bi-exclamation-circle text-warning me-1"></i>Токен не задан.
+                {% endif %}
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Account ID</label>
+              <input type="text" name="ig_account_id" class="form-control font-monospace"
+                     value="{{ channel.ig_account_id }}" placeholder="17841400000000000">
+            </div>
+          </div>
+
+          <div class="d-flex gap-2 mt-4 border-top pt-4">
+            <button type="submit" class="btn btn-brand px-4 fw-semibold">
+              <i class="bi bi-check-lg me-1"></i> Сохранить
+            </button>
+            <a href="{% url 'channels:detail' channel.pk %}" class="btn btn-outline-secondary">Отмена</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Показываем поля нужной платформы
+document.addEventListener('DOMContentLoaded', function() {
+  var platform = '{{ channel.platform }}';
+  document.querySelectorAll('.platform-fields').forEach(function(el) {
+    el.classList.add('d-none');
+  });
+  var el = document.getElementById('fields-' + platform);
+  if (el) el.classList.remove('d-none');
+});
+
+// Footer editor: выделение + форматирование (устойчиво в Safari/macOS)
+document.addEventListener('DOMContentLoaded', function() {
+  function previewRender(text) {
+    // Превью "как в Telegram": разрешаем небольшой whitelist HTML-тегов (Telegram HTML mode),
+    // остальные теги/атрибуты вырезаем.
+    // Разрешённые теги: b, strong, i, em, u, s, strike, del, a[href], code, pre, blockquote, br
+    var input = (text || '').replace(/\r\n/g, '\n');
+    // Сначала переносы строк -> <br>, чтобы они сохранялись
+    input = input.replace(/\n/g, '<br>');
+
+    var allowedTags = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'DEL', 'A', 'CODE', 'PRE', 'BLOCKQUOTE', 'BR']);
+    var doc = new DOMParser().parseFromString('<div>' + input + '</div>', 'text/html');
+    var root = doc.body.firstChild;
+
+    function sanitize(node) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        if (!allowedTags.has(node.tagName)) {
+          // заменяем неизвестный тег на его текстовое содержимое
+          var txt = doc.createTextNode(node.textContent || '');
+          node.replaceWith(txt);
+          return;
+        }
+
+        // чистим атрибуты
+        var attrs = Array.from(node.attributes || []);
+        attrs.forEach(function(a) {
+          node.removeAttribute(a.name);
+        });
+
+        if (node.tagName === 'A') {
+          // Разрешаем только href (http/https), иначе превращаем в текст
+          var href = (node.getAttribute('href') || '').trim();
+          if (!href) {
+            // пустая ссылка => просто текст
+            node.replaceWith(doc.createTextNode(node.textContent || ''));
+            return;
+          }
+          var safe = /^https?:\/\//i.test(href);
+          if (!safe) {
+            node.replaceWith(doc.createTextNode(node.textContent || href));
+            return;
+          }
+          node.setAttribute('href', href);
+          node.setAttribute('target', '_blank');
+          node.setAttribute('rel', 'noopener noreferrer');
+          // минимальная стилизация под "ссылку"
+          node.style.color = 'var(--brand)';
+          node.style.textDecoration = 'underline';
+        }
+      }
+
+      Array.from(node.childNodes || []).forEach(sanitize);
+    }
+
+    sanitize(root);
+    return root.innerHTML;
+  }
+
+  function updatePreviewForTextarea(ta) {
+    var previewId = ta.getAttribute('data-preview');
+    if (!previewId) return;
+    var el = document.getElementById(previewId);
+    if (!el) return;
+    el.innerHTML = previewRender(ta.value);
+  }
+
+  var savedSel = new Map(); // textareaId -> {s,e}
+
+  function getSel(ta) {
+    var s = ta.selectionStart;
+    var e = ta.selectionEnd;
+    if (typeof s === 'number' && typeof e === 'number') return { s: s, e: e };
+    var v = savedSel.get(ta.id);
+    return v || { s: 0, e: 0 };
+  }
+
+  function setSel(ta, s, e) {
+    try { ta.setSelectionRange(s, e); } catch (e) {}
+    savedSel.set(ta.id, { s: s, e: e });
+  }
+
+  function wrapSelection(ta, open, close, selOverride) {
+    ta.focus();
+    var pos = selOverride || getSel(ta);
+    var s = pos.s || 0;
+    var e = pos.e || 0;
+    var val = ta.value || '';
+    var selected = val.substring(s, e);
+    var ins = (open || '') + selected + (close || '');
+    ta.value = val.substring(0, s) + ins + val.substring(e);
+    var cur = selected.length ? s + ins.length : s + (open || '').length;
+    setSel(ta, cur, cur);
+    updatePreviewForTextarea(ta);
+  }
+
+  function insertLink(ta, selOverride) {
+    ta.focus();
+    var pos = selOverride || getSel(ta);
+    var s = pos.s || 0;
+    var e = pos.e || 0;
+    var val = ta.value || '';
+    var selected = val.substring(s, e) || 'текст ссылки';
+    var url = prompt('Введите URL ссылки:');
+    if (!url) return;
+    var ins = '<a href="' + url + '">' + selected + '</a>';
+    ta.value = val.substring(0, s) + ins + val.substring(e);
+    var cur = s + ins.length;
+    setSel(ta, cur, cur);
+    updatePreviewForTextarea(ta);
+  }
+
+  function clearTextarea(ta) {
+    ta.focus();
+    if (!ta.value) return;
+    if (!confirm('Очистить подпись?')) return;
+    ta.value = '';
+    setSel(ta, 0, 0);
+    updatePreviewForTextarea(ta);
+  }
+
+  // Превью по вводу
+  document.querySelectorAll('textarea.footer-textarea[data-preview]').forEach(function(ta) {
+    updatePreviewForTextarea(ta);
+    ta.addEventListener('input', function() { updatePreviewForTextarea(ta); });
+    // Обновляем сохранённое выделение
+    ['select', 'mouseup', 'keyup', 'click'].forEach(function(ev) {
+      ta.addEventListener(ev, function() {
+        var pos = getSel(ta);
+        savedSel.set(ta.id, pos);
+      });
+    });
+  });
+
+  // Форматирование:
+  // - на mousedown не даём кнопке забрать фокус (иначе Safari сбрасывает selection)
+  // - на click выполняем действие (чтобы prompt/confirm гарантированно работали как user-gesture)
+  document.querySelectorAll('.js-footer-toolbar').forEach(function(toolbar) {
+    var targetId = toolbar.getAttribute('data-target');
+    var ta = targetId ? document.getElementById(targetId) : null;
+    if (!ta) return;
+
+    toolbar.addEventListener('mousedown', function(e) {
+      var btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      // сохраняем текущее выделение, пока textarea ещё в фокусе
+      savedSel.set(ta.id, getSel(ta));
+      e.preventDefault();
+    });
+
+    toolbar.addEventListener('click', function(e) {
+      var btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      e.preventDefault();
+      var action = btn.getAttribute('data-action');
+      var pos = savedSel.get(ta.id) || getSel(ta);
+      if (action === 'wrap') {
+        wrapSelection(ta, btn.getAttribute('data-open') || '', btn.getAttribute('data-close') || '', pos);
+      } else if (action === 'link') {
+        insertLink(ta, pos);
+      } else if (action === 'clear') {
+        clearTextarea(ta);
+      }
+    });
+  });
+});
+</script>
+{% endblock %}

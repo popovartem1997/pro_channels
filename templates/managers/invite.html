@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block title %}Пригласить участника{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'managers:list' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К команде
+  </a>
+  <h1>Пригласить участника</h1>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-5">
+    <div class="card">
+      <div class="card-body p-4 p-md-5">
+        <form method="post" novalidate>
+          {% csrf_token %}
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_email">Email</label>
+            <input type="email" name="email" id="id_email"
+                   class="form-control"
+                   value="{{ request.POST.email|default:'' }}"
+                   placeholder="colleague@example.com" required autofocus>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold" for="id_role">Роль</label>
+            <select name="role" id="id_role"
+                    class="form-select">
+              {% for val, label in roles %}
+                <option value="{{ val }}" {% if request.POST.role == val %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-brand px-4 fw-semibold">
+              <i class="bi bi-envelope me-1"></i> Отправить приглашение
+            </button>
+            <a href="{% url 'managers:list' %}" class="btn btn-outline-secondary">Отмена</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

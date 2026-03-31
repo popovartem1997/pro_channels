@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Удалить пост{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-4">
+  <div class="col-12 col-md-6 col-lg-5">
+    <div class="card border-danger-subtle">
+      <div class="card-body p-4 p-md-5 text-center">
+        <div class="d-inline-flex align-items-center justify-content-center rounded-circle mb-3"
+             style="width:64px;height:64px;background:#fff5f5;">
+          <i class="bi bi-trash fs-3 text-danger"></i>
+        </div>
+        <h4 class="fw-bold mb-3">Удалить пост?</h4>
+        <div class="bg-light rounded p-3 mb-3 text-start">
+          <p class="small text-muted mb-0">{{ post.text|truncatechars:200 }}</p>
+        </div>
+        <div class="alert alert-warning py-2 small text-start">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          Пост и все результаты публикации будут удалены безвозвратно.
+        </div>
+        <div class="d-flex gap-2 justify-content-center mt-4">
+          <a href="{% url 'content:detail' post.pk %}" class="btn btn-outline-secondary px-4">
+            Отмена
+          </a>
+          <form method="post" class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger px-4 fw-semibold">
+              <i class="bi bi-trash me-1"></i> Да, удалить
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

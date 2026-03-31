@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}Профиль{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-lg-6">
+    <h4 class="fw-bold mb-4"><i class="bi bi-person-circle me-2 text-primary"></i>Мой профиль</h4>
+    <div class="card">
+      <div class="card-body p-4">
+        <form method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Имя</label>
+            {{ form.first_name }}
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Фамилия</label>
+            {{ form.last_name }}
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Телефон</label>
+            {{ form.phone }}
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Компания / ИП</label>
+            {{ form.company }}
+          </div>
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Аватар</label>
+            {{ form.avatar }}
+          </div>
+          <button type="submit" class="btn btn-brand px-4">Сохранить</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4 mt-4 mt-lg-0">
+    <h5 class="fw-bold mb-3">Аккаунт</h5>
+    <div class="card">
+      <div class="card-body">
+        <p class="mb-1"><b>Email:</b> {{ user.email }}</p>
+        <p class="mb-1"><b>Роль:</b> {{ user.get_role_display }}</p>
+        <p class="mb-3">
+          <b>Пробный период:</b>
+          {% if user.is_on_trial %}
+            <span class="text-success">{{ user.trial_days_left }} дней</span>
+          {% else %}
+            <span class="text-muted">Истёк</span>
+          {% endif %}
+        </p>
+        <hr>
+        <p class="fw-bold mb-2">Подписки</p>
+        {% with subs=user.active_subscriptions %}
+        {% if subs %}
+          {% for s in subs %}
+          <div class="d-flex justify-content-between small mb-1">
+            <span>{{ s.plan.name }}</span>
+            <span class="text-muted">до {{ s.ends_at|date:"d.m.Y" }}</span>
+          </div>
+          {% endfor %}
+        {% else %}
+          <p class="text-muted small">Нет активных подписок</p>
+          <a href="{% url 'billing:subscribe' %}" class="btn btn-brand btn-sm w-100">Оформить подписку</a>
+        {% endif %}
+        {% endwith %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

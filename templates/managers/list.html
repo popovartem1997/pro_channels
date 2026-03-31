@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% block title %}Команда{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <div>
+    <h1><i class="bi bi-people me-2" style="color:var(--brand)"></i>Команда</h1>
+    <p class="text-muted small mb-0">Управляйте доступом участников</p>
+  </div>
+  <a href="{% url 'managers:invite' %}" class="btn btn-brand">
+    <i class="bi bi-person-plus me-1"></i> Пригласить
+  </a>
+</div>
+
+<!-- Members -->
+<div class="card mb-4">
+  <div class="card-header bg-transparent border-bottom py-3">
+    <h6 class="fw-bold mb-0">Участники</h6>
+  </div>
+  <div class="card-body p-0">
+    {% if members %}
+    <ul class="list-group list-group-flush">
+      {% for member in members %}
+      <li class="list-group-item px-4 py-3">
+        <div class="d-flex align-items-center gap-3">
+          <div class="rounded-circle d-flex align-items-center justify-content-center fw-bold text-white flex-shrink-0"
+               style="width:40px;height:40px;background:var(--brand);font-size:.9rem;">
+            {{ member.member.get_full_name|default:member.member.username|first|upper }}
+          </div>
+          <div class="flex-grow-1">
+            <div class="fw-semibold small">
+              {{ member.member.get_full_name|default:member.member.username }}
+            </div>
+            <div class="text-muted" style="font-size:.75rem;">{{ member.member.email }}</div>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge {% if member.role == 'assistant_admin' %}bg-primary-subtle text-primary{% else %}bg-success-subtle text-success{% endif %} rounded-pill px-3">
+              {% if member.role == 'assistant_admin' %}Помощник-администратор{% else %}Менеджер{% endif %}
+            </span>
+            <form method="post" action="{% url 'managers:remove' member.pk %}">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-person-x"></i>
+              </button>
+            </form>
+          </div>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="text-center py-4 text-muted">
+      <p class="small mb-0">Участников нет</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Pending invites -->
+{% if invites %}
+<div class="card">
+  <div class="card-header bg-transparent border-bottom py-3">
+    <h6 class="fw-bold mb-0">Ожидающие приглашения</h6>
+  </div>
+  <div class="card-body p-0">
+    <ul class="list-group list-group-flush">
+      {% for invite in invites %}
+      <li class="list-group-item px-4 py-3">
+        <div class="d-flex align-items-center gap-3 justify-content-between">
+          <div>
+            <div class="fw-semibold small">{{ invite.email }}</div>
+            <div class="text-muted" style="font-size:.75rem;">
+              Отправлено {{ invite.created_at|date:"d.m.Y" }}
+              · Роль:
+              {% if invite.role == 'assistant_admin' %}Помощник-администратор{% else %}Менеджер{% endif %}
+            </div>
+          </div>
+          <div class="d-flex gap-2">
+            <span class="badge bg-warning-subtle text-warning rounded-pill px-3">Ожидает</span>
+            <form method="post" action="{% url 'managers:cancel_invite' invite.pk %}">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-x"></i>
+              </button>
+            </form>
+          </div>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

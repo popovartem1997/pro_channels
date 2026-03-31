@@ -1,0 +1,103 @@
+{% extends 'base.html' %}
+{% load platform_icons %}
+{% block title %}Статистика{% endblock %}
+
+{% block extra_css %}
+<style>
+  .stat-card-mini { background: #fff; border-radius: 12px; padding: 16px 20px; border: none;
+    box-shadow: 0 1px 6px rgba(0,0,0,.06); }
+  .stat-card-mini .label { font-size: .75rem; color: #64748b; text-transform: uppercase;
+    letter-spacing: .04em; font-weight: 600; }
+  .stat-card-mini .number { font-size: 1.6rem; font-weight: 800; color: #1a202c; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1><i class="bi bi-bar-chart-line me-2" style="color:var(--brand)"></i>Статистика</h1>
+  <p class="text-muted small mb-0">Сводная аналитика по всем каналам</p>
+</div>
+
+{% if channel_data %}
+
+{% for item in channel_data %}
+<div class="card mb-4">
+  <div class="card-header bg-transparent border-bottom py-3">
+    <div class="d-flex align-items-center justify-content-between">
+      <div class="d-flex align-items-center gap-2">
+        {% platform_badge item.channel.platform %}
+        <h6 class="fw-bold mb-0">{{ item.channel.name }}</h6>
+      </div>
+      <a href="{% url 'stats:channel' item.channel.pk %}" class="btn btn-outline-secondary btn-sm">
+        Подробнее
+      </a>
+    </div>
+  </div>
+  <div class="card-body p-4">
+    <div class="row g-3 mb-4">
+      <div class="col-6 col-md-3">
+        <div class="stat-card-mini">
+          <div class="label">Подписчики</div>
+          <div class="number">{{ item.latest_subscribers|default:"—" }}</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card-mini">
+          <div class="label">Просмотры (всего)</div>
+          <div class="number">{{ item.total_views|default:"—" }}</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card-mini">
+          <div class="label">Постов</div>
+          <div class="number">{{ item.stats|length|default:"—" }}</div>
+        </div>
+      </div>
+    </div>
+    {% if item.stats %}
+    <div id="chart-channel-{{ item.channel.pk }}" style="min-height:200px;"></div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+
+{% else %}
+<div class="card">
+  <div class="card-body text-center py-5">
+    <div class="d-inline-flex align-items-center justify-content-center rounded-circle mb-3"
+         style="width:64px;height:64px;background:var(--brand-light);">
+      <i class="bi bi-bar-chart-line fs-3" style="color:var(--brand)"></i>
+    </div>
+    <h5 class="fw-bold">Данных пока нет</h5>
+    <p class="text-muted mb-4">Статистика появится после публикации постов в каналы</p>
+    <a href="{% url 'channels:list' %}" class="btn btn-brand">К каналам</a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/apexcharts@3/dist/apexcharts.min.js"></script>
+<script>
+{% for item in channel_data %}
+{% if item.stats %}
+(function() {
+  var stats = {{ item.stats_json|safe }};
+  var labels = stats.map(function(s){ return s.date || s.label || ''; });
+  var views = stats.map(function(s){ return s.views || 0; });
+  new ApexCharts(document.getElementById('chart-channel-{{ item.channel.pk }}'), {
+    series: [{ name: 'Просмотры', data: views }],
+    chart: { type: 'area', height: 200, toolbar: { show: false }, sparkline: { enabled: false } },
+    xaxis: { categories: labels, labels: { style: { fontSize: '11px' } } },
+    stroke: { curve: 'smooth', width: 2 },
+    fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.3, opacityTo: 0.05 } },
+    colors: ['#5b6ef5'],
+    dataLabels: { enabled: false },
+    grid: { borderColor: '#f1f5f9' },
+    tooltip: { theme: 'light' },
+  }).render();
+})();
+{% endif %}
+{% endfor %}
+</script>
+{% endblock %}

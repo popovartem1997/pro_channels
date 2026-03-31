@@ -1,0 +1,30 @@
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+
+# Virtualenv
+.venv/
+venv/
+ENV/
+
+# Django
+db_dev.sqlite3
+staticfiles/
+media/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Logs
+*.log
+

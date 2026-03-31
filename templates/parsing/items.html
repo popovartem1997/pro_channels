@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+{% block title %}Найденные материалы{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <div>
+    <a href="{% url 'parsing:sources' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+      <i class="bi bi-arrow-left me-1"></i> К источникам
+    </a>
+    <h1><i class="bi bi-collection me-2" style="color:var(--brand)"></i>Найденные материалы</h1>
+  </div>
+</div>
+
+<!-- Status filter -->
+<div class="mb-4 d-flex gap-2 flex-wrap">
+  <a href="?" class="btn btn-sm {% if not status_filter %}btn-brand{% else %}btn-outline-secondary{% endif %}">Все</a>
+  <a href="?status=new" class="btn btn-sm {% if status_filter == 'new' %}btn-brand{% else %}btn-outline-secondary{% endif %}">
+    Новые
+  </a>
+  <a href="?status=used" class="btn btn-sm {% if status_filter == 'used' %}btn-brand{% else %}btn-outline-secondary{% endif %}">
+    Использованы
+  </a>
+  <a href="?status=ignored" class="btn btn-sm {% if status_filter == 'ignored' %}btn-brand{% else %}btn-outline-secondary{% endif %}">
+    Пропущены
+  </a>
+</div>
+
+{% if items %}
+<div class="d-flex flex-column gap-3">
+  {% for item in items %}
+  <div class="card">
+    <div class="card-body p-4">
+      <div class="d-flex align-items-start gap-3">
+        <div class="flex-grow-1">
+          {% if item.title %}
+          <h6 class="fw-bold mb-1">{{ item.title }}</h6>
+          {% endif %}
+          <p class="small mb-2 text-muted">{{ item.text|truncatechars:200 }}</p>
+          <div class="d-flex gap-2 align-items-center flex-wrap">
+            <span class="badge bg-light text-dark border small">{{ item.source.name|default:item.source.url }}</span>
+            <span class="text-muted" style="font-size:.75rem;">{{ item.published_at|date:"d.m.Y H:i"|default:"" }}</span>
+            {% if item.status == 'new' %}
+              <span class="badge bg-primary-subtle text-primary">Новый</span>
+            {% elif item.status == 'used' %}
+              <span class="badge bg-success-subtle text-success">Использован</span>
+            {% elif item.status == 'ignored' %}
+              <span class="badge bg-secondary-subtle text-secondary">Пропущен</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="d-flex flex-column gap-1 flex-shrink-0">
+          <a href="{% url 'parsing:item_to_post' item.pk %}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-pencil-square me-1"></i> В пост
+          </a>
+          {% if AI_REWRITE_ENABLED %}
+            <a href="{% url 'parsing:ai_rewrite_create' %}?item={{ item.pk }}" class="btn btn-brand btn-sm">
+              <i class="bi bi-stars me-1"></i> AI рерайт
+            </a>
+          {% else %}
+            <button type="button" class="btn btn-outline-secondary btn-sm" disabled title="AI временно отключён">
+              <i class="bi bi-stars me-1"></i> AI (скоро)
+            </button>
+          {% endif %}
+          <form method="post" action="{% url 'parsing:item_skip' item.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-secondary btn-sm w-100">Пропустить</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+<div class="card">
+  <div class="card-body text-center py-5">
+    <div class="d-inline-flex align-items-center justify-content-center rounded-circle mb-3"
+         style="width:64px;height:64px;background:var(--brand-light);">
+      <i class="bi bi-collection fs-3" style="color:var(--brand)"></i>
+    </div>
+    <h5 class="fw-bold">Материалов нет</h5>
+    <p class="text-muted mb-4">Добавьте источники и ключевые слова для парсинга</p>
+    <a href="{% url 'parsing:sources' %}" class="btn btn-brand">
+      <i class="bi bi-arrow-left me-1"></i> К источникам
+    </a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

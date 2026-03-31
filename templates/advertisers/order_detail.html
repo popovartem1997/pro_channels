@@ -1,0 +1,136 @@
+{% extends 'base.html' %}
+{% block title %}Заказ — {{ order.title }}{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <div>
+    <a href="{% url 'advertisers:dashboard' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+      <i class="bi bi-arrow-left me-1"></i> К кабинету
+    </a>
+    <h1>{{ order.title|default:"Рекламный заказ" }}</h1>
+  </div>
+  {% if order.status == 'submitted' %}
+  <span class="badge bg-warning-subtle text-warning fs-6 px-3">На рассмотрении</span>
+  {% elif order.status == 'approved' %}
+  <span class="badge bg-info-subtle text-info fs-6 px-3">Одобрен, ожидает оплаты</span>
+  {% elif order.status == 'active' %}
+  <span class="badge bg-success-subtle text-success fs-6 px-3">Выполняется</span>
+  {% elif order.status == 'completed' %}
+  <span class="badge bg-secondary-subtle text-secondary fs-6 px-3">Завершён</span>
+  {% elif order.status == 'rejected' %}
+  <span class="badge bg-danger-subtle text-danger fs-6 px-3">Отклонён</span>
+  {% endif %}
+</div>
+
+<div class="row g-4">
+  <div class="col-12 col-lg-8">
+
+    <div class="card mb-4">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3 text-muted small text-uppercase">Текст рекламы</h6>
+        <div style="white-space:pre-wrap; line-height:1.7;">{{ order.description }}</div>
+      </div>
+    </div>
+
+    {% if acts %}
+    <div class="card">
+      <div class="card-header bg-transparent border-bottom py-3">
+        <h6 class="fw-bold mb-0">Акты размещения</h6>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-4">Номер акта</th>
+              <th>Дата</th>
+              <th>Сумма</th>
+              <th>Подписан</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for act in acts %}
+            <tr>
+              <td class="ps-4 fw-semibold small">{{ act.number }}</td>
+              <td class="text-muted small">{{ act.issued_at|date:"d.m.Y"|default:"—" }}</td>
+              <td>{{ act.amount }} ₽</td>
+              <td>
+                {% if act.is_signed %}
+                  <span class="badge bg-success-subtle text-success">Да</span>
+                {% else %}
+                  <span class="badge bg-secondary-subtle text-secondary">Нет</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if act.pdf_file %}
+                <a href="{{ act.pdf_file.url }}" class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener noreferrer">
+                  <i class="bi bi-download"></i>
+                </a>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
+  <div class="col-12 col-lg-4">
+    <div class="card">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3 text-muted small text-uppercase">Детали</h6>
+        <dl style="font-size:.875rem;">
+          {% if order.budget %}
+          <dt class="text-muted fw-normal">Бюджет</dt>
+          <dd class="mb-2 fw-bold">{{ order.budget }} ₽</dd>
+          {% endif %}
+          <dt class="text-muted fw-normal">Дата заявки</dt>
+          <dd class="mb-2">{{ order.created_at|date:"d.m.Y H:i" }}</dd>
+          <dt class="text-muted fw-normal">Каналы</dt>
+          <dd class="mb-0">
+            <div class="d-flex flex-column gap-1 mt-1">
+              {% for channel in order.channels.all %}
+              <div class="d-flex align-items-center gap-2">
+                {% if channel.platform == 'telegram' %}
+                  <span class="badge badge-tg">TG</span>
+                {% elif channel.platform == 'vk' %}
+                  <span class="badge badge-vk">VK</span>
+                {% elif channel.platform == 'max' %}
+                  <span class="badge badge-max">MAX</span>
+                {% else %}
+                  <span class="badge badge-ig">IG</span>
+                {% endif %}
+                <span class="small">{{ channel.name }}</span>
+              </div>
+              {% empty %}
+              <span class="text-muted small">Не указаны</span>
+              {% endfor %}
+            </div>
+          </dd>
+          {% if invoice %}
+          <dt class="text-muted fw-normal mt-2">Счёт</dt>
+          <dd class="mb-0">
+            <div class="small mb-1">
+              № {{ invoice.number }} на сумму <b>{{ invoice.amount }} ₽</b><br>
+              Статус: {{ invoice.get_status_display }}
+            </div>
+            {% if invoice.status != 'paid' %}
+              <a href="{% url 'billing:pay' invoice.pk %}" class="btn btn-brand btn-sm w-100 mt-1">
+                <i class="bi bi-credit-card me-1"></i> Оплатить онлайн
+              </a>
+            {% else %}
+              <a href="{% url 'billing:invoice_pdf' invoice.pk %}" class="btn btn-outline-secondary btn-sm w-100 mt-1">
+                <i class="bi bi-download me-1"></i> Скачать счёт (PDF)
+              </a>
+            {% endif %}
+          </dd>
+          {% endif %}
+        </dl>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

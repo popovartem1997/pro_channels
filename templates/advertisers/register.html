@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block title %}Регистрация рекламодателя{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-12 col-lg-6">
+      <div class="text-center mb-4">
+        <h2 class="fw-bold">Стать рекламодателем</h2>
+        <p class="text-muted">Размещайте рекламу в каналах ProChannels</p>
+      </div>
+      <div class="card">
+        <div class="card-body p-4 p-md-5">
+          <form method="post" novalidate>
+            {% csrf_token %}
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_company_name">Название компании / ИП</label>
+              <input class="form-control" id="id_company_name" name="company_name" required
+                     value="{{ request.POST.company_name|default:'' }}">
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_inn">ИНН</label>
+              <input class="form-control" id="id_inn" name="inn" required
+                     value="{{ request.POST.inn|default:'' }}">
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_legal_address">Юридический адрес</label>
+              <textarea class="form-control" id="id_legal_address" name="legal_address" rows="3" required>{{ request.POST.legal_address|default:'' }}</textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_contact_person">Контактное лицо</label>
+              <input class="form-control" id="id_contact_person" name="contact_person" required
+                     value="{{ request.POST.contact_person|default:'' }}">
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_contact_phone">Телефон (необязательно)</label>
+              <input class="form-control" id="id_contact_phone" name="contact_phone"
+                     value="{{ request.POST.contact_phone|default:'' }}">
+            </div>
+            <div class="row g-3">
+              <div class="col-12 col-md-6">
+                <label class="form-label fw-semibold" for="id_kpp">КПП (необязательно)</label>
+                <input class="form-control" id="id_kpp" name="kpp"
+                       value="{{ request.POST.kpp|default:'' }}">
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label fw-semibold" for="id_ogrn">ОГРН/ОГРНИП (необязательно)</label>
+                <input class="form-control" id="id_ogrn" name="ogrn"
+                       value="{{ request.POST.ogrn|default:'' }}">
+              </div>
+            </div>
+            <button type="submit" class="btn btn-brand w-100 fw-semibold mt-2">
+              <i class="bi bi-megaphone me-1"></i> Зарегистрироваться
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

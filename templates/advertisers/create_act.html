@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Создание акта{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1><i class="bi bi-file-earmark-text me-2" style="color:var(--brand)"></i>Создание акта</h1>
+  <p class="text-muted small">Заказ: {{ order.title }} — {{ order.advertiser.company_name }}</p>
+</div>
+
+<div class="card" style="max-width:600px;">
+  <div class="card-body">
+    <form method="post">
+      {% csrf_token %}
+
+      <div class="mb-3">
+        <label class="form-label fw-semibold" for="service_description">Описание услуг</label>
+        <textarea name="service_description" id="service_description" rows="3" class="form-control"
+                  placeholder="Размещение рекламы...">Размещение рекламы «{{ order.title }}» в период {{ order.start_date|date:"d.m.Y" }} — {{ order.end_date|date:"d.m.Y" }}</textarea>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label fw-semibold" for="amount">Сумма (₽)</label>
+        <input type="number" name="amount" id="amount" class="form-control"
+               value="{{ order.budget }}" step="0.01" min="0">
+      </div>
+
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-brand">
+          <i class="bi bi-check-lg me-1"></i> Создать акт и PDF
+        </button>
+        <a href="{% url 'advertisers:owner_orders' %}" class="btn btn-outline-secondary">Отмена</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,155 @@
+{% extends 'base.html' %}
+{% block title %}{{ channel.name }}{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <div>
+    <a href="{% url 'channels:list' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+      <i class="bi bi-arrow-left me-1"></i> К списку каналов
+    </a>
+    <h1>{{ channel.name }}</h1>
+  </div>
+  <div class="d-flex gap-2">
+    {% if channel.platform == 'telegram' or channel.platform == 'max' or channel.platform == 'vk' %}
+    <button id="btn-test" class="btn btn-outline-success" onclick="testConnection()">
+      <i class="bi bi-wifi me-1"></i> Проверить подключение
+    </button>
+    {% endif %}
+    <a href="{% url 'channels:edit' channel.pk %}" class="btn btn-outline-primary">
+      <i class="bi bi-pencil me-1"></i> Редактировать
+    </a>
+    <a href="{% url 'channels:delete' channel.pk %}" class="btn btn-outline-danger">
+      <i class="bi bi-trash me-1"></i> Удалить
+    </a>
+  </div>
+</div>
+
+<!-- Stat cards -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card-stat card">
+      <div class="text-muted small mb-1"><i class="bi bi-people me-1"></i>Подписчики</div>
+      <div class="value">{{ channel.subscribers_count|default:"—" }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card-stat card">
+      <div class="text-muted small mb-1"><i class="bi bi-broadcast me-1"></i>Платформа</div>
+      <div class="mt-1">
+        {% if channel.platform == 'telegram' %}
+          <span class="badge badge-tg rounded-pill px-3">Telegram</span>
+        {% elif channel.platform == 'vk' %}
+          <span class="badge badge-vk rounded-pill px-3">ВКонтакте</span>
+        {% elif channel.platform == 'max' %}
+          <span class="badge badge-max rounded-pill px-3">MAX</span>
+        {% elif channel.platform == 'instagram' %}
+          <span class="badge badge-ig rounded-pill px-3">Instagram</span>
+        {% else %}
+          <span class="badge bg-secondary rounded-pill px-3">{{ channel.platform }}</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card-stat card">
+      <div class="text-muted small mb-1"><i class="bi bi-circle-fill me-1"></i>Статус</div>
+      <div class="mt-1 d-flex align-items-center gap-2">
+        {% if channel.is_active %}
+          <span class="badge bg-success-subtle text-success rounded-pill px-3">Активен</span>
+        {% else %}
+          <span class="badge bg-secondary-subtle text-secondary rounded-pill px-3">Неактивен</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card-stat card">
+      <div class="text-muted small mb-1"><i class="bi bi-bar-chart me-1"></i>Всего просмотров</div>
+      <div class="value">{{ total_views|default:"—" }}</div>
+    </div>
+  </div>
+</div>
+
+<!-- Recent posts -->
+<div class="card">
+  <div class="card-header bg-transparent border-bottom d-flex align-items-center justify-content-between py-3">
+    <h6 class="fw-bold mb-0">Последние посты</h6>
+    <a href="{% url 'content:create' %}?channel={{ channel.pk }}" class="btn btn-brand btn-sm">
+      <i class="bi bi-plus me-1"></i> Новый пост
+    </a>
+  </div>
+  <div class="card-body p-0">
+    {% if recent_posts %}
+    <ul class="list-group list-group-flush">
+      {% for post in recent_posts %}
+      <li class="list-group-item px-4 py-3">
+        <div class="d-flex align-items-start justify-content-between gap-3">
+          <div class="flex-grow-1">
+            <p class="mb-1 small">{{ post.text|truncatechars:120 }}</p>
+            <div class="d-flex gap-2 flex-wrap">
+              <span class="text-muted" style="font-size:.75rem;">
+                <i class="bi bi-calendar3 me-1"></i>{{ post.created_at|date:"d.m.Y H:i" }}
+              </span>
+              {% if post.status == 'published' %}
+                <span class="badge bg-success-subtle text-success small">Опубликован</span>
+              {% elif post.status == 'scheduled' %}
+                <span class="badge bg-warning-subtle text-warning small">Запланирован</span>
+              {% elif post.status == 'draft' %}
+                <span class="badge bg-secondary-subtle text-secondary small">Черновик</span>
+              {% elif post.status == 'failed' %}
+                <span class="badge bg-danger-subtle text-danger small">Ошибка</span>
+              {% endif %}
+            </div>
+          </div>
+          <a href="{% url 'content:detail' post.pk %}" class="btn btn-outline-secondary btn-sm flex-shrink-0">
+            <i class="bi bi-eye"></i>
+          </a>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+      Постов пока нет
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function testConnection() {
+  const btn = document.getElementById('btn-test');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Проверяю...';
+
+  fetch('{% url "channels:test" channel.pk %}', {
+    headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': '{{ csrf_token }}'},
+    method: 'POST',
+  })
+  .then(r => r.json())
+  .then(data => {
+    btn.disabled = false;
+    if (data.ok) {
+      btn.className = 'btn btn-success';
+      btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> ' + data.message;
+    } else {
+      btn.className = 'btn btn-danger';
+      btn.innerHTML = '<i class="bi bi-x-circle me-1"></i> ' + data.message;
+    }
+    setTimeout(() => {
+      btn.className = 'btn btn-outline-success';
+      btn.innerHTML = '<i class="bi bi-wifi me-1"></i> Проверить подключение';
+      btn.disabled = false;
+    }, 5000);
+  })
+  .catch(() => {
+    btn.disabled = false;
+    btn.className = 'btn btn-danger';
+    btn.innerHTML = '<i class="bi bi-x-circle me-1"></i> Ошибка соединения';
+  });
+}
+</script>
+{% endblock %}

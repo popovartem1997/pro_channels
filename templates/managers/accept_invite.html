@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}Приглашение в команду{% endblock %}
+
+{% block content %}
+<div class="container d-flex justify-content-center align-items-center" style="min-height: 80vh;">
+  <div class="card" style="width: 100%; max-width: 460px;">
+    <div class="card-body p-4 p-md-5 text-center">
+      <div class="d-inline-flex align-items-center justify-content-center rounded-circle mb-3"
+           style="width:64px;height:64px;background:var(--brand-light);">
+        <i class="bi bi-person-check fs-3" style="color:var(--brand)"></i>
+      </div>
+      <h4 class="fw-bold mb-2">Приглашение в команду</h4>
+      <p class="text-muted mb-1">Вас приглашает</p>
+      <p class="fw-semibold mb-1">{{ invite.owner.get_full_name|default:invite.owner.username }}</p>
+      <p class="text-muted mb-3">
+        Роль:
+        {% if invite.role == 'editor' %}
+          <span class="badge bg-success-subtle text-success">Редактор</span>
+        {% else %}
+          <span class="badge bg-secondary-subtle text-secondary">Читатель</span>
+        {% endif %}
+      </p>
+
+      {% if invite.is_expired %}
+      <div class="alert alert-warning">
+        <i class="bi bi-exclamation-triangle me-1"></i> Срок действия приглашения истёк.
+      </div>
+      {% else %}
+      <form method="post" class="mt-3">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-brand w-100 btn-lg fw-semibold">
+          <i class="bi bi-person-plus me-1"></i> Вступить в команду
+        </button>
+      </form>
+      {% endif %}
+
+      <div class="mt-3">
+        <a href="{% url 'dashboard' %}" class="text-muted small text-decoration-none">
+          Отклонить приглашение
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

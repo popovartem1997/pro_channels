@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+{% block title %}Пост{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <div>
+    <a href="{% url 'content:list' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+      <i class="bi bi-arrow-left me-1"></i> К списку постов
+    </a>
+    <h1>
+      Пост
+      {% if post.status == 'published' %}
+        <span class="badge bg-success ms-2 fs-6">Опубликован</span>
+      {% elif post.status == 'scheduled' %}
+        <span class="badge bg-warning text-dark ms-2 fs-6">Запланирован</span>
+      {% elif post.status == 'draft' %}
+        <span class="badge bg-secondary ms-2 fs-6">Черновик</span>
+      {% elif post.status == 'failed' %}
+        <span class="badge bg-danger ms-2 fs-6">Ошибка</span>
+      {% endif %}
+    </h1>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{% url 'content:edit' post.pk %}" class="btn btn-outline-primary">
+      <i class="bi bi-pencil me-1"></i> Редактировать
+    </a>
+    <form method="post" action="{% url 'content:publish_now' post.pk %}" class="d-inline">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-brand">
+        <i class="bi bi-send me-1"></i> Опубликовать сейчас
+      </button>
+    </form>
+    <a href="{% url 'content:delete' post.pk %}" class="btn btn-outline-danger">
+      <i class="bi bi-trash"></i>
+    </a>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-12 col-lg-8">
+
+    <!-- Text -->
+    <div class="card mb-4">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3 text-muted small text-uppercase letter-spacing">Текст поста</h6>
+        <div style="white-space: pre-wrap; line-height: 1.7;">{{ post.text }}</div>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div class="card">
+      <div class="card-header bg-transparent border-bottom py-3">
+        <h6 class="fw-bold mb-0">Результаты публикации</h6>
+      </div>
+      <div class="card-body p-0">
+        {% if results %}
+        <ul class="list-group list-group-flush">
+          {% for result in results %}
+          <li class="list-group-item px-4 py-3">
+            <div class="d-flex align-items-center gap-3">
+              <div class="flex-shrink-0">
+                {% if result.status == 'ok' %}
+                  <span class="badge bg-success-subtle text-success rounded-pill px-2">
+                    <i class="bi bi-check-circle me-1"></i> Успешно
+                  </span>
+                {% else %}
+                  <span class="badge bg-danger-subtle text-danger rounded-pill px-2">
+                    <i class="bi bi-x-circle me-1"></i> Ошибка
+                  </span>
+                {% endif %}
+              </div>
+              <div class="flex-grow-1">
+                <div class="fw-semibold small">{{ result.channel.name }}</div>
+                {% if result.error_message %}
+                  <div class="text-danger small mt-1">{{ result.error_message }}</div>
+                {% endif %}
+                {% if result.published_at %}
+                  <div class="text-muted" style="font-size:.75rem;">{{ result.published_at|date:"d.m.Y H:i" }}</div>
+                {% endif %}
+              </div>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="text-center py-4 text-muted">
+          <i class="bi bi-clock-history d-block mb-2 fs-4"></i>
+          Результатов публикации пока нет
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+
+  <div class="col-12 col-lg-4">
+    <div class="card mb-3">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3 text-muted small text-uppercase">Детали</h6>
+        <dl class="mb-0" style="font-size:.875rem;">
+          <dt class="text-muted fw-normal">Создан</dt>
+          <dd class="mb-2">{{ post.created_at|date:"d.m.Y H:i" }}</dd>
+
+          {% if post.scheduled_at %}
+          <dt class="text-muted fw-normal">Запланирован</dt>
+          <dd class="mb-2">{{ post.scheduled_at|date:"d.m.Y H:i" }}</dd>
+          {% endif %}
+
+          {% if post.ord_label %}
+          <dt class="text-muted fw-normal">Метка ОРД</dt>
+          <dd class="mb-2 font-monospace small">{{ post.ord_label }}</dd>
+          {% endif %}
+
+          {% if post.pin_message %}
+          <dd class="mb-1"><i class="bi bi-pin-angle text-warning me-1"></i> Закреплён</dd>
+          {% endif %}
+          {% if post.disable_notification %}
+          <dd class="mb-1"><i class="bi bi-bell-slash text-muted me-1"></i> Без уведомлений</dd>
+          {% endif %}
+        </dl>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3 text-muted small text-uppercase">Каналы</h6>
+        <div class="d-flex flex-column gap-2">
+          {% for channel in post.channels.all %}
+          <div class="d-flex align-items-center gap-2">
+            {% if channel.platform == 'telegram' %}
+              <span class="badge badge-tg">Telegram</span>
+            {% elif channel.platform == 'vk' %}
+              <span class="badge badge-vk">ВК</span>
+            {% elif channel.platform == 'max' %}
+              <span class="badge badge-max">MAX</span>
+            {% else %}
+              <span class="badge badge-ig">IG</span>
+            {% endif %}
+            <span class="small">{{ channel.name }}</span>
+          </div>
+          {% empty %}
+          <p class="text-muted small mb-0">Нет каналов</p>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

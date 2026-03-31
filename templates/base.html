@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}ProChannels{% endblock %} — Управление каналами</title>
+  <meta name="description" content="{% block meta_description %}ProChannels — платформа для управления каналами в Telegram, ВКонтакте и MAX{% endblock %}">
+  <meta property="og:title" content="{% block og_title %}{{ SITE_NAME|default:'ProChannels' }}{% endblock %}">
+  <meta property="og:description" content="{% block og_description %}{{ SITE_NAME|default:'ProChannels' }} — сервис управления каналами и рекламой{% endblock %}">
+  <meta property="og:type" content="website">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    :root {
+      --brand: #5b6ef5;
+      --brand-dark: #3d52e0;
+      --brand-light: #eef0ff;
+      --sidebar-w: 250px;
+    }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f0f2f8; }
+
+    /* ── Sidebar (desktop) ── */
+    .sidebar {
+      width: var(--sidebar-w);
+      min-height: 100vh;
+      background: #fff;
+      border-right: 1px solid #e2e8f0;
+      flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      transition: transform .25s ease;
+      z-index: 1040;
+    }
+    .sidebar .brand { font-weight: 800; font-size: 1.15rem; color: #1a202c; text-decoration: none; }
+    .sidebar .brand span { color: var(--brand); }
+    .sidebar .nav-link {
+      color: #64748b; border-radius: 8px; padding: 7px 12px; margin-bottom: 1px;
+      font-size: .875rem; display: flex; align-items: center; gap: 9px; transition: all .15s;
+    }
+    .sidebar .nav-link:hover { background: var(--brand-light); color: var(--brand); }
+    .sidebar .nav-link.active { background: var(--brand-light); color: var(--brand); font-weight: 600; }
+    .sidebar .nav-section {
+      font-size: .68rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .08em; color: #94a3b8; padding: 10px 12px 3px;
+    }
+
+    /* ── Mobile topbar ── */
+    .mobile-topbar {
+      display: none;
+      position: sticky; top: 0; z-index: 1030;
+      background: #fff; border-bottom: 1px solid #e2e8f0;
+      padding: 10px 16px;
+      align-items: center; justify-content: space-between;
+    }
+    .mobile-topbar .brand { font-weight: 800; font-size: 1.05rem; color: #1a202c; text-decoration: none; }
+    .mobile-topbar .brand span { color: var(--brand); }
+
+    /* Overlay за сайдбаром на мобильном */
+    .sidebar-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.45); z-index: 1039;
+    }
+    .sidebar-overlay.show { display: block; }
+
+    /* ── Mobile: сайдбар поверх контента ── */
+    @media (max-width: 991.98px) {
+      .mobile-topbar { display: flex; }
+      .sidebar {
+        position: fixed; top: 0; left: 0; height: 100vh;
+        transform: translateX(-100%);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .main-content { padding: 16px; }
+      .page-header h1 { font-size: 1.25rem; }
+    }
+
+    /* ── Main layout ── */
+    .main-content { flex: 1; min-width: 0; padding: 28px 32px; }
+    .page-header { margin-bottom: 24px; }
+    .page-header h1 { font-size: 1.5rem; font-weight: 700; color: #1a202c; margin: 0; }
+    .card { border: none; border-radius: 12px; box-shadow: 0 1px 6px rgba(0,0,0,.06); }
+    .card-stat { background: #fff; border-radius: 12px; padding: 20px 24px; }
+    .card-stat .value { font-size: 2rem; font-weight: 800; color: var(--brand); }
+    .btn-brand { background: var(--brand); color: #fff; border: none; }
+    .btn-brand:hover { background: var(--brand-dark); color: #fff; }
+    .badge-tg { background: #e3f2fd; color: #0277bd; }
+    .badge-vk { background: #e8eaf6; color: #3949ab; }
+    .badge-max { background: #fff3e0; color: #e65100; }
+    .badge-ig { background: #fce4ec; color: #c62828; }
+    .status-dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: #94a3b8;
+    }
+    .status-dot.published { background: #22c55e; }
+    .status-dot.draft { background: #94a3b8; }
+    .status-dot.scheduled { background: #f59e0b; }
+    .status-dot.failed { background: #ef4444; }
+    .trial-banner {
+      background: linear-gradient(135deg, #5b6ef5, #7c8ff7);
+      color: #fff; border-radius: 10px; padding: 12px 16px; font-size: .82rem;
+    }
+    {% block extra_css %}{% endblock %}
+  </style>
+</head>
+<body>
+
+{% if user.is_authenticated %}
+
+<!-- Мобильный топбар (виден только на телефоне/планшете) -->
+<div class="mobile-topbar">
+  <a class="brand" href="{% url 'dashboard' %}">
+    <i class="bi bi-broadcast-pin" style="color:var(--brand)"></i> Pro<span>Channels</span>
+  </a>
+  <button class="btn btn-sm btn-outline-secondary" id="sidebar-toggle" aria-label="Меню">
+    <i class="bi bi-list fs-5"></i>
+  </button>
+</div>
+
+<!-- Затемнение за сайдбаром -->
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+<div class="d-flex" style="min-height:100vh;">
+  <nav class="sidebar d-flex flex-column p-3" id="sidebar">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <a class="brand" href="{% url 'dashboard' %}">
+        <i class="bi bi-broadcast-pin" style="color:var(--brand)"></i> Pro<span>Channels</span>
+      </a>
+      <!-- Закрыть (только мобильный) -->
+      <button class="btn btn-sm btn-link text-muted d-lg-none p-0" id="sidebar-close">
+        <i class="bi bi-x-lg fs-5"></i>
+      </button>
+    </div>
+
+    <span class="nav-section">Основное</span>
+    <ul class="nav flex-column">
+      <li><a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}">
+        <i class="bi bi-house-door"></i> Главная
+      </a></li>
+    </ul>
+
+    <span class="nav-section">Публикация</span>
+    <ul class="nav flex-column">
+      <li><a class="nav-link {% if 'channels' in request.path %}active{% endif %}" href="{% url 'channels:list' %}">
+        <i class="bi bi-broadcast"></i> Каналы
+      </a></li>
+      <li><a class="nav-link {% if '/posts/' in request.path %}active{% endif %}" href="{% url 'content:list' %}">
+        <i class="bi bi-pencil-square"></i> Посты
+      </a></li>
+      <li><a class="nav-link {% if '/bots/' in request.path %}active{% endif %}" href="{% url 'bots:list' %}">
+        <i class="bi bi-robot"></i> Боты предложки
+        {% if global_pending_count %}<span class="ms-auto badge rounded-pill bg-danger">{{ global_pending_count }}</span>{% endif %}
+      </a></li>
+    </ul>
+
+    <span class="nav-section">Контент</span>
+    <ul class="nav flex-column">
+      <li><a class="nav-link {% if '/parsing/' in request.path %}active{% endif %}" href="{% url 'parsing:sources' %}">
+        <i class="bi bi-search"></i> Парсинг
+      </a></li>
+    </ul>
+
+    <span class="nav-section">Аналитика</span>
+    <ul class="nav flex-column">
+      <li><a class="nav-link {% if '/stats/' in request.path %}active{% endif %}" href="{% url 'stats:dashboard' %}">
+        <i class="bi bi-bar-chart-line"></i> Статистика
+      </a></li>
+    </ul>
+
+    <span class="nav-section">Монетизация</span>
+    <ul class="nav flex-column">
+      <li><a class="nav-link {% if '/advertisers/' in request.path and '/advertisers/manage/' not in request.path %}active{% endif %}"
+             href="{% if user.is_staff or user.role == 'owner' %}{% url 'advertisers:catalog' %}{% else %}{% url 'advertisers:dashboard' %}{% endif %}">
+        <i class="bi bi-megaphone"></i> Реклама
+      </a></li>
+      {% if user.is_staff or user.role == 'owner' %}
+      <li><a class="nav-link {% if '/advertisers/manage/' in request.path %}active{% endif %}" href="{% url 'advertisers:owner_orders' %}">
+        <i class="bi bi-clipboard-check"></i> Заявки на рекламу
+        {% if adv_pending_count %}<span class="ms-auto badge rounded-pill bg-warning text-dark">{{ adv_pending_count }}</span>{% endif %}
+      </a></li>
+      {% endif %}
+      <li><a class="nav-link {% if '/ord/' in request.path %}active{% endif %}" href="{% url 'ord_marking:list' %}">
+        <i class="bi bi-shield-check"></i> ВК ОРД
+      </a></li>
+      <li><a class="nav-link {% if '/billing/' in request.path %}active{% endif %}" href="{% url 'billing:invoices' %}">
+        <i class="bi bi-credit-card"></i> Счета
+      </a></li>
+    </ul>
+
+    <span class="nav-section">Команда</span>
+    <ul class="nav flex-column">
+      <li><a class="nav-link {% if '/managers/' in request.path %}active{% endif %}" href="{% url 'managers:list' %}">
+        <i class="bi bi-people"></i> Менеджеры
+      </a></li>
+    </ul>
+
+    <div class="mt-auto pt-2">
+      <hr class="text-muted my-2">
+      {% if user.is_on_trial %}
+      <div class="trial-banner mb-2">
+        <div class="fw-bold mb-1"><i class="bi bi-clock"></i> Пробный период</div>
+        <div>Осталось <b>{{ user.trial_days_left }} дн.</b></div>
+        <a href="{% url 'billing:subscribe' %}" class="btn btn-light btn-sm w-100 mt-2 fw-bold">Оформить подписку</a>
+      </div>
+      {% endif %}
+      <a class="nav-link {% if request.resolver_match.url_name == 'profile' %}active{% endif %}" href="{% url 'profile' %}">
+        <i class="bi bi-person-circle"></i> {{ user.get_full_name|default:user.username }}
+      </a>
+      <a href="{% url 'logout' %}" class="nav-link text-danger">
+        <i class="bi bi-box-arrow-right"></i> Выйти
+      </a>
+    </div>
+  </nav>
+
+  <div class="flex-grow-1 d-flex flex-column" style="min-width:0;">
+    {% if messages %}
+    <div class="px-3 px-lg-4 pt-3">
+      {% for msg in messages %}
+      <div class="alert alert-{% if msg.tags == 'error' %}danger{% else %}{{ msg.tags|default:'info' }}{% endif %} alert-dismissible fade show py-2 mb-2">
+        {{ msg }} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="main-content">
+
+{% else %}
+<nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom sticky-top">
+  <div class="container">
+    <a class="navbar-brand fw-bold" href="{% url 'home' %}">
+      <i class="bi bi-broadcast-pin text-primary"></i> Pro<span style="color:var(--brand)">Channels</span>
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="nav">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item"><a class="nav-link" href="/#features">Возможности</a></li>
+        <li class="nav-item"><a class="nav-link" href="/#pricing">Тарифы</a></li>
+        <li class="nav-item"><a class="nav-link" href="{% url 'advertisers:catalog' %}">Каталог каналов</a></li>
+        <li class="nav-item"><a class="nav-link" href="{% url 'advertisers:register' %}">Рекламодателям</a></li>
+      </ul>
+      <a href="{% url 'login' %}" class="btn btn-outline-primary me-2">Войти</a>
+      <a href="{% url 'register' %}" class="btn btn-brand">Попробовать бесплатно</a>
+    </div>
+  </div>
+</nav>
+{% if messages %}
+<div class="container mt-3">
+  {% for msg in messages %}
+  <div class="alert alert-{% if msg.tags == 'error' %}danger{% else %}{{ msg.tags|default:'info' }}{% endif %} alert-dismissible fade show">
+    {{ msg }} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+<div>
+{% endif %}
+
+{% block content %}{% endblock %}
+
+</div>{% if user.is_authenticated %}</div></div>{% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// Мобильное меню
+(function() {
+  var toggle  = document.getElementById('sidebar-toggle');
+  var close   = document.getElementById('sidebar-close');
+  var sidebar = document.getElementById('sidebar');
+  var overlay = document.getElementById('sidebar-overlay');
+  if (!toggle) return;
+
+  function open()  { sidebar.classList.add('open');  overlay.classList.add('show');  }
+  function shut()  { sidebar.classList.remove('open'); overlay.classList.remove('show'); }
+
+  toggle.addEventListener('click', open);
+  if (close)   close.addEventListener('click', shut);
+  if (overlay) overlay.addEventListener('click', shut);
+
+  // Закрываем при переходе по ссылке (SPA-поведение)
+  sidebar.querySelectorAll('a.nav-link').forEach(function(a) {
+    a.addEventListener('click', shut);
+  });
+})();
+</script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

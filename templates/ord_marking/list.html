@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+{% block title %}ВК ОРД — Регистрации{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <div>
+    <h1><i class="bi bi-shield-check me-2" style="color:var(--brand)"></i>ВК ОРД</h1>
+    <p class="text-muted small mb-0">Регистрация рекламных материалов в ОРД</p>
+  </div>
+  <a href="{% url 'ord_marking:create' %}" class="btn btn-brand">
+    <i class="bi bi-plus-lg me-1"></i> Новая регистрация
+  </a>
+</div>
+
+{% if registrations %}
+<div class="card p-0">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-4">Идентификатор (erid)</th>
+          <th>Рекламодатель</th>
+          <th>Пост</th>
+          <th>Статус</th>
+          <th>Дата регистрации</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for reg in registrations %}
+        <tr>
+          <td class="ps-4 font-monospace small">{{ reg.ord_id|default:"—" }}</td>
+          <td class="small">{{ reg.advertiser.company_name|default:"—" }}</td>
+          <td>
+            {% if reg.post %}
+            <a href="{% url 'content:detail' reg.post.pk %}" class="text-truncate d-block small"
+               style="max-width:200px;">
+              {{ reg.post.text|truncatechars:60 }}
+            </a>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if reg.status == 'registered' %}
+              <span class="badge bg-success-subtle text-success rounded-pill px-3">Зарегистрировано</span>
+            {% elif reg.status == 'pending' %}
+              <span class="badge bg-warning-subtle text-warning rounded-pill px-3">В обработке</span>
+            {% elif reg.status == 'error' %}
+              <span class="badge bg-danger-subtle text-danger rounded-pill px-3">Ошибка</span>
+            {% else %}
+              <span class="badge bg-secondary-subtle text-secondary rounded-pill px-3">{{ reg.status }}</span>
+            {% endif %}
+          </td>
+          <td class="text-muted small">{{ reg.created_at|date:"d.m.Y H:i" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="card-body text-center py-5">
+    <div class="d-inline-flex align-items-center justify-content-center rounded-circle mb-3"
+         style="width:64px;height:64px;background:var(--brand-light);">
+      <i class="bi bi-shield-check fs-3" style="color:var(--brand)"></i>
+    </div>
+    <h5 class="fw-bold">Регистраций нет</h5>
+    <p class="text-muted mb-4">Зарегистрируйте рекламные материалы в ОРД для соответствия закону</p>
+    <a href="{% url 'ord_marking:create' %}" class="btn btn-brand">
+      <i class="bi bi-plus-lg me-1"></i> Новая регистрация
+    </a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

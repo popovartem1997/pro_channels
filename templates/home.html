@@ -1,0 +1,293 @@
+{% extends 'base.html' %}
+{% block title %}ProChannels — Управляйте каналами в VK, Telegram, MAX{% endblock %}
+
+{% block extra_css %}
+.hero { background: linear-gradient(135deg, #5b6ef5 0%, #3d52e0 100%); color: #fff; padding: 100px 0 80px; }
+.hero h1 { font-size: 3rem; font-weight: 800; line-height: 1.15; }
+.hero p.lead { font-size: 1.25rem; opacity: .9; }
+.feature-icon { width: 56px; height: 56px; background: var(--brand-light); border-radius: 14px;
+  display: flex; align-items: center; justify-content: center; font-size: 1.5rem; margin-bottom: 16px; }
+.pricing-card { border: 2px solid #e9ecef; border-radius: 16px; padding: 32px; transition: .2s; }
+.pricing-card:hover { border-color: var(--brand); transform: translateY(-4px); box-shadow: 0 8px 32px rgba(91,110,245,.15); }
+.pricing-card.featured { border-color: var(--brand); background: var(--brand-light); }
+.pricing-card .price { font-size: 2.5rem; font-weight: 800; color: var(--brand); }
+.pricing-card .price sup { font-size: 1.2rem; font-weight: 600; }
+.social-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,.15);
+  border: 1px solid rgba(255,255,255,.3); border-radius: 20px; padding: 6px 14px; font-size: .85rem;
+  color: #fff; backdrop-filter: blur(4px); }
+.step-num { width: 40px; height: 40px; background: var(--brand); color: #fff; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+.trial-banner { background: linear-gradient(90deg, #5b6ef5, #7c8ff7); color: #fff; padding: 14px; border-radius: 12px; }
+/* Hero preview */
+.hero-preview { position: relative; padding: 10px 0; }
+.preview-window { background: #1e293b; border-radius: 12px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,.35); }
+.preview-titlebar { background: #0f172a; padding: 10px 14px; display: flex; align-items: center; gap: 6px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot.red { background: #ff5f57; } .dot.yellow { background: #febc2e; } .dot.green { background: #28c840; }
+.preview-url { font-size: .65rem; color: #64748b; margin-left: 8px; font-family: monospace; }
+.preview-body { padding: 12px; }
+.preview-card { background: #fff; border-radius: 8px; padding: 10px 12px; }
+.preview-badge { display: inline-flex; align-items: center; gap: 4px; font-size: .65rem; font-weight: 600;
+  padding: 2px 8px; border-radius: 20px; }
+.preview-badge.tg { background: #e3f2fd; color: #0277bd; }
+.preview-badge.vk { background: #e8eaf6; color: #3949ab; }
+.preview-text { font-size: .72rem; color: #374151; line-height: 1.4; }
+.preview-btn { font-size: .65rem; padding: 3px 10px; border-radius: 6px; border: none; cursor: default;
+  background: #eef0ff; color: #5b6ef5; font-weight: 600; }
+.preview-btn.publish { background: #dcfce7; color: #16a34a; }
+.preview-btn.schedule { background: #fef3c7; color: #d97706; }
+.preview-stats { display: flex; gap: 8px; margin-top: 8px; }
+.stat-item { background: #fff; border-radius: 8px; padding: 8px 10px; flex: 1; text-align: center; }
+.stat-val { font-size: .85rem; font-weight: 800; color: #5b6ef5; }
+.stat-label { font-size: .6rem; color: #94a3b8; }
+{% endblock %}
+
+{% block content %}
+<!-- HERO -->
+<section class="hero">
+  <div class="container">
+    <div class="row align-items-center">
+      <div class="col-lg-7">
+        <div class="mb-3">
+          <span class="social-badge me-2">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="#2AABEE"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-1.97 9.286c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.935z"/></svg>
+            Telegram
+          </span>
+          <span class="social-badge me-2">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="#4680C2"><path d="M15.684 0H8.316C1.592 0 0 1.592 0 8.316v7.368C0 22.408 1.592 24 8.316 24h7.368C22.408 24 24 22.408 24 15.684V8.316C24 1.592 22.408 0 15.684 0zm3.692 17.123h-1.744c-.66 0-.864-.525-2.05-1.727-1.033-1-1.49-1.135-1.744-1.135-.356 0-.458.102-.458.593v1.575c0 .424-.135.678-1.253.678-1.846 0-3.896-1.118-5.335-3.202C4.624 10.857 4.03 8.57 4.03 8.096c0-.254.102-.491.593-.491h1.744c.44 0 .61.203.78.677.863 2.49 2.303 4.675 2.896 4.675.22 0 .322-.102.322-.66V9.721c-.068-1.186-.695-1.287-.695-1.71 0-.203.17-.407.44-.407h2.744c.373 0 .508.203.508.643v3.473c0 .372.17.508.271.508.22 0 .407-.136.813-.542 1.254-1.406 2.151-3.574 2.151-3.574.119-.254.322-.491.762-.491h1.744c.525 0 .644.27.525.643-.22 1.017-2.354 4.031-2.354 4.031-.186.305-.254.44 0 .78.186.254.796.78 1.203 1.253.745.847 1.32 1.558 1.473 2.05.17.49-.085.745-.576.745z"/></svg>
+            ВКонтакте
+          </span>
+          <span class="social-badge">
+            <svg width="15" height="15" viewBox="0 0 24 24"><circle cx="12" cy="12" r="12" fill="#FF6600"/><text x="12" y="16.5" text-anchor="middle" font-family="Arial" font-weight="900" font-size="13" fill="white">M</text></svg>
+            MAX
+          </span>
+        </div>
+        <h1 class="mb-4">Управляйте всеми каналами <span style="color:#ffd700">в одном месте</span></h1>
+        <p class="lead mb-4">Публикуйте посты, собирайте предложения от подписчиков, анализируйте статистику и управляйте рекламой — для Telegram, ВКонтакте и MAX.</p>
+        <div class="d-flex gap-3 flex-wrap">
+          <a href="{% url 'register' %}" class="btn btn-light btn-lg fw-bold px-5">
+            <i class="bi bi-gift"></i> 30 дней бесплатно
+          </a>
+          <a href="#features" class="btn btn-outline-light btn-lg">Узнать больше</a>
+        </div>
+        <p class="mt-3 small opacity-75">Без привязки карты. Кредитная карта не нужна.</p>
+      </div>
+      <div class="col-lg-5 d-none d-lg-block">
+        <!-- UI превью -->
+        <div class="hero-preview">
+          <!-- Окно браузера -->
+          <div class="preview-window">
+            <div class="preview-titlebar">
+              <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+              <span class="preview-url">prochannels.ru/posts</span>
+            </div>
+            <div class="preview-body">
+              <!-- Карточка поста -->
+              <div class="preview-card mb-2">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                  <span class="preview-badge tg">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="#0277bd"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-1.97 9.286c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.935z"/></svg>
+                    Telegram
+                  </span>
+                  <span class="preview-badge vk">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="#3949ab"><path d="M15.684 0H8.316C1.592 0 0 1.592 0 8.316v7.368C0 22.408 1.592 24 8.316 24h7.368C22.408 24 24 22.408 24 15.684V8.316C24 1.592 22.408 0 15.684 0zm3.692 17.123h-1.744c-.66 0-.864-.525-2.05-1.727-1.033-1-1.49-1.135-1.744-1.135-.356 0-.458.102-.458.593v1.575c0 .424-.135.678-1.253.678-1.846 0-3.896-1.118-5.335-3.202C4.624 10.857 4.03 8.57 4.03 8.096c0-.254.102-.491.593-.491h1.744c.44 0 .61.203.78.677.863 2.49 2.303 4.675 2.896 4.675.22 0 .322-.102.322-.66V9.721c-.068-1.186-.695-1.287-.695-1.71 0-.203.17-.407.44-.407h2.744c.373 0 .508.203.508.643v3.473c0 .372.17.508.271.508.22 0 .407-.136.813-.542 1.254-1.406 2.151-3.574 2.151-3.574.119-.254.322-.491.762-.491h1.744c.525 0 .644.27.525.643-.22 1.017-2.354 4.031-2.354 4.031-.186.305-.254.44 0 .78.186.254.796.78 1.203 1.253.745.847 1.32 1.558 1.473 2.05.17.49-.085.745-.576.745z"/></svg>
+                    ВКонтакте
+                  </span>
+                  <span style="font-size:.7rem;color:#94a3b8;">14:30</span>
+                </div>
+                <div class="preview-text">🔥 Срочная новость: рынок вырос на 3.2% — анализ от экспертов...</div>
+                <div class="d-flex gap-2 mt-2">
+                  <button class="preview-btn publish">Опубликовать</button>
+                  <button class="preview-btn schedule">Запланировать</button>
+                </div>
+              </div>
+              <!-- Статистика -->
+              <div class="preview-stats">
+                <div class="stat-item">
+                  <div class="stat-val">12 847</div>
+                  <div class="stat-label">просмотров</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-val" style="color:#22c55e;">+234</div>
+                  <div class="stat-label">подписчиков</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-val" style="color:#f59e0b;">4.8%</div>
+                  <div class="stat-label">ER</div>
+                </div>
+              </div>
+              <!-- Предложка -->
+              <div class="preview-card mt-2" style="border-left:3px solid #f59e0b;">
+                <div style="font-size:.65rem;color:#94a3b8;margin-bottom:4px;">
+                  <i class="bi bi-inbox" style="color:#f59e0b;"></i> Новое предложение от @maria_k
+                </div>
+                <div class="preview-text">Отличный материал о развитии малого бизнеса в 2026...</div>
+                <div class="d-flex gap-1 mt-1">
+                  <button class="preview-btn publish" style="font-size:.6rem;padding:2px 8px;">✓ Одобрить</button>
+                  <button class="preview-btn" style="font-size:.6rem;padding:2px 8px;background:#fee2e2;color:#dc2626;">✗ Отклонить</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="py-5" id="features">
+  <div class="container">
+    <div class="text-center mb-5">
+      <h2 class="fw-bold">Всё что нужно для управления каналами</h2>
+      <p class="text-muted">От публикации постов до рекламных кампаний</p>
+    </div>
+    <div class="row g-4">
+      <div class="col-md-4">
+        <div class="card p-4 h-100">
+          <div class="feature-icon"><i class="bi bi-pencil-square text-primary"></i></div>
+          <h5 class="fw-bold">Публикация постов</h5>
+          <p class="text-muted mb-0">Пишите посты и публикуйте сразу в несколько соцсетей. Планировщик, повторы, отложенные публикации.</p>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card p-4 h-100">
+          <div class="feature-icon"><i class="bi bi-robot text-primary"></i></div>
+          <h5 class="fw-bold">Боты предложки</h5>
+          <p class="text-muted mb-0">Подписчики предлагают новости через бота в Telegram, VK или MAX. Вы модерируете одной кнопкой.</p>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card p-4 h-100">
+          <div class="feature-icon"><i class="bi bi-search text-primary"></i></div>
+          <h5 class="fw-bold">Парсинг и AI</h5>
+          <p class="text-muted mb-0">Парсинг каналов по ключевым словам + автоматическая генерация текстов на основе нейросети.</p>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card p-4 h-100">
+          <div class="feature-icon"><i class="bi bi-bar-chart text-primary"></i></div>
+          <h5 class="fw-bold">Статистика</h5>
+          <p class="text-muted mb-0">Охват, ER, CPM, динамика роста подписчиков. Наглядные графики по каждому каналу.</p>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card p-4 h-100">
+          <div class="feature-icon"><i class="bi bi-megaphone-fill text-primary"></i></div>
+          <h5 class="fw-bold">Реклама</h5>
+          <p class="text-muted mb-0">Кабинет рекламодателя, счета, договора, акты выполненных работ. Оплата через Т-Банк.</p>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card p-4 h-100">
+          <div class="feature-icon"><i class="bi bi-people text-primary"></i></div>
+          <h5 class="fw-bold">Команда</h5>
+          <p class="text-muted mb-0">Приглашайте менеджеров, распределяйте задачи, контролируйте работу сотрудников.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- КАК РАБОТАЕТ -->
+<section class="py-5 bg-white">
+  <div class="container">
+    <div class="text-center mb-5">
+      <h2 class="fw-bold">Как это работает</h2>
+    </div>
+    <div class="row g-4 align-items-start">
+      <div class="col-md-3 text-center">
+        <div class="step-num mx-auto mb-3">1</div>
+        <h6 class="fw-bold">Регистрация</h6>
+        <p class="text-muted small">Создайте аккаунт за 30 секунд. 30 дней бесплатно.</p>
+      </div>
+      <div class="col-md-3 text-center">
+        <div class="step-num mx-auto mb-3">2</div>
+        <h6 class="fw-bold">Подключите каналы</h6>
+        <p class="text-muted small">Добавьте токены Telegram, VK или MAX. Данные зашифрованы.</p>
+      </div>
+      <div class="col-md-3 text-center">
+        <div class="step-num mx-auto mb-3">3</div>
+        <h6 class="fw-bold">Настройте ботов</h6>
+        <p class="text-muted small">Запустите бота предложки — подписчики начнут присылать контент.</p>
+      </div>
+      <div class="col-md-3 text-center">
+        <div class="step-num mx-auto mb-3">4</div>
+        <h6 class="fw-bold">Публикуйте</h6>
+        <p class="text-muted small">Одобряйте заявки, планируйте посты и следите за статистикой.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ТАРИФЫ -->
+<section class="py-5" id="pricing">
+  <div class="container">
+    <div class="text-center mb-5">
+      <h2 class="fw-bold">Простые тарифы</h2>
+      <p class="text-muted">Платите только за то, что используете</p>
+    </div>
+    <div class="row justify-content-center g-4">
+      <div class="col-md-4">
+        <div class="pricing-card h-100">
+          <h5 class="fw-bold">Пробный</h5>
+          <div class="price mt-3 mb-1"><sup>бесплатно</sup></div>
+          <p class="text-muted mb-4">30 дней</p>
+          <ul class="list-unstyled mb-4">
+            <li class="mb-2"><i class="bi bi-check-circle text-success me-2"></i>1 паблик или канал</li>
+            <li class="mb-2"><i class="bi bi-check-circle text-success me-2"></i>Бот предложки</li>
+            <li class="mb-2"><i class="bi bi-check-circle text-success me-2"></i>Публикация постов</li>
+            <li class="mb-2 text-muted"><i class="bi bi-x-circle me-2"></i>Парсинг и AI</li>
+            <li class="mb-2 text-muted"><i class="bi bi-x-circle me-2"></i>Реклама</li>
+          </ul>
+          <a href="{% url 'register' %}" class="btn btn-outline-primary w-100">Начать бесплатно</a>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="pricing-card featured h-100">
+          <span class="badge bg-primary mb-2">Популярный</span>
+          <h5 class="fw-bold">Базовый</h5>
+          <div class="price mt-3 mb-1"><sup>₽</sup>299<span class="fs-5 fw-normal text-muted">/мес</span></div>
+          <p class="text-muted mb-4">за 1 паблик</p>
+          <ul class="list-unstyled mb-4">
+            <li class="mb-2"><i class="bi bi-check-circle text-success me-2"></i>1 паблик или канал</li>
+            <li class="mb-2"><i class="bi bi-check-circle text-success me-2"></i>Бот предложки</li>
+            <li class="mb-2"><i class="bi bi-check-circle text-success me-2"></i>Планировщик постов</li>
+            <li class="mb-2"><i class="bi bi-check-circle text-success me-2"></i>Статистика</li>
+            <li class="mb-2"><i class="bi bi-check-circle text-success me-2"></i>Парсинг и AI</li>
+            <li class="mb-2"><i class="bi bi-check-circle text-success me-2"></i>Реклама</li>
+          </ul>
+          <a href="{% url 'register' %}" class="btn btn-brand w-100">Подключить</a>
+        </div>
+      </div>
+    </div>
+    <p class="text-center text-muted mt-4">
+      <i class="bi bi-infinity"></i> Нужно несколько пабликов? Каждый дополнительный — ещё <b>299 ₽/мес</b>
+    </p>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="py-5">
+  <div class="container">
+    <div class="trial-banner text-center py-5">
+      <h2 class="fw-bold mb-3">Начните прямо сейчас</h2>
+      <p class="mb-4 opacity-90 fs-5">30 дней бесплатно. Без привязки карты.</p>
+      <a href="{% url 'register' %}" class="btn btn-light btn-lg fw-bold px-5">
+        <i class="bi bi-rocket-takeoff"></i> Создать аккаунт
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="bg-white border-top py-4">
+  <div class="container d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <span class="text-muted small">© 2026 ProChannels. Все права защищены.</span>
+    <div class="d-flex gap-3">
+      <a href="#" class="text-muted small text-decoration-none">Оферта</a>
+      <a href="#" class="text-muted small text-decoration-none">Политика конфиденциальности</a>
+    </div>
+  </div>
+</footer>
+{% endblock %}

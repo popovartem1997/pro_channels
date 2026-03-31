@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 2cm; }
+  body { font-family: sans-serif; font-size: 11pt; color: #333; line-height: 1.5; }
+  h1 { font-size: 16pt; text-align: center; margin-bottom: 5px; }
+  h2 { font-size: 12pt; text-align: center; margin-top: 0; color: #666; }
+  .header { border-bottom: 2px solid #5b6ef5; padding-bottom: 10px; margin-bottom: 25px; }
+  .brand { color: #5b6ef5; font-size: 14pt; }
+  .parties { display: flex; justify-content: space-between; margin-bottom: 20px; }
+  .party { width: 48%; }
+  .party h3 { font-size: 11pt; margin-bottom: 5px; color: #5b6ef5; }
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+  th, td { padding: 8px 10px; border: 1px solid #ddd; }
+  th { background: #f8f9fa; text-align: left; }
+  .total { font-size: 13pt; font-weight: bold; text-align: right; margin: 15px 0; }
+  .signatures { display: flex; justify-content: space-between; margin-top: 50px; }
+  .sig-block { width: 45%; }
+  .sig-line { border-bottom: 1px solid #333; margin-top: 40px; padding-bottom: 5px; }
+  .footer { margin-top: 30px; font-size: 9pt; color: #999; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <span class="brand">{{ site_name }}</span>
+</div>
+
+<h1>Акт выполненных работ</h1>
+<h2>{{ act.number }} от {{ act.issued_at|date:"d.m.Y" }}</h2>
+
+<p>
+  Настоящий акт составлен о том, что Исполнитель выполнил, а Заказчик принял
+  следующие работы (услуги) в рамках заказа «{{ order.title }}»:
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:5%">№</th>
+      <th>Наименование услуги</th>
+      <th style="width:15%">Период</th>
+      <th style="width:15%; text-align:right;">Сумма</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>{{ act.service_description }}</td>
+      <td>{{ order.start_date|date:"d.m.Y" }} — {{ order.end_date|date:"d.m.Y" }}</td>
+      <td style="text-align:right;">{{ act.amount }} ₽</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="total">Итого: {{ act.amount }} ₽</div>
+<p>НДС не облагается.</p>
+
+<p>
+  Каналы размещения:
+  {% for ch in order.channels.all %}{{ ch.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+</p>
+
+<p>
+  Вышеуказанные услуги выполнены полностью и в срок. Заказчик претензий
+  по объёму, качеству и срокам оказания услуг не имеет.
+</p>
+
+<div class="signatures">
+  <div class="sig-block">
+    <strong>Исполнитель:</strong>
+    <div>{{ site_name }}</div>
+    <div class="sig-line">Подпись / печать</div>
+  </div>
+  <div class="sig-block">
+    <strong>Заказчик:</strong>
+    <div>{{ advertiser.company_name }}</div>
+    <div>ИНН: {{ advertiser.inn }}</div>
+    <div class="sig-line">Подпись / печать</div>
+  </div>
+</div>
+
+<div class="footer">
+  Документ сформирован автоматически в системе {{ site_name }}.<br>
+  Дата формирования: {% now "d.m.Y H:i" %}
+</div>
+
+</body>
+</html>

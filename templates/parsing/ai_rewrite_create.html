@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}Новая задача AI рерайта{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'parsing:ai_rewrite' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К задачам рерайта
+  </a>
+  <h1>Новая задача AI рерайта</h1>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-body p-4 p-md-5">
+        <form method="post" novalidate>
+          {% csrf_token %}
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold" for="id_text">
+              <i class="bi bi-text-paragraph me-1"></i> Исходный текст
+            </label>
+            <textarea name="text" id="id_text" rows="8"
+                      class="form-control"
+                      placeholder="Вставьте текст, который нужно переработать...">{{ prefill_text|default:'' }}</textarea>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold" for="id_prompt">
+              <i class="bi bi-lightbulb me-1"></i> Инструкция для AI
+              <span class="text-muted fw-normal small">(необязательно)</span>
+            </label>
+            <textarea name="prompt" id="id_prompt" rows="3"
+                      class="form-control"
+                      placeholder="Например: Перепиши в стиле новостного заголовка, сделай более кратким..."></textarea>
+            <div class="form-text">Если оставить пустым, будет использована инструкция по умолчанию</div>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-brand px-4 fw-semibold">
+              <i class="bi bi-stars me-1"></i> Запустить рерайт
+            </button>
+            <a href="{% url 'parsing:ai_rewrite' %}" class="btn btn-outline-secondary">Отмена</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,123 @@
+{% extends 'base.html' %}
+{% block title %}Создать бота{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'bots:list' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К ботам
+  </a>
+  <h1>Создать бота предложки</h1>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-body p-4 p-md-5">
+        <form method="post" novalidate>
+          {% csrf_token %}
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_name">Название бота</label>
+            <input type="text" name="name" id="id_name"
+                   class="form-control"
+                   value="{{ request.POST.name|default:'' }}"
+                   placeholder="Бот предложки для @mychannel" required>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold" for="id_platform">Платформа</label>
+            <select name="platform" id="id_platform"
+                    class="form-select"
+                    onchange="showBotFields(this.value)" required>
+              <option value="">— Выберите платформу —</option>
+              {% for val, label in platforms %}
+                <option value="{{ val }}" {% if request.POST.platform == val %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_bot_token">Bot Token</label>
+            <input type="text" name="bot_token" id="id_bot_token"
+                   class="form-control font-monospace"
+                   value="{{ request.POST.bot_token|default:'' }}"
+                   placeholder="Токен бота">
+          </div>
+
+          <!-- Telegram: admin_chat_id -->
+          <div id="field-admin-chat" class="platform-bot-field d-none mb-3">
+            <label class="form-label fw-semibold">Admin Chat ID</label>
+            <input type="text" name="admin_chat_id" class="form-control font-monospace"
+                   value="{{ request.POST.admin_chat_id|default:'' }}"
+                   placeholder="-1001234567890 или @admingroup">
+            <div class="form-text">Чат, куда будут приходить предложения для модерации</div>
+          </div>
+
+          <!-- VK/MAX: group_id -->
+          <div id="field-group-id" class="platform-bot-field d-none mb-3">
+            <label class="form-label fw-semibold">ID группы / сообщества</label>
+            <input type="text" name="group_id" class="form-control font-monospace"
+                   value="{{ request.POST.group_id|default:'' }}"
+                   placeholder="123456789">
+          </div>
+
+          <hr class="my-4">
+          <h6 class="fw-bold mb-3">Сообщения бота</h6>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_welcome_message">Приветственное сообщение</label>
+            <textarea name="welcome_message" id="id_welcome_message" rows="2"
+                      class="form-control"
+                      placeholder="Привет! Отправьте ваше предложение.">{{ request.POST.welcome_message|default:'' }}</textarea>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_success_message">После получения предложения</label>
+            <textarea name="success_message" id="id_success_message" rows="2"
+                      class="form-control"
+                      placeholder="Спасибо! Ваше предложение принято на рассмотрение.">{{ request.POST.success_message|default:'' }}</textarea>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_approved_message">При одобрении</label>
+            <textarea name="approved_message" id="id_approved_message" rows="2"
+                      class="form-control"
+                      placeholder="Ваше предложение одобрено и будет опубликовано!">{{ request.POST.approved_message|default:'' }}</textarea>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold" for="id_rejected_message">При отклонении</label>
+            <textarea name="rejected_message" id="id_rejected_message" rows="2"
+                      class="form-control"
+                      placeholder="К сожалению, ваше предложение не подошло.">{{ request.POST.rejected_message|default:'' }}</textarea>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-brand px-4 fw-semibold">
+              <i class="bi bi-check-lg me-1"></i> Создать бота
+            </button>
+            <a href="{% url 'bots:list' %}" class="btn btn-outline-secondary">Отмена</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function showBotFields(platform) {
+  document.querySelectorAll('.platform-bot-field').forEach(el => el.classList.add('d-none'));
+  if (platform === 'telegram') {
+    document.getElementById('field-admin-chat').classList.remove('d-none');
+  } else if (platform === 'vk' || platform === 'max') {
+    document.getElementById('field-group-id').classList.remove('d-none');
+  }
+}
+document.addEventListener('DOMContentLoaded', function() {
+  const sel = document.getElementById('id_platform');
+  if (sel.value) showBotFields(sel.value);
+});
+</script>
+{% endblock %}

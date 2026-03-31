@@ -1,0 +1,116 @@
+{% extends 'base.html' %}
+{% block title %}Парсинг — источники{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <div>
+    <h1><i class="bi bi-search me-2" style="color:var(--brand)"></i>Парсинг</h1>
+    <p class="text-muted small mb-0">Отслеживайте источники и ключевые слова</p>
+  </div>
+</div>
+
+{% if channels %}
+<div class="card mb-4">
+  <div class="card-body py-3">
+    <form method="get" class="d-flex align-items-center gap-2 flex-wrap">
+      <div class="text-muted small fw-semibold">Канал:</div>
+      <select name="channel" class="form-select form-select-sm" style="max-width:340px;">
+        {% for ch in channels %}
+          <option value="{{ ch.pk }}" {% if selected_channel and selected_channel.pk == ch.pk %}selected{% endif %}>{{ ch.name }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-outline-secondary btn-sm" type="submit">Выбрать</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-4">
+
+  <!-- Sources -->
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header bg-transparent border-bottom d-flex align-items-center justify-content-between py-3">
+        <h6 class="fw-bold mb-0"><i class="bi bi-link-45deg me-1"></i> Источники</h6>
+        <a href="{% url 'parsing:source_create' %}" class="btn btn-brand btn-sm">
+          <i class="bi bi-plus me-1"></i> Добавить
+        </a>
+      </div>
+      <div class="card-body p-0">
+        {% if sources %}
+        <ul class="list-group list-group-flush">
+          {% for source in sources %}
+          <li class="list-group-item px-4 py-3 d-flex align-items-center justify-content-between">
+            <div>
+              <div class="fw-semibold small">{{ source.name }}</div>
+              <div class="text-muted" style="font-size:.75rem;">{{ source.source_id }}</div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <span class="status-dot {% if source.is_active %}published{% else %}draft{% endif %}"></span>
+              <form method="post" action="{% url 'parsing:source_delete' source.pk %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline-danger btn-sm">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="text-center py-4 text-muted">
+          <i class="bi bi-link-45deg fs-3 d-block mb-2"></i>
+          <span class="small">Источников нет. <a href="{% url 'parsing:source_create' %}">Добавить</a></span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Keywords -->
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header bg-transparent border-bottom d-flex align-items-center justify-content-between py-3">
+        <h6 class="fw-bold mb-0"><i class="bi bi-tag me-1"></i> Ключевые слова</h6>
+        <a href="{% url 'parsing:keyword_create' %}" class="btn btn-brand btn-sm">
+          <i class="bi bi-plus me-1"></i> Добавить
+        </a>
+      </div>
+      <div class="card-body p-0">
+        {% if keywords %}
+        <div class="px-4 py-3 d-flex flex-wrap gap-2">
+          {% for kw in keywords %}
+          <div class="d-inline-flex align-items-center gap-1 badge bg-light text-dark border px-2 py-2"
+               style="font-size:.8rem;">
+            <span>{{ kw.keyword }}</span>
+            <form method="post" action="{% url 'parsing:keyword_delete' kw.pk %}" class="d-inline">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-link text-danger p-0 ms-1" style="font-size:.75rem;">
+                <i class="bi bi-x"></i>
+              </button>
+            </form>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-4 text-muted">
+          <i class="bi bi-tag fs-3 d-block mb-2"></i>
+          <span class="small">Ключевых слов нет. <a href="{% url 'parsing:keyword_create' %}">Добавить</a></span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Link to items -->
+<div class="mt-4">
+  <a href="{% url 'parsing:items' %}" class="btn btn-outline-primary">
+    <i class="bi bi-collection me-1"></i> Найденные материалы
+  </a>
+  <a href="{% url 'parsing:ai_rewrite' %}" class="btn btn-outline-secondary ms-2">
+    <i class="bi bi-stars me-1"></i> AI рерайт
+  </a>
+</div>
+{% endblock %}

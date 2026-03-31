@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block title %}Новая ОРД регистрация{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1><i class="bi bi-shield-check me-2" style="color:var(--brand)"></i>Новая регистрация ОРД</h1>
+  <p class="text-muted small mb-0">Зарегистрируйте рекламный материал в ВК ОРД</p>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-body p-4">
+        <form method="post">
+          {% csrf_token %}
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Пост <span class="text-danger">*</span></label>
+            <select name="post_id" class="form-select" required>
+              <option value="">— Выберите опубликованный пост —</option>
+              {% for post in posts %}
+              <option value="{{ post.pk }}">{{ post.text|truncatechars:80 }}</option>
+              {% endfor %}
+            </select>
+            {% if not posts %}
+            <div class="form-text text-warning">Нет опубликованных постов. Сначала опубликуйте пост.</div>
+            {% endif %}
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Канал <span class="text-danger">*</span></label>
+            <select name="channel_id" class="form-select" required>
+              <option value="">— Выберите канал —</option>
+              {% for channel in channels %}
+              <option value="{{ channel.pk }}">{{ channel.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Рекламодатель</label>
+            <select name="advertiser_id" class="form-select">
+              <option value="">— Не указан —</option>
+              {% for adv in advertisers %}
+              <option value="{{ adv.pk }}">{{ adv.company_name }} (ИНН {{ adv.inn }})</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Текст метки</label>
+            <input type="text" name="label_text" class="form-control" value="Реклама"
+                   placeholder="Реклама">
+            <div class="form-text">Текст, который будет добавлен к посту как маркировка</div>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-brand px-4">
+              <i class="bi bi-shield-check me-1"></i> Зарегистрировать
+            </button>
+            <a href="{% url 'ord_marking:list' %}" class="btn btn-outline-secondary">Отмена</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

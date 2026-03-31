@@ -1,0 +1,199 @@
+{% extends 'base.html' %}
+{% block title %}Новый пост{% endblock %}
+
+{% block extra_css %}
+<style>
+  .channel-check-item { border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; cursor: pointer; transition: all .15s; }
+  .channel-check-item:has(input:checked) { border-color: var(--brand); background: var(--brand-light); }
+  #repeat-interval-wrap { display: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'content:list' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К списку постов
+  </a>
+  <h1>Новый пост</h1>
+</div>
+
+<form method="post" enctype="multipart/form-data" novalidate>
+  {% csrf_token %}
+  <div class="row g-4">
+
+    <!-- LEFT: main content -->
+    <div class="col-12 col-lg-8">
+
+      <!-- Text -->
+      <div class="card mb-4">
+        <div class="card-body p-4">
+          <label class="form-label fw-semibold" for="id_text">Текст поста</label>
+          <textarea name="text" id="id_text" rows="10"
+                    class="form-control"
+                    placeholder="Напишите текст поста...">{{ request.POST.text|default:'' }}</textarea>
+          <input type="hidden" name="tg_entities" id="id_tg_entities_hidden" value="">
+          <div class="form-text">
+            Premium/Custom emoji: используйте <a href="{% url 'content:tg_import_link' %}">импорт из Telegram</a>.
+          </div>
+        </div>
+      </div>
+
+      <!-- Media -->
+      <div class="card mb-4">
+        <div class="card-body p-4">
+          <label class="form-label fw-semibold">
+            <i class="bi bi-images me-1"></i> Медиафайлы
+          </label>
+          <input type="file" name="media_files" id="id_media_files"
+                 class="form-control" multiple accept="image/*,video/*">
+          <div class="form-text">Изображения и видео (несколько файлов)</div>
+        </div>
+      </div>
+
+      <!-- Channels -->
+      <div class="card mb-4">
+        <div class="card-body p-4">
+          <label class="form-label fw-semibold">
+            <i class="bi bi-broadcast me-1"></i> Каналы для публикации
+          </label>
+          <div class="row g-2 mt-1">
+            {% for channel in user_channels %}
+            <div class="col-12 col-sm-6">
+              <label class="channel-check-item d-flex align-items-center gap-2 w-100">
+                <input type="checkbox" name="channels" value="{{ channel.pk }}"
+                       class="form-check-input mt-0 flex-shrink-0"
+                       {% if channel.pk in preselected %}checked{% endif %}>
+                <div>
+                  <div class="fw-semibold small">{{ channel.name }}</div>
+                  <div>
+                    {% if channel.platform == 'telegram' %}
+                      <span class="badge badge-tg" style="font-size:.7rem;">Telegram</span>
+                    {% elif channel.platform == 'vk' %}
+                      <span class="badge badge-vk" style="font-size:.7rem;">ВКонтакте</span>
+                    {% elif channel.platform == 'max' %}
+                      <span class="badge badge-max" style="font-size:.7rem;">MAX</span>
+                    {% else %}
+                      <span class="badge badge-ig" style="font-size:.7rem;">Instagram</span>
+                    {% endif %}
+                  </div>
+                </div>
+              </label>
+            </div>
+            {% empty %}
+            <div class="col-12">
+              <p class="text-muted small">
+                Нет подключённых каналов.
+                <a href="{% url 'channels:create' %}">Добавить канал</a>
+              </p>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT: settings -->
+    <div class="col-12 col-lg-4">
+
+      <!-- Schedule -->
+      <div class="card mb-4">
+        <div class="card-body p-4">
+          <h6 class="fw-bold mb-3"><i class="bi bi-calendar3 me-1"></i> Расписание</h6>
+          <div class="mb-3">
+            <label class="form-label fw-semibold small" for="id_scheduled_at">Дата и время</label>
+            <input type="datetime-local" name="scheduled_at" id="id_scheduled_at"
+                   class="form-control"
+                   value="{{ request.POST.scheduled_at|default:'' }}">
+          </div>
+          <div class="mb-3">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="repeat_enabled" id="id_repeat_enabled"
+                     {% if request.POST.repeat_enabled %}checked{% endif %}
+                     onchange="toggleRepeat(this.checked)">
+              <label class="form-check-label fw-semibold small" for="id_repeat_enabled">Повторять</label>
+            </div>
+          </div>
+          <div id="repeat-settings" style="display:{% if request.POST.repeat_enabled %}block{% else %}none{% endif %}">
+            <div class="mb-3">
+              <label class="form-label fw-semibold small" for="id_repeat_type">Тип повтора</label>
+              <select name="repeat_type" id="id_repeat_type" class="form-select form-select-sm"
+                      onchange="toggleInterval(this.value)">
+                <option value="daily" {% if request.POST.repeat_type == 'daily' %}selected{% endif %}>Ежедневно</option>
+                <option value="weekly" {% if request.POST.repeat_type == 'weekly' %}selected{% endif %}>Еженедельно</option>
+                <option value="interval" {% if request.POST.repeat_type == 'interval' %}selected{% endif %}>Интервал (дней)</option>
+              </select>
+            </div>
+            <div id="repeat-interval-wrap"
+                 style="display:{% if request.POST.repeat_type == 'interval' %}block{% else %}none{% endif %}">
+              <label class="form-label fw-semibold small" for="id_repeat_interval_days">Интервал (дней)</label>
+              <input type="number" name="repeat_interval_days" id="id_repeat_interval_days"
+                     class="form-control form-control-sm" min="1" max="365"
+                     value="{{ request.POST.repeat_interval_days|default:7 }}">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Options -->
+      <div class="card mb-4">
+        <div class="card-body p-4">
+          <h6 class="fw-bold mb-3"><i class="bi bi-sliders me-1"></i> Опции</h6>
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="pin_message" id="id_pin_message"
+                   {% if request.POST.pin_message %}checked{% endif %}>
+            <label class="form-check-label small" for="id_pin_message">Закрепить сообщение</label>
+          </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="disable_notification" id="id_disable_notification"
+                   {% if request.POST.disable_notification %}checked{% endif %}>
+            <label class="form-check-label small" for="id_disable_notification">
+              Без уведомления (Telegram)
+            </label>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold small" for="id_ord_label">Метка ОРД (необязательно)</label>
+            <input type="text" name="ord_label" id="id_ord_label"
+                   class="form-control form-control-sm"
+                   value="{{ request.POST.ord_label|default:'' }}"
+                   placeholder="erid:2VfnxyXxxx">
+          </div>
+          <div class="text-muted small">
+            Telegram emoji вставляются автоматически. Premium/Custom emoji через entities временно скрыты.
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="card">
+        <div class="card-body p-4">
+          <h6 class="fw-bold mb-3"><i class="bi bi-send me-1"></i> Действия</h6>
+          <div class="d-grid gap-2">
+            <button type="submit" name="action" value="draft" class="btn btn-outline-secondary">
+              <i class="bi bi-floppy me-1"></i> Сохранить черновик
+            </button>
+            <button type="submit" name="action" value="schedule" class="btn btn-outline-primary">
+              <i class="bi bi-calendar-check me-1"></i> Запланировать
+            </button>
+            <button type="submit" name="publish_now" value="1" class="btn btn-brand fw-semibold">
+              <i class="bi bi-send-fill me-1"></i> Опубликовать сейчас
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleRepeat(checked) {
+  document.getElementById('repeat-settings').style.display = checked ? 'block' : 'none';
+}
+function toggleInterval(val) {
+  document.getElementById('repeat-interval-wrap').style.display = val === 'interval' ? 'block' : 'none';
+}
+</script>
+{% endblock %}
