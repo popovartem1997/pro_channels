@@ -107,6 +107,24 @@ class MaxBotAPI:
             cid = chat_id
         return self.post('messages', body, params={'chat_id': cid})
 
+    def send_message_to_user(self, user_id: str, text: str, attachments: list = None, buttons: list = None) -> dict:
+        """Отправить сообщение пользователю (user_id в query)."""
+        payload = {
+            'text': text,
+        }
+        if attachments:
+            payload['attachments'] = attachments
+        if buttons:
+            payload['attachments'] = payload.get('attachments', []) + [{
+                'type': 'inline_keyboard',
+                'payload': {'buttons': buttons}
+            }]
+        try:
+            uid = int(str(user_id))
+        except Exception:
+            uid = str(user_id)
+        return self.post('messages', payload, params={'user_id': uid})
+
     def answer_callback(self, callback_id: str, text: str = None) -> dict:
         """Ответить на нажатие кнопки."""
         body: dict = {}
@@ -190,9 +208,14 @@ class MAXSuggestionBot:
 
     def _handle_start(self, update: dict):
         """Пользователь нажал Start / написал первый раз."""
-        chat_id = update.get('chat_id') or update.get('message', {}).get('recipient', {}).get('chat_id', '')
+        msg = update.get('message', {}) if isinstance(update, dict) else {}
+        recipient = msg.get('recipient', {}) if isinstance(msg, dict) else {}
+        chat_id = recipient.get('chat_id') if isinstance(recipient, dict) else ''
+        user_id = recipient.get('user_id') if isinstance(recipient, dict) else ''
         if chat_id:
             self.api.send_message(str(chat_id), self.config.welcome_message, buttons=self._menu_buttons())
+        elif user_id:
+            self.api.send_message_to_user(str(user_id), self.config.welcome_message, buttons=self._menu_buttons())
 
     def _menu_buttons(self):
         return [
@@ -214,7 +237,11 @@ class MAXSuggestionBot:
 
         message = update.get('message', {})
         sender = message.get('sender', {})
-        chat_id = message.get('recipient', {}).get('chat_id', '')
+        recipient = message.get('recipient', {}) if isinstance(message, dict) else {}
+        if not isinstance(recipient, dict):
+            recipient = {}
+        chat_id = recipient.get('chat_id', '')
+        recipient_user_id = recipient.get('user_id', '')
         user_id = str(sender.get('user_id', ''))
         text = message.get('body', {}).get('text', '')
 
@@ -223,10 +250,13 @@ class MAXSuggestionBot:
 
         # Команды
         if text.lower() in ('/start', 'start', 'начать'):
-            self.api.send_message(chat_id, self.config.welcome_message, buttons=self._menu_buttons())
+            if chat_id:
+                self.api.send_message(str(chat_id), self.config.welcome_message, buttons=self._menu_buttons())
+            else:
+                self.api.send_message_to_user(str(recipient_user_id or user_id), self.config.welcome_message, buttons=self._menu_buttons())
             return
         if text.lower() in ('/status', 'status', 'статус'):
-            self._send_status(chat_id, user_id)
+            self._send_status(str(chat_id or recipient_user_id or user_id), user_id)
             return
 
         # Определяем тип и вложения
@@ -300,7 +330,10 @@ class MAXSuggestionBot:
         tracking_tag = f'#{suggestion.short_tracking_id}'
         if tracking_tag not in confirm:
             confirm = f'{tracking_tag}\n' + confirm
-        self.api.send_message(chat_id, confirm, buttons=self._menu_buttons())
+        if chat_id:
+            self.api.send_message(str(chat_id), confirm, buttons=self._menu_buttons())
+        else:
+            self.api.send_message_to_user(str(recipient_user_id or user_id), confirm, buttons=self._menu_buttons())
 
         # Переслать модераторам
         admin_chat_ids = []
@@ -401,7 +434,7 @@ class MAXSuggestionBot:
         recipient = message.get('recipient') or {}
         if not isinstance(recipient, dict):
             recipient = {}
-        chat_id = recipient.get('chat_id') or callback.get('chat_id', '')
+        chat_id = recipient.get('chat_id') or recipient.get('user_id') or callback.get('chat_id', '')
 
         # User menu actions
         if payload in ('menu_send', 'menu_contact', 'menu_my', 'menu_stats'):
@@ -486,9 +519,9 @@ class MAXSuggestionBot:
 
     def _notify_user(self, user_id: str, text: str):
         """Отправить уведомление пользователю (через личку)."""
-        # В MAX API нужен chat_id пользователя — для личных сообщений это user_id
+        # В MAX для личных сообщений используем user_id.
         try:
-            self.api.send_message(user_id, text)
+            self.api.send_message_to_user(str(user_id), text)
         except Exception as e:
             logger.warning('[MAX] Не удалось уведомить %s: %s', user_id, e)
 
