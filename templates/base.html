@@ -145,7 +145,7 @@
       {% endif %}
     </ul>
 
-    {% if not (user.role == 'manager' or user.role == 'assistant_admin') %}
+    {% if user.role != 'manager' and user.role != 'assistant_admin' %}
       <span class="nav-section">Публикация</span>
       <ul class="nav flex-column">
         <li><a class="nav-link {% if 'channels' in request.path %}active{% endif %}" href="{% url 'channels:list' %}">
@@ -171,7 +171,7 @@
       </ul>
     {% endif %}
 
-    {% if not (user.role == 'manager' or user.role == 'assistant_admin') %}
+    {% if user.role != 'manager' and user.role != 'assistant_admin' %}
       <span class="nav-section">Контент</span>
       <ul class="nav flex-column">
         <li><a class="nav-link {% if '/parsing/' in request.path %}active{% endif %}" href="{% url 'parsing:sources' %}">
@@ -180,7 +180,7 @@
       </ul>
     {% endif %}
 
-    {% if not (user.role == 'manager' or user.role == 'assistant_admin') %}
+    {% if user.role != 'manager' and user.role != 'assistant_admin' %}
       <span class="nav-section">Аналитика</span>
       <ul class="nav flex-column">
         <li><a class="nav-link {% if '/stats/' in request.path %}active{% endif %}" href="{% url 'stats:dashboard' %}">
@@ -189,7 +189,7 @@
       </ul>
     {% endif %}
 
-    {% if not (user.role == 'manager' or user.role == 'assistant_admin') %}
+    {% if user.role != 'manager' and user.role != 'assistant_admin' %}
       <span class="nav-section">Монетизация</span>
       <ul class="nav flex-column">
         <li><a class="nav-link {% if '/advertisers/' in request.path and '/advertisers/manage/' not in request.path %}active{% endif %}"
