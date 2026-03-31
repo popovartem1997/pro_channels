@@ -362,15 +362,30 @@ def post_create_from_suggestion(request, tracking_id):
                         raise ValueError(f'Empty/too small response: {len(data_bytes)} bytes')
                     if data_bytes[:20].lstrip().startswith(b'<!DOCTYPE'):
                         raise ValueError('Unexpected HTML response')
-                    # Basic magic-bytes validation for images (to avoid saving placeholders)
+                    # Validate image bytes (and reject "white placeholder" images)
                     if media_type == PostMedia.TYPE_PHOTO:
-                        sig = data_bytes[:16]
-                        is_png = sig.startswith(b'\x89PNG\r\n\x1a\n')
-                        is_jpg = sig.startswith(b'\xff\xd8\xff')
-                        is_gif = sig.startswith(b'GIF87a') or sig.startswith(b'GIF89a')
-                        is_webp = sig[0:4] == b'RIFF' and sig[8:12] == b'WEBP'
-                        if not (is_png or is_jpg or is_gif or is_webp):
-                            raise ValueError(f'Unexpected image signature: {sig[:12].hex()}')
+                        try:
+                            from PIL import Image
+                            import io
+                            im = Image.open(io.BytesIO(data_bytes))
+                            im.load()
+                            w, h = im.size
+                            if w <= 8 or h <= 8:
+                                raise ValueError(f'Image too small: {w}x{h}')
+                            # Detect near-solid image (common placeholder): sample a few pixels
+                            rgb = im.convert('RGB')
+                            sample_points = [
+                                (0, 0),
+                                (w - 1, 0),
+                                (0, h - 1),
+                                (w - 1, h - 1),
+                                (w // 2, h // 2),
+                            ]
+                            pixels = [rgb.getpixel(p) for p in sample_points]
+                            if all(p[0] > 245 and p[1] > 245 and p[2] > 245 for p in pixels):
+                                raise ValueError('Looks like placeholder (all sampled pixels are white)')
+                        except Exception as e:
+                            raise ValueError(f'Invalid/placeholder image: {e}')
                     ext = 'bin'
                     if 'image/' in ct:
                         ext = ct.split('image/', 1)[1].split(';', 1)[0] or 'jpg'
