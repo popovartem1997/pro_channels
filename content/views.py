@@ -294,6 +294,32 @@ def post_create_from_suggestion(request, tracking_id):
                     if isinstance(atts, list):
                         attachments.extend([a for a in atts if isinstance(a, dict)])
 
+            def _deep_http_urls(obj) -> list[str]:
+                """Достаёт все http(s) URL из вложенного dict/list."""
+                urls: list[str] = []
+                seen: set[str] = set()
+
+                def _walk(x):
+                    if x is None:
+                        return
+                    if isinstance(x, str):
+                        if x.startswith('http'):
+                            if x not in seen:
+                                seen.add(x)
+                                urls.append(x)
+                        return
+                    if isinstance(x, dict):
+                        for v in x.values():
+                            _walk(v)
+                        return
+                    if isinstance(x, list):
+                        for it in x:
+                            _walk(it)
+                        return
+
+                _walk(obj)
+                return urls
+
             def _iter_attachment_urls(att: dict) -> list[str]:
                 urls: list[str] = []
                 if not isinstance(att, dict):
@@ -313,6 +339,9 @@ def post_create_from_suggestion(request, tracking_id):
                                     u = it.get('url') or it.get('src')
                                     if isinstance(u, str) and u.startswith('http'):
                                         urls.append(u)
+                # Generic fallback: scan everything for http urls
+                if not urls:
+                    urls = _deep_http_urls(att)
                 return urls
 
             order = 0
@@ -330,7 +359,41 @@ def post_create_from_suggestion(request, tracking_id):
                     media_type = PostMedia.TYPE_DOCUMENT
 
                 urls = _iter_attachment_urls(att)
+                # If no direct URL in payload, try resolve by token via API (video is documented)
                 if not urls:
+                    try:
+                        payload = att.get('payload') or {}
+                        token = None
+                        if isinstance(payload, dict):
+                            token = payload.get('token') or payload.get('id')
+                        if token:
+                            from bots.max_bot.bot import MaxBotAPI
+                            api = MaxBotAPI(bot.get_token())
+                            if att_type == 'video':
+                                vinfo = api.get_video(token)
+                                urls = _deep_http_urls(vinfo)
+                            elif att_type in ('image', 'photo'):
+                                iinfo = api.get_image(token)
+                                urls = _deep_http_urls(iinfo)
+                                if not urls:
+                                    finfo = api.get_file(token)
+                                    urls = _deep_http_urls(finfo)
+                            elif att_type == 'file':
+                                finfo = api.get_file(token)
+                                urls = _deep_http_urls(finfo)
+                                if not urls:
+                                    iinfo = api.get_image(token)
+                                    urls = _deep_http_urls(iinfo)
+                    except Exception:
+                        urls = urls or []
+                if not urls:
+                    try:
+                        messages.warning(
+                            request,
+                            f'MAX: не нашли URL для вложения (type={att_type}, payload_keys={list((att.get("payload") or {}).keys()) if isinstance(att.get("payload"), dict) else "n/a"})'
+                        )
+                    except Exception:
+                        pass
                     continue
                 url = urls[0]
                 if url in seen_urls:

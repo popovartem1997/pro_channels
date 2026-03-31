@@ -83,6 +83,42 @@ class MaxBotAPI:
             return {}
         return self.call(f'messages/{mid}', params={})
 
+    def get_video(self, video_token: str) -> dict:
+        """Получить информацию о видео (urls/thumbnail) по token."""
+        try:
+            t = str(video_token).strip()
+        except Exception:
+            t = ''
+        if not t:
+            return {}
+        return self.call(f'videos/{t}', params={})
+
+    def get_file(self, file_token: str) -> dict:
+        """
+        Best-effort: получить информацию о файле по token.
+        В документации может отсутствовать; используем как пробу.
+        """
+        try:
+            t = str(file_token).strip()
+        except Exception:
+            t = ''
+        if not t:
+            return {}
+        return self.call(f'files/{t}', params={})
+
+    def get_image(self, image_token: str) -> dict:
+        """
+        Best-effort: получить информацию об изображении по token.
+        В документации может отсутствовать; используем как пробу.
+        """
+        try:
+            t = str(image_token).strip()
+        except Exception:
+            t = ''
+        if not t:
+            return {}
+        return self.call(f'images/{t}', params={})
+
     def send_message(self, chat_id: str, text: str, attachments: list = None, buttons: list = None) -> dict:
         """Отправить текстовое сообщение."""
         payload = {
