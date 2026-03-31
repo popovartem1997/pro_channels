@@ -54,7 +54,16 @@
         <form method="post" novalidate>
           {% csrf_token %}
 
+          {% if footer_only %}
+          <div class="alert alert-info py-2">
+            <div class="small mb-0">
+              Доступ ограничен: вы можете редактировать только подпись к постам для этого канала.
+            </div>
+          </div>
+          {% endif %}
+
           <!-- Название -->
+          {% if not footer_only %}
           <div class="mb-3">
             <label class="form-label fw-semibold" for="id_name">Название канала</label>
             <input type="text" name="name" id="id_name" class="form-control"
@@ -92,12 +101,16 @@
                      value="{{ channel.ad_price }}">
             </div>
           </div>
+          {% else %}
+            <input type="hidden" name="platform" value="{{ channel.platform }}">
+          {% endif %}
 
           <!-- ── TELEGRAM ── -->
           <div id="fields-telegram" class="platform-fields d-none">
             <h6 class="fw-bold mb-3 border-top pt-3" style="color:var(--brand)">
               <i class="bi bi-telegram me-1"></i> Telegram — настройки
             </h6>
+            {% if not footer_only %}
             <div class="mb-3">
               <label class="form-label fw-semibold">Bot Token</label>
               <input type="text" name="tg_bot_token" class="form-control font-monospace"
@@ -119,6 +132,7 @@
                 Для приватных/закрытых каналов часто используется формат <code>-100...</code>.
               </div>
             </div>
+            {% endif %}
 
             <!-- Подпись Telegram -->
             <h6 class="fw-bold mb-2 text-muted">
@@ -150,6 +164,7 @@
             <h6 class="fw-bold mb-3 border-top pt-3" style="color:#e65100">
               <i class="bi bi-chat-dots me-1"></i> MAX — настройки
             </h6>
+            {% if not footer_only %}
             <div class="mb-3">
               <label class="form-label fw-semibold">Bot Token</label>
               <input type="text" name="max_bot_token" class="form-control font-monospace"
@@ -167,6 +182,7 @@
               <input type="text" name="max_channel_id" class="form-control font-monospace"
                      value="{{ channel.max_channel_id }}" placeholder="Числовой ID чата">
             </div>
+            {% endif %}
 
             <!-- Подпись MAX -->
             <h6 class="fw-bold mb-2 text-muted">
@@ -197,6 +213,7 @@
             <h6 class="fw-bold mb-3 border-top pt-3" style="color:#3949ab">
               <i class="bi bi-badge-vo me-1"></i> ВКонтакте — настройки
             </h6>
+            {% if not footer_only %}
             <div class="mb-3">
               <label class="form-label fw-semibold">Access Token</label>
               <input type="text" name="vk_access_token" class="form-control font-monospace"
@@ -214,6 +231,7 @@
               <input type="text" name="vk_group_id" class="form-control font-monospace"
                      value="{{ channel.vk_group_id }}" placeholder="123456789">
             </div>
+            {% endif %}
 
             <!-- Подпись VK -->
             <h6 class="fw-bold mb-2 text-muted">
@@ -232,6 +250,11 @@
             <h6 class="fw-bold mb-3 border-top pt-3" style="color:#c62828">
               <i class="bi bi-instagram me-1"></i> Instagram — настройки
             </h6>
+            {% if footer_only %}
+              <div class="alert alert-warning py-2">
+                <div class="small mb-0">Подпись для Instagram сейчас недоступна.</div>
+              </div>
+            {% else %}
             <div class="mb-3">
               <label class="form-label fw-semibold">Access Token</label>
               <input type="text" name="ig_access_token" class="form-control font-monospace"
@@ -249,6 +272,7 @@
               <input type="text" name="ig_account_id" class="form-control font-monospace"
                      value="{{ channel.ig_account_id }}" placeholder="17841400000000000">
             </div>
+            {% endif %}
           </div>
 
           <div class="d-flex gap-2 mt-4 border-top pt-4">

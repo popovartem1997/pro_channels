@@ -138,8 +138,32 @@ def channel_detail(request, pk):
 
 @login_required
 def channel_edit(request, pk):
-    channel = get_object_or_404(Channel, pk=pk, owner=request.user)
+    footer_only = False
+
+    # Owner/staff can edit everything for own channels.
+    if request.user.role in ('manager', 'assistant_admin') and not (request.user.is_staff or request.user.is_superuser):
+        from managers.models import TeamMember
+        allowed_channel_ids = TeamMember.objects.filter(
+            member=request.user,
+            is_active=True,
+            can_publish=True,  # подпись влияет на публикации
+        ).values_list('channels__pk', flat=True)
+        channel = get_object_or_404(Channel.objects.filter(pk__in=allowed_channel_ids).distinct(), pk=pk)
+        footer_only = True
+    else:
+        channel = get_object_or_404(Channel, pk=pk, owner=request.user)
+
     if request.method == 'POST':
+        if footer_only:
+            # Менеджер может менять только подписи.
+            channel.tg_footer = request.POST.get('tg_footer', '').strip()
+            channel.max_footer = request.POST.get('max_footer', '').strip()
+            channel.vk_footer = request.POST.get('vk_footer', '').strip()
+            channel.save(update_fields=['tg_footer', 'max_footer', 'vk_footer'])
+            messages.success(request, 'Подпись обновлена.')
+            return redirect('channels:detail', pk=pk)
+
+        # Полное редактирование для владельца
         channel.name = request.POST.get('name', channel.name).strip()
         channel.description = request.POST.get('description', '').strip()
         channel.ad_enabled = request.POST.get('ad_enabled') == 'on'
@@ -176,7 +200,7 @@ def channel_edit(request, pk):
         messages.success(request, 'Канал обновлён.')
         return redirect('channels:detail', pk=pk)
 
-    return render(request, 'channels/edit.html', {'channel': channel})
+    return render(request, 'channels/edit.html', {'channel': channel, 'footer_only': footer_only})
 
 
 @login_required
