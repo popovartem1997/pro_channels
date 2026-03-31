@@ -292,8 +292,17 @@ class MAXSuggestionBot:
             # content type -> mixed if multiple parts
             if existing_ids and (recent.text or ''):
                 recent.content_type = Suggestion.CONTENT_MIXED
+            prev_msgs = []
+            if isinstance(recent.raw_data, dict):
+                prev = recent.raw_data.get('messages')
+                if isinstance(prev, list):
+                    prev_msgs = prev
+                # If raw_data was a plain message dict earlier, keep it too
+                if not prev_msgs and recent.raw_data.get('mid'):
+                    prev_msgs = [recent.raw_data]
             recent.raw_data = {
-                'messages': (recent.raw_data.get('messages') if isinstance(recent.raw_data, dict) else []) + [message]
+                'messages': prev_msgs + [message],
+                'last_message': message,
             }
             recent.submitted_at = tz.now()
             recent.save(update_fields=['text', 'media_file_ids', 'content_type', 'raw_data', 'submitted_at'])

@@ -252,7 +252,15 @@ def post_create_from_suggestion(request, tracking_id):
         try:
             raw = suggestion.raw_data or {}
             # В MAX мы сохраняем raw_data как объект message (без update wrapper).
-            msg_obj = raw.get('message') if isinstance(raw, dict) and isinstance(raw.get('message'), dict) else raw
+            if isinstance(raw, dict) and isinstance(raw.get('message'), dict):
+                msg_obj = raw.get('message')
+            elif isinstance(raw, dict) and isinstance(raw.get('last_message'), dict):
+                msg_obj = raw.get('last_message')
+            elif isinstance(raw, dict) and isinstance(raw.get('messages'), list) and raw.get('messages'):
+                last = raw.get('messages')[-1]
+                msg_obj = last if isinstance(last, dict) else raw
+            else:
+                msg_obj = raw
 
             # 1) Попытка: получить полное сообщение через API по mid (часто там есть URL вложений)
             attachments = []
@@ -311,9 +319,12 @@ def post_create_from_suggestion(request, tracking_id):
                 url = urls[0]
 
                 try:
-                    dl = requests.get(url, timeout=30)
+                    dl = requests.get(url, headers={'Authorization': bot.get_token()}, timeout=30)
                     dl.raise_for_status()
                     ct = (dl.headers.get('Content-Type') or '').lower()
+                    # If we got HTML/JSON instead of binary — skip
+                    if ct.startswith('text/') or 'json' in ct:
+                        raise ValueError(f'Unexpected content-type: {ct}')
                     ext = 'bin'
                     if 'image/' in ct:
                         ext = ct.split('image/', 1)[1].split(';', 1)[0] or 'jpg'
