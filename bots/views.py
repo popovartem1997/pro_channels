@@ -304,6 +304,20 @@ def bot_create(request):
             ).values_list('member_id', flat=True)
             bot.moderators.set(list(allowed_users))
 
+        # Audit
+        try:
+            from .models import AuditLog
+            AuditLog.objects.create(
+                actor=request.user,
+                owner=request.user,
+                action='suggestion_bot.create',
+                object_type='SuggestionBot',
+                object_id=str(bot.pk),
+                data={'name': bot.name, 'platform': bot.platform, 'channel_id': bot.channel_id},
+            )
+        except Exception:
+            pass
+
         messages.success(request, f'Бот "{name}" создан.')
         return redirect('bots:list')
 
@@ -357,6 +371,19 @@ def bot_edit(request, bot_id: int):
     custom_admin_chat_ids = '\n'.join(str(x) for x in (bot.custom_admin_chat_ids or []))
 
     if request.method == 'POST':
+        before = {
+            'name': bot.name,
+            'channel_id': bot.channel_id,
+            'welcome_message': bot.welcome_message,
+            'success_message': bot.success_message,
+            'approved_message': bot.approved_message,
+            'rejected_message': bot.rejected_message,
+            'admin_chat_id': bot.admin_chat_id,
+            'notify_owner': bot.notify_owner,
+            'custom_admin_chat_ids': list(bot.custom_admin_chat_ids or []),
+            'group_id': bot.group_id,
+            'moderator_ids': list(bot.moderators.values_list('id', flat=True)),
+        }
         name = request.POST.get('name', '').strip()
         if not name:
             messages.error(request, 'Название обязательно.')
@@ -418,6 +445,38 @@ def bot_edit(request, bot_id: int):
                 member_id__in=moderator_ids,
             ).values_list('member_id', flat=True)
             bot.moderators.set(list(allowed_users))
+
+        # Audit changes
+        try:
+            after = {
+                'name': bot.name,
+                'channel_id': bot.channel_id,
+                'welcome_message': bot.welcome_message,
+                'success_message': bot.success_message,
+                'approved_message': bot.approved_message,
+                'rejected_message': bot.rejected_message,
+                'admin_chat_id': bot.admin_chat_id,
+                'notify_owner': bot.notify_owner,
+                'custom_admin_chat_ids': list(bot.custom_admin_chat_ids or []),
+                'group_id': bot.group_id,
+                'moderator_ids': list(bot.moderators.values_list('id', flat=True)),
+            }
+            changed = {}
+            for k in after.keys():
+                if before.get(k) != after.get(k):
+                    changed[k] = {'before': before.get(k), 'after': after.get(k)}
+            if changed:
+                from .models import AuditLog
+                AuditLog.objects.create(
+                    actor=request.user,
+                    owner=bot.owner,
+                    action='suggestion_bot.update',
+                    object_type='SuggestionBot',
+                    object_id=str(bot.pk),
+                    data={'changed': changed, 'limited_mode': bool(can_edit_messages_only)},
+                )
+        except Exception:
+            pass
 
         messages.success(request, 'Бот обновлён.')
         return redirect('bots:detail', bot_id=bot.pk)

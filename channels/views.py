@@ -156,10 +156,29 @@ def channel_edit(request, pk):
     if request.method == 'POST':
         if footer_only:
             # Менеджер может менять только подписи.
+            before = {'tg_footer': channel.tg_footer, 'max_footer': channel.max_footer, 'vk_footer': channel.vk_footer}
             channel.tg_footer = request.POST.get('tg_footer', '').strip()
             channel.max_footer = request.POST.get('max_footer', '').strip()
             channel.vk_footer = request.POST.get('vk_footer', '').strip()
             channel.save(update_fields=['tg_footer', 'max_footer', 'vk_footer'])
+            try:
+                from bots.models import AuditLog
+                changed = {}
+                after = {'tg_footer': channel.tg_footer, 'max_footer': channel.max_footer, 'vk_footer': channel.vk_footer}
+                for k in after:
+                    if before.get(k) != after.get(k):
+                        changed[k] = {'before': before.get(k), 'after': after.get(k)}
+                if changed:
+                    AuditLog.objects.create(
+                        actor=request.user,
+                        owner=channel.owner,
+                        action='channel.footer_update',
+                        object_type='Channel',
+                        object_id=str(channel.pk),
+                        data={'changed': changed},
+                    )
+            except Exception:
+                pass
             messages.success(request, 'Подпись обновлена.')
             return redirect('channels:detail', pk=pk)
 
