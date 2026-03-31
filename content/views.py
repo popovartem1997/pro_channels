@@ -223,10 +223,11 @@ def tg_import_link(request):
 @csrf_exempt
 def tg_import_webhook(request):
     """Webhook Telegram для служебного импорта entities/custom_emoji."""
-    from django.conf import settings
-    token = getattr(settings, 'TG_IMPORT_BOT_TOKEN', '')
+    from core.models import get_global_api_keys
+    token = (get_global_api_keys().get_tg_import_bot_token() or '').strip()
+    # Telegram будет ретраить вебхук при не-200.
     if not token:
-        return HttpResponse('disabled', status=200)
+        return HttpResponse('TG_IMPORT_BOT_TOKEN not set', status=500)
     if request.method != 'POST':
         return HttpResponse('ok', status=200)
     try:

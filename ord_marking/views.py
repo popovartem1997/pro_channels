@@ -58,10 +58,11 @@ def ord_create(request):
 
 def _try_register_ord(reg):
     """Попытка регистрации в ВК ОРД API."""
-    from django.conf import settings
-    access_token = getattr(settings, 'VK_ORD_ACCESS_TOKEN', '')
+    from core.models import get_global_api_keys
+    keys = get_global_api_keys()
+    access_token = (keys.get_vk_ord_access_token() or '').strip()
     if not access_token:
-        return
+        raise ValueError('VK_ORD_ACCESS_TOKEN не задан (Ключи API → VK ORD).')
     try:
         import requests as req
         response = req.post(

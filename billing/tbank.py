@@ -6,15 +6,19 @@ import hashlib
 import requests
 import logging
 from django.conf import settings
+from core.models import get_global_api_keys
 
 logger = logging.getLogger(__name__)
 
 
 class TBankClient:
     def __init__(self):
-        self.terminal_key = settings.TBANK_TERMINAL_KEY
-        self.secret_key = settings.TBANK_SECRET_KEY
+        keys = get_global_api_keys()
+        self.terminal_key = (keys.get_tbank_terminal_key() or '').strip()
+        self.secret_key = (keys.get_tbank_secret_key() or '').strip()
         self.api_url = settings.TBANK_API_URL
+        if not self.terminal_key or not self.secret_key:
+            raise ValueError('TBank ключи не заданы (Ключи API → TBank).')
 
     def _get_token(self, params: dict) -> str:
         """Генерация токена для подписи запроса."""

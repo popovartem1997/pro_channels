@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+{% block title %}Ключи API{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Ключи API (глобально)</h1>
+  <div class="text-muted small mt-1">
+    Ключи хранятся в базе (зашифровано) и используются только отсюда. Если ключ не задан — соответствующая функция будет выдавать ошибку.
+  </div>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-8">
+    <div class="card">
+      <div class="card-body p-4 p-md-5">
+        <form method="post" novalidate>
+          {% csrf_token %}
+
+          <h6 class="fw-bold text-muted mb-3 border-top pt-3">OpenAI</h6>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">{{ form.openai_api_key.label }}</label>
+            {{ form.openai_api_key }}
+            <div class="form-text">Оставь пустым, чтобы не менять.</div>
+          </div>
+          <div class="form-check form-switch mb-4">
+            {{ form.ai_rewrite_enabled }}
+            <label class="form-check-label fw-semibold" for="{{ form.ai_rewrite_enabled.id_for_label }}">AI_REWRITE_ENABLED</label>
+          </div>
+
+          <h6 class="fw-bold text-muted mb-3 border-top pt-3">TBank</h6>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">{{ form.tbank_terminal_key.label }}</label>
+            {{ form.tbank_terminal_key }}
+          </div>
+          <div class="mb-4">
+            <label class="form-label fw-semibold">{{ form.tbank_secret_key.label }}</label>
+            {{ form.tbank_secret_key }}
+          </div>
+
+          <h6 class="fw-bold text-muted mb-3 border-top pt-3">VK ORD</h6>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">{{ form.vk_ord_access_token.label }}</label>
+            {{ form.vk_ord_access_token }}
+          </div>
+          <div class="mb-4">
+            <label class="form-label fw-semibold">{{ form.vk_ord_cabinet_id.label }}</label>
+            {{ form.vk_ord_cabinet_id }}
+            {% if form.vk_ord_cabinet_id.help_text %}<div class="form-text">{{ form.vk_ord_cabinet_id.help_text }}</div>{% endif %}
+          </div>
+
+          <h6 class="fw-bold text-muted mb-3 border-top pt-3">Парсинг Telegram (Telethon)</h6>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">{{ form.telegram_api_id.label }}</label>
+            {{ form.telegram_api_id }}
+          </div>
+          <div class="mb-4">
+            <label class="form-label fw-semibold">{{ form.telegram_api_hash.label }}</label>
+            {{ form.telegram_api_hash }}
+          </div>
+
+          <h6 class="fw-bold text-muted mb-3 border-top pt-3">Парсинг VK</h6>
+          <div class="mb-4">
+            <label class="form-label fw-semibold">{{ form.vk_parse_access_token.label }}</label>
+            {{ form.vk_parse_access_token }}
+          </div>
+
+          <h6 class="fw-bold text-muted mb-3 border-top pt-3">Telegram import bot</h6>
+          <div class="mb-4">
+            <label class="form-label fw-semibold">{{ form.tg_import_bot_token.label }}</label>
+            {{ form.tg_import_bot_token }}
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-brand px-4 fw-semibold">
+              <i class="bi bi-check-lg me-1"></i> Сохранить
+            </button>
+            <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary">Назад</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+

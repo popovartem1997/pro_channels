@@ -1,5 +1,7 @@
 from django.shortcuts import render, redirect
 from django.http import HttpResponse
+from django.contrib.auth.decorators import login_required
+from django.contrib import messages
 
 
 def home(request):
@@ -35,3 +37,26 @@ def privacy(request):
 def quickstart(request):
     """Быстрый старт по сервису (в т.ч. для SEO и onboarding)."""
     return render(request, 'core/quickstart.html')
+
+
+@login_required
+def api_keys(request):
+    """Глобальные ключи сервиса (редактировать могут только staff/superuser)."""
+    if not (request.user.is_staff or request.user.is_superuser):
+        return HttpResponse(status=403)
+
+    from .models import get_global_api_keys
+    from .forms import GlobalApiKeysForm
+
+    obj = get_global_api_keys()
+    if request.method == 'POST':
+        form = GlobalApiKeysForm(request.POST, instance=obj)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Ключи сохранены.')
+            return redirect('core:api_keys')
+        messages.error(request, 'Проверьте поля формы.')
+    else:
+        form = GlobalApiKeysForm(instance=obj)
+
+    return render(request, 'core/api_keys.html', {'form': form, 'obj': obj})

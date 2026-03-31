@@ -33,22 +33,20 @@ def ai_rewrite_task(self, job_id: int):
     job.save(update_fields=['status'])
 
     try:
-        from django.conf import settings
+        from core.models import get_global_api_keys
+        keys = get_global_api_keys()
 
-        if not getattr(settings, 'AI_REWRITE_ENABLED', False):
+        if not keys.ai_rewrite_enabled:
             job.status = AIRewriteJob.STATUS_FAILED
             job.error = 'AI рерайт временно отключён (заглушка).'
             job.save(update_fields=['status', 'error'])
             return
-
-        if not getattr(settings, 'OPENAI_API_KEY', ''):
-            job.status = AIRewriteJob.STATUS_FAILED
-            job.error = 'OPENAI_API_KEY не задан. AI рерайт отключён.'
-            job.save(update_fields=['status', 'error'])
-            return
+        api_key = keys.get_openai_api_key()
+        if not api_key:
+            raise ValueError('OPENAI_API_KEY не задан (Ключи API → OpenAI).')
 
         from openai import OpenAI
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        client = OpenAI(api_key=api_key)
 
         prompt = job.prompt or (
             'Перепиши следующий текст в нейтральном информационном стиле, '
@@ -162,12 +160,12 @@ def _parse_telegram(source, keywords, keyword_objects):
     """
     from django.conf import settings
     import asyncio
-
-    api_id = getattr(settings, 'TELEGRAM_API_ID', '')
-    api_hash = getattr(settings, 'TELEGRAM_API_HASH', '')
+    from core.models import get_global_api_keys
+    keys = get_global_api_keys()
+    api_id = (keys.telegram_api_id or '').strip()
+    api_hash = (keys.get_telegram_api_hash() or '').strip()
     if not api_id or not api_hash:
-        logger.warning('TELEGRAM_API_ID / TELEGRAM_API_HASH не настроены, пропуск TG парсинга')
-        return 0
+        raise ValueError('TELEGRAM_API_ID / TELEGRAM_API_HASH не заданы (Ключи API → Парсинг Telegram).')
 
     async def _fetch():
         from telethon import TelegramClient
@@ -205,12 +203,11 @@ def _parse_vk(source, keywords, keyword_objects):
     Использует токен из settings.VK_PARSE_ACCESS_TOKEN или токен сервиса.
     """
     import vk_api
-    from django.conf import settings
-
-    token = getattr(settings, 'VK_PARSE_ACCESS_TOKEN', '') or getattr(settings, 'VK_ORD_ACCESS_TOKEN', '')
+    from core.models import get_global_api_keys
+    keys = get_global_api_keys()
+    token = (keys.get_vk_parse_access_token() or '').strip()
     if not token:
-        logger.warning('VK_PARSE_ACCESS_TOKEN не настроен, пропуск VK парсинга')
-        return 0
+        raise ValueError('VK_PARSE_ACCESS_TOKEN не задан (Ключи API → Парсинг VK).')
 
     session = vk_api.VkApi(token=token)
     vk = session.get_api()

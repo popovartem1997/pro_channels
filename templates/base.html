@@ -138,6 +138,11 @@
       <li><a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}">
         <i class="bi bi-house-door"></i> Главная
       </a></li>
+      {% if user.is_staff or user.is_superuser %}
+      <li><a class="nav-link {% if '/settings/api-keys/' in request.path %}active{% endif %}" href="{% url 'core:api_keys' %}">
+        <i class="bi bi-key"></i> Ключи API
+      </a></li>
+      {% endif %}
     </ul>
 
     <span class="nav-section">Публикация</span>
