@@ -350,6 +350,7 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from django.utils import timezone as tz
             from datetime import timedelta
 
+            recent = None
             merge_window = tz.now() - timedelta(minutes=2)
             recent = (
                 Suggestion.objects.filter(
@@ -374,9 +375,12 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 recent.media_file_ids = existing_ids
                 if existing_ids and (recent.text or ''):
                     recent.content_type = Suggestion.CONTENT_MIXED
-                recent.raw_data = {
-                    'messages': (recent.raw_data.get('messages') if isinstance(recent.raw_data, dict) else []) + [message.to_dict()]
-                }
+                prev_msgs = []
+                if isinstance(recent.raw_data, dict):
+                    prev = recent.raw_data.get('messages')
+                    if isinstance(prev, list):
+                        prev_msgs = prev
+                recent.raw_data = {'messages': prev_msgs + [message.to_dict()]}
                 recent.submitted_at = tz.now()
                 recent.save(update_fields=['text', 'media_file_ids', 'content_type', 'raw_data', 'submitted_at'])
                 suggestion = recent
