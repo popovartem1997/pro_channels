@@ -22,6 +22,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.shortcuts import get_object_or_404
+from django.db import transaction
 
 from .models import SuggestionBot
 
@@ -795,12 +796,17 @@ def suggestion_moderate(request, pk):
         action = request.POST.get('action')
         if action == 'approve':
             suggestion.approve(request.user)
-            # Уведомление автора новости (если возможно)
+            # Уведомление в фоне (Celery), чтобы не зависал запрос «Одобрить» на внешних API
+            sid = suggestion.pk
             try:
-                from .services import notify_suggestion_approved
-                notify_suggestion_approved(suggestion)
+                from .tasks import notify_suggestion_approved_task
+                transaction.on_commit(lambda sid=sid: notify_suggestion_approved_task.delay(sid))
             except Exception:
-                pass
+                try:
+                    from .services import notify_suggestion_approved
+                    notify_suggestion_approved(suggestion)
+                except Exception:
+                    pass
             messages.success(request, f'Предложение #{suggestion.short_tracking_id} одобрено.')
             # Если пришли из ленты — сразу ведём в создание поста из предложки
             next_url = (request.POST.get('next') or '').strip()
@@ -809,11 +815,19 @@ def suggestion_moderate(request, pk):
         elif action == 'reject':
             reason = request.POST.get('reason', '')
             suggestion.reject(reason, request.user)
+            sid = suggestion.pk
+            rej_reason = reason or ''
             try:
-                from .services import notify_suggestion_rejected
-                notify_suggestion_rejected(suggestion, reason=reason)
+                from .tasks import notify_suggestion_rejected_task
+                transaction.on_commit(
+                    lambda sid=sid, r=rej_reason: notify_suggestion_rejected_task.delay(sid, r)
+                )
             except Exception:
-                pass
+                try:
+                    from .services import notify_suggestion_rejected
+                    notify_suggestion_rejected(suggestion, reason=reason)
+                except Exception:
+                    pass
             messages.success(request, f'Предложение #{suggestion.short_tracking_id} отклонено.')
     return redirect(request.META.get('HTTP_REFERER', 'bots:suggestions'))
 

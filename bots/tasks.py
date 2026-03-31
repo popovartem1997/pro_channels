@@ -6,6 +6,37 @@ from celery import shared_task
 logger = logging.getLogger(__name__)
 
 
+@shared_task(bind=True, max_retries=2, default_retry_delay=30)
+def notify_suggestion_approved_task(self, suggestion_id: int):
+    """Уведомление об одобрении в фоне — HTTP-запросы к мессенджерам не блокируют веб-воркер."""
+    from bots.models import Suggestion
+    from bots.services import notify_suggestion_approved
+
+    try:
+        sug = Suggestion.objects.select_related('bot').get(pk=suggestion_id)
+    except Suggestion.DoesNotExist:
+        return
+    try:
+        notify_suggestion_approved(sug)
+    except Exception as e:
+        logger.warning('notify_suggestion_approved failed suggestion_id=%s: %s', suggestion_id, e)
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=30)
+def notify_suggestion_rejected_task(self, suggestion_id: int, reason: str = ''):
+    from bots.models import Suggestion
+    from bots.services import notify_suggestion_rejected
+
+    try:
+        sug = Suggestion.objects.select_related('bot').get(pk=suggestion_id)
+    except Suggestion.DoesNotExist:
+        return
+    try:
+        notify_suggestion_rejected(sug, reason=reason or '')
+    except Exception as e:
+        logger.warning('notify_suggestion_rejected failed suggestion_id=%s: %s', suggestion_id, e)
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=10)
 def process_telegram_update_task(self, bot_id: int, update_data: dict):
     """

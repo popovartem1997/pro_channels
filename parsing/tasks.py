@@ -117,7 +117,7 @@ def execute_parse_task(self, task_id: int):
             total_found += found
             logger.info(f'ParseTask #{task_id}, источник "{source.name}": найдено {found}')
         except Exception as exc:
-            logger.error(f'Ошибка парсинга источника "{source.name}": {exc}')
+            logger.exception('Ошибка парсинга источника "%s" (%s): %s', source.name, source.platform, exc)
 
     task.last_run_at = timezone.now()
     task.items_found_total += total_found
@@ -180,21 +180,33 @@ def _parse_telegram(source, keywords, keyword_objects):
         await client.connect()
         if not await client.is_user_authorized():
             raise ValueError(
-                'Telethon session не авторизована. '
-                'Нужно один раз залогиниться (ввести телефон/код) командой '
-                '`python3 manage.py telethon_login` внутри web-контейнера.'
+                'Telethon session не авторизована для этого владельца (файл пользователя). '
+                'Владелец аккаунта должен один раз пройти «Подключить Telegram» в разделе парсинга '
+                '(или telethon_login в контейнере web). Убедитесь, что у celery worker смонтирована та же папка media/.'
             )
         found = 0
         try:
             channel = await client.get_entity(source.source_id)
             # Берём только последние 20 сообщений, чтобы не упереться в лимиты API
             async for message in client.iter_messages(channel, limit=20):
-                if not message.text:
+                msg_text = ''
+                try:
+                    msg_text = (message.text or '').strip()
+                except Exception:
+                    msg_text = ''
+                if not msg_text:
+                    try:
+                        raw_txt = getattr(message, 'raw_text', None)
+                        if raw_txt is not None:
+                            msg_text = str(raw_txt).strip()
+                    except Exception:
+                        pass
+                if not msg_text:
                     continue
-                matched = _match_keywords(message.text, keywords)
+                matched = _match_keywords(msg_text, keywords)
                 if matched:
                     kw_obj = keyword_objects[matched[0]]
-                    if _save_item(source, kw_obj, message.text, str(message.id)):
+                    if _save_item(source, kw_obj, msg_text, str(message.id)):
                         found += 1
         finally:
             await client.disconnect()
