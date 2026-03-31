@@ -107,23 +107,12 @@ def telegram_webhook(request, bot_id: int):
     except json.JSONDecodeError:
         return HttpResponse(status=400)
 
-    # Обработка через python-telegram-bot
+    # Быстро отвечаем 200, обработка уходит в Celery
     try:
-        from telegram import Update
-        from .telegram.handlers import build_application
-
-        app = build_application(bot_config)
-
-        async def process():
-            async with app:
-                update = Update.de_json(update_data, app.bot)
-                await app.process_update(update)
-
-        asyncio.run(process())
+        from .tasks import process_telegram_update_task
+        process_telegram_update_task.delay(int(bot_config.id), update_data)
     except Exception as e:
-        logger.exception('[TG Webhook] Ошибка обработки обновления: %s', e)
-
-    # Всегда возвращаем 200 — иначе Telegram будет повторять запрос
+        logger.exception('[TG Webhook] Не удалось поставить задачу в очередь: %s', e)
     return HttpResponse(status=200)
 
 
