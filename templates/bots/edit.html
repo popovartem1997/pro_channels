@@ -24,12 +24,28 @@
                    required>
           </div>
 
+          {% if not can_edit_messages_only %}
+          <div class="mb-4">
+            <label class="form-label fw-semibold" for="id_channel_id">Канал (внутри ProChannels)</label>
+            <select name="channel_id" id="id_channel_id" class="form-select" required>
+              <option value="">— Выберите канал —</option>
+              {% for ch in owner_channels %}
+                <option value="{{ ch.pk }}"
+                  {% if bot.channel_id|stringformat:"s" == ch.pk|stringformat:"s" %}selected{% endif %}>
+                  {{ ch.name }} ({{ ch.get_platform_display }})
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
+
           <div class="mb-4">
             <label class="form-label fw-semibold">Платформа</label>
             <input type="text" class="form-control" value="{{ bot.get_platform_display }}" disabled>
             <div class="form-text">Платформа не меняется. Если нужна другая — создайте нового бота.</div>
           </div>
 
+          {% if not can_edit_messages_only %}
           <div class="mb-3">
             <label class="form-label fw-semibold" for="id_bot_token">Bot Token</label>
             <input type="text" name="bot_token" id="id_bot_token"
@@ -37,8 +53,16 @@
                    value="{{ request.POST.bot_token|default:'' }}"
                    placeholder="Оставьте пустым, чтобы не менять">
           </div>
+          {% endif %}
+          {% if can_edit_messages_only %}
+            <div class="alert alert-info py-2">
+              <div class="small mb-0">
+                Доступ ограничен: вы можете редактировать только тексты сообщений бота.
+              </div>
+            </div>
+          {% endif %}
 
-          {% if bot.platform == 'telegram' %}
+          {% if bot.platform == 'telegram' and not can_edit_messages_only %}
           <div class="mb-3">
             <label class="form-label fw-semibold">Куда слать модерацию (Telegram)</label>
             <input type="text" name="admin_chat_id" class="form-control font-monospace"
@@ -55,6 +79,7 @@
             </label>
           </div>
 
+          {% if not can_edit_messages_only %}
           <div class="mb-3">
             <label class="form-label fw-semibold">Модераторы (сайт) — кому дублировать в Telegram</label>
             <select name="moderators" class="form-select" multiple size="5">
@@ -65,14 +90,17 @@
               {% endfor %}
             </select>
           </div>
+          {% endif %}
 
+          {% if not can_edit_messages_only %}
           <div class="mb-4">
             <label class="form-label fw-semibold">Доп. chat_id/user_id (через запятую/пробел/перенос)</label>
             <textarea name="custom_admin_chat_ids" class="form-control font-monospace" rows="2"
                       placeholder="12345678, -1001234567890">{{ request.POST.custom_admin_chat_ids|default:custom_admin_chat_ids }}</textarea>
             <div class="form-text">Только числа.</div>
           </div>
-          {% else %}
+          {% endif %}
+          {% elif not can_edit_messages_only %}
           <div class="mb-4">
             <label class="form-label fw-semibold">ID группы / сообщества</label>
             <input type="text" name="group_id" class="form-control font-monospace"

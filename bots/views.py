@@ -33,8 +33,22 @@ def _can_view_bot(user, bot: SuggestionBot) -> bool:
         return True
     if bot.owner_id == user.id:
         return True
-    # Manager: must be explicitly assigned as moderator
-    return bot.moderators.filter(id=user.id).exists()
+    # Manager: allow if moderator or has bot-management for assigned channel
+    if bot.moderators.filter(id=user.id).exists():
+        return True
+    if getattr(user, 'role', '') in ('manager', 'assistant_admin'):
+        try:
+            from managers.models import TeamMember
+            if bot.channel_id:
+                return TeamMember.objects.filter(
+                    member=user,
+                    is_active=True,
+                    can_manage_bots=True,
+                    channels__pk=bot.channel_id,
+                ).exists()
+        except Exception:
+            return False
+    return False
 
 
 def _can_moderate_suggestion(user, suggestion) -> bool:
@@ -181,7 +195,16 @@ from django.shortcuts import render, redirect
 
 @login_required
 def bot_list(request):
-    bots = SuggestionBot.objects.filter(owner=request.user)
+    if getattr(request.user, 'role', '') in ('manager', 'assistant_admin') and not (request.user.is_staff or request.user.is_superuser):
+        from managers.models import TeamMember
+        allowed_channel_ids = TeamMember.objects.filter(
+            member=request.user,
+            is_active=True,
+            can_manage_bots=True,
+        ).values_list('channels__pk', flat=True)
+        bots = SuggestionBot.objects.filter(channel_id__in=allowed_channel_ids).distinct().select_related('channel')
+    else:
+        bots = SuggestionBot.objects.filter(owner=request.user).select_related('channel')
     return render(request, 'bots/list.html', {'bots': bots})
 
 
@@ -190,27 +213,33 @@ def bot_create(request):
     from managers.models import TeamMember
     team_members = TeamMember.objects.filter(owner=request.user, is_active=True, can_moderate=True).select_related('member')
     selected_moderators = set(request.POST.getlist('moderators')) if request.method == 'POST' else set()
+    from channels.models import Channel
+    owner_channels = Channel.objects.filter(owner=request.user).order_by('name')
 
     if request.method == 'POST':
         import re
         name = request.POST.get('name', '').strip()
         platform = request.POST.get('platform', '')
         token = request.POST.get('bot_token', '').strip()
+        channel_id = (request.POST.get('channel_id') or '').strip()
         welcome_msg = request.POST.get('welcome_message', '').strip()
         success_msg = request.POST.get('success_message', '').strip()
         approved_msg = request.POST.get('approved_message', '').strip()
         rejected_msg = request.POST.get('rejected_message', '').strip()
 
-        if not all([name, platform, token]):
+        if not all([name, platform, token, channel_id]):
             messages.error(request, 'Заполните все обязательные поля.')
             return render(request, 'bots/create.html', {
                 'platforms': SuggestionBot.PLATFORM_CHOICES,
                 'team_members': team_members,
                 'selected_moderators': selected_moderators,
+                'owner_channels': owner_channels,
             })
 
+        channel = get_object_or_404(Channel, pk=channel_id, owner=request.user)
         bot = SuggestionBot(
             owner=request.user,
+            channel=channel,
             name=name,
             platform=platform,
             welcome_message=welcome_msg or SuggestionBot._meta.get_field('welcome_message').default,
@@ -262,12 +291,15 @@ def bot_create(request):
         'platforms': SuggestionBot.PLATFORM_CHOICES,
         'team_members': team_members,
         'selected_moderators': selected_moderators,
+        'owner_channels': owner_channels,
     })
 
 
 @login_required
 def bot_detail(request, bot_id):
-    bot = get_object_or_404(SuggestionBot, pk=bot_id, owner=request.user)
+    bot = get_object_or_404(SuggestionBot, pk=bot_id)
+    if not _can_view_bot(request.user, bot):
+        return HttpResponse(status=403)
     from .models import Suggestion
     recent_suggestions = Suggestion.objects.filter(bot=bot).order_by('-submitted_at')[:20]
     return render(request, 'bots/detail.html', {
@@ -281,8 +313,19 @@ def bot_edit(request, bot_id: int):
     from managers.models import TeamMember
     import re
 
-    bot = get_object_or_404(SuggestionBot, pk=bot_id, owner=request.user)
-    team_members = TeamMember.objects.filter(owner=request.user, is_active=True, can_moderate=True).select_related('member')
+    bot = get_object_or_404(SuggestionBot, pk=bot_id)
+    if not _can_view_bot(request.user, bot):
+        return HttpResponse(status=403)
+
+    footer_only = False
+    can_edit_messages_only = False
+    if getattr(request.user, 'role', '') in ('manager', 'assistant_admin') and not (request.user.is_staff or request.user.is_superuser):
+        # Managers may edit only bot messages (no tokens/webhook/admin chats).
+        can_edit_messages_only = True
+
+    team_members = TeamMember.objects.filter(owner=bot.owner, is_active=True, can_moderate=True).select_related('member')
+    from channels.models import Channel
+    owner_channels = Channel.objects.filter(owner=bot.owner).order_by('name')
 
     selected_moderators = set()
     if request.method == 'POST':
@@ -302,49 +345,59 @@ def bot_edit(request, bot_id: int):
                 'team_members': team_members,
                 'selected_moderators': selected_moderators,
                 'custom_admin_chat_ids': request.POST.get('custom_admin_chat_ids', custom_admin_chat_ids),
+                'owner_channels': owner_channels,
+                'can_edit_messages_only': can_edit_messages_only,
             })
 
         bot.name = name
 
-        new_token = request.POST.get('bot_token', '').strip()
-        if new_token:
-            bot.set_token(new_token)
+        if not can_edit_messages_only:
+            channel_id = (request.POST.get('channel_id') or '').strip()
+            if channel_id:
+                bot.channel = get_object_or_404(Channel, pk=channel_id, owner=bot.owner)
+
+        if not can_edit_messages_only:
+            new_token = request.POST.get('bot_token', '').strip()
+            if new_token:
+                bot.set_token(new_token)
 
         bot.welcome_message = request.POST.get('welcome_message', bot.welcome_message).strip() or bot.welcome_message
         bot.success_message = request.POST.get('success_message', bot.success_message).strip() or bot.success_message
         bot.approved_message = request.POST.get('approved_message', bot.approved_message).strip() or bot.approved_message
         bot.rejected_message = request.POST.get('rejected_message', bot.rejected_message).strip() or bot.rejected_message
 
-        if bot.platform == SuggestionBot.PLATFORM_TELEGRAM:
-            bot.admin_chat_id = request.POST.get('admin_chat_id', '').strip()
-            bot.notify_owner = request.POST.get('notify_owner') == 'on'
+        if not can_edit_messages_only:
+            if bot.platform == SuggestionBot.PLATFORM_TELEGRAM:
+                bot.admin_chat_id = request.POST.get('admin_chat_id', '').strip()
+                bot.notify_owner = request.POST.get('notify_owner') == 'on'
 
-            raw_custom = (request.POST.get('custom_admin_chat_ids') or '').strip()
-            ids = []
-            for part in re.split(r'[\s,]+', raw_custom):
-                p = part.strip()
-                if not p:
-                    continue
-                if re.fullmatch(r'-?\d+', p):
-                    ids.append(p)
-            bot.custom_admin_chat_ids = ids
-        else:
-            gid = request.POST.get('group_id', '').strip()
-            gid = gid.replace('club', '').replace('public', '')
-            gid = gid.lstrip('-').strip()
-            bot.group_id = gid
+                raw_custom = (request.POST.get('custom_admin_chat_ids') or '').strip()
+                ids = []
+                for part in re.split(r'[\s,]+', raw_custom):
+                    p = part.strip()
+                    if not p:
+                        continue
+                    if re.fullmatch(r'-?\d+', p):
+                        ids.append(p)
+                bot.custom_admin_chat_ids = ids
+            else:
+                gid = request.POST.get('group_id', '').strip()
+                gid = gid.replace('club', '').replace('public', '')
+                gid = gid.lstrip('-').strip()
+                bot.group_id = gid
 
         bot.save()
 
-        # apply moderators set
-        moderator_ids = request.POST.getlist('moderators')
-        allowed_users = TeamMember.objects.filter(
-            owner=request.user,
-            is_active=True,
-            can_moderate=True,
-            member_id__in=moderator_ids,
-        ).values_list('member_id', flat=True)
-        bot.moderators.set(list(allowed_users))
+        if not can_edit_messages_only:
+            # apply moderators set (owner only)
+            moderator_ids = request.POST.getlist('moderators')
+            allowed_users = TeamMember.objects.filter(
+                owner=bot.owner,
+                is_active=True,
+                can_moderate=True,
+                member_id__in=moderator_ids,
+            ).values_list('member_id', flat=True)
+            bot.moderators.set(list(allowed_users))
 
         messages.success(request, 'Бот обновлён.')
         return redirect('bots:detail', bot_id=bot.pk)
@@ -354,6 +407,8 @@ def bot_edit(request, bot_id: int):
         'team_members': team_members,
         'selected_moderators': selected_moderators,
         'custom_admin_chat_ids': custom_admin_chat_ids,
+        'owner_channels': owner_channels,
+        'can_edit_messages_only': can_edit_messages_only,
     })
 
 

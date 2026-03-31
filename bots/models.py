@@ -30,6 +30,15 @@ class SuggestionBot(models.Model):
         related_name='suggestion_bots',
         verbose_name='Владелец'
     )
+    channel = models.ForeignKey(
+        'channels.Channel',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='suggestion_bots',
+        verbose_name='Канал',
+        help_text='К какому каналу относится этот бот (для прав менеджеров и логики предложки).'
+    )
     name = models.CharField(max_length=255, verbose_name='Название бота')
     platform = models.CharField(
         max_length=20, choices=PLATFORM_CHOICES,

@@ -25,6 +25,21 @@
           </div>
 
           <div class="mb-4">
+            <label class="form-label fw-semibold" for="id_channel_id">Канал (внутри ProChannels)</label>
+            <select name="channel_id" id="id_channel_id" class="form-select" required>
+              <option value="">— Выберите канал —</option>
+              {% for ch in owner_channels %}
+                <option value="{{ ch.pk }}" {% if request.POST.channel_id|stringformat:"s" == ch.pk|stringformat:"s" %}selected{% endif %}>
+                  {{ ch.name }} ({{ ch.get_platform_display }})
+                </option>
+              {% endfor %}
+            </select>
+            <div class="form-text">
+              Бот предложки всегда относится к одному каналу. Это нужно для прав менеджеров и дальнейшей статистики.
+            </div>
+          </div>
+
+          <div class="mb-4">
             <label class="form-label fw-semibold" for="id_platform">Платформа</label>
             <select name="platform" id="id_platform"
                     class="form-select"
