@@ -138,6 +138,9 @@
       <li><a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}">
         <i class="bi bi-house-door"></i> Главная
       </a></li>
+      <li><a class="nav-link {% if '/feed/' in request.path %}active{% endif %}" href="{% url 'core:feed' %}">
+        <i class="bi bi-layout-text-window-reverse"></i> Лента
+      </a></li>
       {% if user.is_staff or user.is_superuser %}
       <li><a class="nav-link {% if '/settings/api-keys/' in request.path %}active{% endif %}" href="{% url 'core:api_keys' %}">
         <i class="bi bi-key"></i> Ключи API
@@ -148,42 +151,20 @@
       {% endif %}
     </ul>
 
-    {% if user.role != 'manager' and user.role != 'assistant_admin' %}
-      <span class="nav-section">Публикация</span>
-      <ul class="nav flex-column">
-        <li><a class="nav-link {% if 'channels' in request.path %}active{% endif %}" href="{% url 'channels:list' %}">
-          <i class="bi bi-broadcast"></i> Каналы
-        </a></li>
-        <li><a class="nav-link {% if '/posts/' in request.path %}active{% endif %}" href="{% url 'content:list' %}">
-          <i class="bi bi-pencil-square"></i> Посты
-        </a></li>
-        <li><a class="nav-link {% if '/bots/' in request.path and '/bots/suggestions/' not in request.path %}active{% endif %}" href="{% url 'bots:list' %}">
-          <i class="bi bi-robot"></i> Боты предложки
-          {% if global_pending_count %}<span class="ms-auto badge rounded-pill bg-danger">{{ global_pending_count }}</span>{% endif %}
-        </a></li>
-        <li><a class="nav-link {% if '/bots/suggestions/' in request.path %}active{% endif %}" href="{% url 'bots:suggestions_all' %}">
-          <i class="bi bi-inbox"></i> Предложка
-        </a></li>
-      </ul>
-    {% else %}
-      <span class="nav-section">Работа</span>
-      <ul class="nav flex-column">
-        <li><a class="nav-link {% if '/posts/' in request.path %}active{% endif %}" href="{% url 'content:list' %}">
-          <i class="bi bi-pencil-square"></i> Посты
-        </a></li>
-        {% if manager_can_manage_bots %}
-        <li><a class="nav-link {% if '/bots/' in request.path and '/bots/suggestions/' not in request.path %}active{% endif %}" href="{% url 'bots:list' %}">
-          <i class="bi bi-robot"></i> Боты предложки
-        </a></li>
-        <li><a class="nav-link {% if '/bots/suggestions/' in request.path %}active{% endif %}" href="{% url 'bots:suggestions_all' %}">
-          <i class="bi bi-inbox"></i> Предложка
-        </a></li>
-        <li><a class="nav-link {% if '/bots/conversations/' in request.path %}active{% endif %}" href="{% url 'bots:conversations' %}">
-          <i class="bi bi-chat-left-text"></i> Диалоги
-        </a></li>
-        {% endif %}
-      </ul>
-    {% endif %}
+    <span class="nav-section">Разделы</span>
+    <ul class="nav flex-column">
+      <li><a class="nav-link {% if 'channels' in request.path %}active{% endif %}" href="{% url 'channels:list' %}">
+        <i class="bi bi-broadcast"></i> Каналы
+      </a></li>
+      <li><a class="nav-link {% if '/bots/' in request.path and '/bots/suggestions/' not in request.path %}active{% endif %}" href="{% url 'bots:list' %}">
+        <i class="bi bi-robot"></i> Боты предложки
+      </a></li>
+      {% if manager_can_manage_bots %}
+      <li><a class="nav-link {% if '/bots/conversations/' in request.path %}active{% endif %}" href="{% url 'bots:conversations' %}">
+        <i class="bi bi-chat-left-text"></i> Диалоги
+      </a></li>
+      {% endif %}
+    </ul>
 
     {% if user.role != 'manager' and user.role != 'assistant_admin' %}
       <span class="nav-section">Контент</span>

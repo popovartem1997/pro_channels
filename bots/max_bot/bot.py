@@ -171,7 +171,19 @@ class MAXSuggestionBot:
         """Пользователь нажал Start / написал первый раз."""
         chat_id = update.get('chat_id') or update.get('message', {}).get('recipient', {}).get('chat_id', '')
         if chat_id:
-            self.api.send_message(str(chat_id), self.config.welcome_message)
+            self.api.send_message(str(chat_id), self.config.welcome_message, buttons=self._menu_buttons())
+
+    def _menu_buttons(self):
+        return [
+            [
+                {'type': 'callback', 'text': '📰 Прислать новость', 'payload': 'menu_send'},
+                {'type': 'callback', 'text': '💬 Связаться с админом', 'payload': 'menu_contact'},
+            ],
+            [
+                {'type': 'callback', 'text': '📬 Мои новости', 'payload': 'menu_my'},
+                {'type': 'callback', 'text': '📊 Статистика', 'payload': 'menu_stats'},
+            ],
+        ]
 
     def _handle_message(self, update: dict):
         """Обработать входящее сообщение."""
@@ -188,7 +200,7 @@ class MAXSuggestionBot:
 
         # Команды
         if text.lower() in ('/start', 'start', 'начать'):
-            self.api.send_message(chat_id, self.config.welcome_message)
+            self.api.send_message(chat_id, self.config.welcome_message, buttons=self._menu_buttons())
             return
         if text.lower() in ('/status', 'status', 'статус'):
             self._send_status(chat_id, user_id)
@@ -227,7 +239,7 @@ class MAXSuggestionBot:
         stats.save()
 
         confirm = self.config.success_message.replace('{tracking_id}', suggestion.short_tracking_id)
-        self.api.send_message(chat_id, confirm)
+        self.api.send_message(chat_id, confirm, buttons=self._menu_buttons())
 
         # Переслать модераторам
         admin_chat_ids = []
@@ -314,7 +326,25 @@ class MAXSuggestionBot:
         callback_id = callback.get('callback_id', '')
         payload = callback.get('payload', '')
         user = callback.get('user', {})
-        message_id = callback.get('message', {}).get('mid', '')
+        message = callback.get('message', {}) or {}
+        message_id = message.get('mid', '')
+        chat_id = message.get('recipient', {}).get('chat_id', '') or callback.get('chat_id', '')
+
+        # User menu actions
+        if payload in ('menu_send', 'menu_contact', 'menu_my', 'menu_stats'):
+            self.api.answer_callback(callback_id)
+            if payload == 'menu_send':
+                self.api.send_message(str(chat_id), 'Отправьте новость одним сообщением (текст/фото/видео/файл).', buttons=self._menu_buttons())
+                return
+            if payload == 'menu_my':
+                self._send_my_news(str(chat_id), str(user.get('user_id', '')))
+                return
+            if payload == 'menu_stats':
+                self._send_status(str(chat_id), str(user.get('user_id', '')))
+                return
+            if payload == 'menu_contact':
+                self._send_admin_contacts(str(chat_id), user)
+                return
 
         if payload.startswith('approve|'):
             uuid_str = payload[8:]
@@ -327,11 +357,8 @@ class MAXSuggestionBot:
             self._notify_user(suggestion.platform_user_id, notify)
             self.api.answer_callback(callback_id, 'Одобрено!')
             mod_name = user.get('name', 'Модератор')
-            if message_id:
-                self.api.edit_message(
-                    message_id,
-                    f'✅ Заявка #{suggestion.short_tracking_id} одобрена.\nМодератор: {mod_name}'
-                )
+            if chat_id:
+                self.api.send_message(str(chat_id), f'✅ Заявка #{suggestion.short_tracking_id} одобрена.\nМодератор: {mod_name}')
 
         elif payload.startswith('reject|'):
             uuid_str = payload[7:]
@@ -341,8 +368,8 @@ class MAXSuggestionBot:
                 for i, r in enumerate(REJECT_REASONS)
             ]
             self.api.answer_callback(callback_id)
-            if message_id:
-                self.api.edit_message(message_id, 'Выберите причину отклонения:', buttons=buttons)
+            if chat_id:
+                self.api.send_message(str(chat_id), 'Выберите причину отклонения:', buttons=buttons)
 
         elif payload.startswith('rr|'):
             parts = payload.split('|', 2)
@@ -363,9 +390,9 @@ class MAXSuggestionBot:
             self._notify_user(suggestion.platform_user_id, notify)
             self.api.answer_callback(callback_id, 'Отклонено.')
             mod_name = user.get('name', 'Модератор')
-            if message_id:
-                self.api.edit_message(
-                    message_id,
+            if chat_id:
+                self.api.send_message(
+                    str(chat_id),
                     f'❌ Заявка #{suggestion.short_tracking_id} отклонена.\n'
                     f'Причина: {reason}\nМодератор: {mod_name}'
                 )
@@ -414,7 +441,58 @@ class MAXSuggestionBot:
         for s in recent:
             lines.append(f'{s.status_emoji} #{s.short_tracking_id} — {s.get_status_display()}')
 
-        self.api.send_message(chat_id, '\n'.join(lines))
+        self.api.send_message(chat_id, '\n'.join(lines), buttons=self._menu_buttons())
+
+    def _send_my_news(self, chat_id: str, user_id: str):
+        from bots.models import Suggestion
+        items = Suggestion.objects.filter(bot=self.config, platform_user_id=str(user_id)).order_by('-submitted_at')[:10]
+        if not items:
+            text = 'У вас пока нет отправленных новостей. Нажмите «Прислать новость».'
+        else:
+            lines = ['📬 Ваши новости (последние 10):\n']
+            for s in items:
+                lines.append(f'{s.status_emoji} #{s.short_tracking_id} — {s.get_status_display()}')
+            text = '\n'.join(lines)
+        self.api.send_message(chat_id, text, buttons=self._menu_buttons())
+
+    def _send_admin_contacts(self, chat_id: str, user: dict):
+        # Show channel owner contacts from site
+        channel = getattr(self.config, 'channel', None)
+        owner = getattr(self.config, 'owner', None)
+        site_nick = (getattr(channel, 'admin_contact_site', '') or '').strip()
+        vk_nick = (getattr(channel, 'admin_contact_vk', '') or '').strip()
+        max_phone = (getattr(channel, 'admin_contact_max_phone', '') or '').strip()
+        if not site_nick:
+            site_nick = getattr(owner, 'username', '') or ''
+        lines = ['Контакты админа канала:']
+        if site_nick:
+            lines.append(f'— Сайт: {site_nick}')
+        if vk_nick:
+            lines.append(f'— VK: {vk_nick}')
+        if max_phone:
+            lines.append(f'— MAX (телефон): {max_phone}')
+        if len(lines) == 1:
+            lines.append('— Контакты не заполнены. Админ может добавить их в настройках канала.')
+        self.api.send_message(chat_id, '\n'.join(lines), buttons=self._menu_buttons())
+
+        # Log press
+        try:
+            from bots.models import AuditLog
+            AuditLog.objects.create(
+                actor=None,
+                owner=owner,
+                action='bot.contact_pressed',
+                object_type='SuggestionBot',
+                object_id=str(getattr(self.config, 'id', '')),
+                data={
+                    'channel_id': getattr(channel, 'id', None),
+                    'platform': 'max',
+                    'platform_user_id': str(user.get('user_id', '')),
+                    'platform_username': str(user.get('username', '') or ''),
+                }
+            )
+        except Exception:
+            pass
 
 
 def process_max_webhook(bot_config, update_data: dict):
