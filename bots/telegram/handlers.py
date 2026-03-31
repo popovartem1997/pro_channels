@@ -182,6 +182,24 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         try:
+            chat_id_dbg = int(update.effective_chat.id) if update.effective_chat else 0
+        except Exception:
+            chat_id_dbg = 0
+        try:
+            logger.info(
+                "[TG] handle_suggestion: bot_id=%s chat_id=%s user_id=%s has_text=%s has_photo=%s has_video=%s has_doc=%s",
+                getattr(bot_config, "id", None),
+                chat_id_dbg,
+                getattr(user, "id", None),
+                bool(getattr(message, "text", None)),
+                bool(getattr(message, "photo", None)),
+                bool(getattr(message, "video", None)),
+                bool(getattr(message, "document", None)),
+            )
+        except Exception:
+            pass
+
+        try:
             # Если это чат модерации — это не "предложение", а ответы/действия менеджера.
             chat_id = int(update.effective_chat.id) if update.effective_chat else 0
         except Exception:
@@ -367,7 +385,15 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
         confirm = bot_config.success_message.replace('{tracking_id}', suggestion.short_tracking_id)
         if send_mode:
             confirm = '✅ Новость получена!\n\n' + confirm
+        try:
+            logger.info("[TG] replying confirm: chat_id=%s tracking=%s", chat_id_dbg, suggestion.short_tracking_id)
+        except Exception:
+            pass
         await message.reply_text(confirm)
+        try:
+            logger.info("[TG] replied confirm OK: chat_id=%s tracking=%s", chat_id_dbg, suggestion.short_tracking_id)
+        except Exception:
+            pass
 
         # Пересылаем в чат модерации (если настроен)
         admin_chat_ids = []
