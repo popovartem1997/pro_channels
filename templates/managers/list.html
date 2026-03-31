@@ -88,6 +88,9 @@
             <span class="badge {% if member.role == 'assistant_admin' %}bg-primary-subtle text-primary{% else %}bg-success-subtle text-success{% endif %} rounded-pill px-3">
               {% if member.role == 'assistant_admin' %}Помощник-администратор{% else %}Менеджер{% endif %}
             </span>
+            <a href="{% url 'managers:member_access' member.pk %}" class="btn btn-outline-secondary btn-sm" title="Доступы">
+              <i class="bi bi-shield-lock"></i>
+            </a>
             <form method="post" action="{% url 'managers:remove' member.pk %}">
               {% csrf_token %}
               <button type="submit" class="btn btn-outline-danger btn-sm">

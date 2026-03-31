@@ -183,3 +183,38 @@ def invite_cancel(request, pk):
         invite.save(update_fields=['status'])
         messages.success(request, 'Приглашение отменено.')
     return redirect('managers:list')
+
+
+@login_required
+def member_access(request, pk: int):
+    """Выдать менеджеру доступы к каналам и права."""
+    resp = _require_owner(request)
+    if resp:
+        return resp
+
+    member = get_object_or_404(TeamMember, pk=pk, owner=request.user, is_active=True)
+    from channels.models import Channel
+    owner_channels = Channel.objects.filter(owner=request.user).order_by('-created_at')
+
+    if request.method == 'POST':
+        channel_ids = request.POST.getlist('channels')
+        # sanitize ids
+        channel_ids = [int(x) for x in channel_ids if str(x).isdigit()]
+        allowed = owner_channels.filter(pk__in=channel_ids)
+        member.channels.set(allowed)
+
+        member.can_publish = request.POST.get('can_publish') == 'on'
+        member.can_moderate = request.POST.get('can_moderate') == 'on'
+        member.can_view_stats = request.POST.get('can_view_stats') == 'on'
+        member.can_manage_bots = request.POST.get('can_manage_bots') == 'on'
+        member.save(update_fields=['can_publish', 'can_moderate', 'can_view_stats', 'can_manage_bots'])
+
+        messages.success(request, 'Доступы обновлены.')
+        return redirect('managers:list')
+
+    selected = set(member.channels.values_list('pk', flat=True))
+    return render(request, 'managers/member_access.html', {
+        'member': member,
+        'owner_channels': owner_channels,
+        'selected': selected,
+    })
