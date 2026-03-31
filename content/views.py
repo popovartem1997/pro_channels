@@ -214,19 +214,24 @@ def post_create_from_suggestion(request, tracking_id):
     )
     post.channels.set([bot.channel_id])
 
-    # IMPORTANT: медиа импорт может быть долгим (MAX/Telegram CDN). Чтобы «Одобрить» не зависало,
-    # по умолчанию запускаем импорт в фоне (Celery) и НЕ тянем медиа синхронно в этом запросе.
-    do_sync_media_import = False
+    # Медиа: стараемся прикрепить сразу, если вложений немного.
+    # Если вложений много/скачивание медленное — докачиваем в фоне (Celery) как фоллбек.
+    media_ids = suggestion.media_file_ids or []
+    sync_limit = 4  # чтобы UI был быстрым и предсказуемым
+    do_sync_media_import = bool(media_ids) and len(media_ids) <= sync_limit
+    bg_enqueued = False
+    if media_ids and len(media_ids) > sync_limit:
+        do_sync_media_import = True  # прикрепим первые N сразу, остальное — в фоне
     try:
         from .tasks import import_media_from_suggestion_task
         import_media_from_suggestion_task.delay(post.pk)
-        messages.info(request, 'Медиа подгрузятся в черновик в течение 1–2 минут.')
+        bg_enqueued = True
     except Exception:
-        # Если Celery не настроен — оставляем старое синхронное поведение.
-        do_sync_media_import = True
+        bg_enqueued = False
 
     # Telegram media import
-    if do_sync_media_import and bot.platform == bot.PLATFORM_TELEGRAM and (suggestion.media_file_ids or []):
+    sync_import_ok = False
+    if do_sync_media_import and bot.platform == bot.PLATFORM_TELEGRAM and media_ids:
         token = bot.get_token()
         api_base = f'https://api.telegram.org/bot{token}'
         file_base = f'https://api.telegram.org/file/bot{token}'
@@ -239,14 +244,14 @@ def post_create_from_suggestion(request, tracking_id):
         elif suggestion.content_type == Suggestion.CONTENT_DOCUMENT:
             media_type = PostMedia.TYPE_DOCUMENT
 
-        for idx, file_id in enumerate(suggestion.media_file_ids or []):
+        for idx, file_id in enumerate((media_ids or [])[:sync_limit]):
             try:
-                r = requests.get(f'{api_base}/getFile', params={'file_id': file_id}, timeout=15)
+                r = requests.get(f'{api_base}/getFile', params={'file_id': file_id}, timeout=12)
                 data = r.json()
                 if not data.get('ok'):
                     raise ValueError(data.get('description') or 'getFile failed')
                 file_path = data['result']['file_path']
-                dl = requests.get(f'{file_base}/{file_path}', timeout=30)
+                dl = requests.get(f'{file_base}/{file_path}', timeout=20)
                 dl.raise_for_status()
                 filename = (file_path.split('/')[-1] or f'media_{idx}')
                 PostMedia.objects.create(
@@ -255,6 +260,7 @@ def post_create_from_suggestion(request, tracking_id):
                     media_type=media_type,
                     order=idx,
                 )
+                sync_import_ok = True
             except Exception as e:
                 messages.warning(request, f'Не удалось загрузить медиа из Telegram (file_id={file_id}): {e}')
 
@@ -418,12 +424,12 @@ def post_create_from_suggestion(request, tracking_id):
                         'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
                         'Referer': 'https://prochannels.ru/',
                     }
-                    dl = requests.get(url, timeout=30, stream=True, headers=headers_common)
+                    dl = requests.get(url, timeout=20, stream=True, headers=headers_common)
                     if dl.status_code >= 400:
                         dl = requests.get(
                             url,
                             headers={**headers_common, 'Authorization': bot.get_token()},
-                            timeout=30,
+                            timeout=20,
                             stream=True
                         )
                     dl.raise_for_status()
@@ -473,6 +479,9 @@ def post_create_from_suggestion(request, tracking_id):
                         order=order,
                     )
                     order += 1
+                    sync_import_ok = True
+                    if order >= sync_limit:
+                        break
                 except Exception as e:
                     try:
                         messages.warning(
@@ -483,6 +492,10 @@ def post_create_from_suggestion(request, tracking_id):
                         pass
         except Exception:
             pass
+
+    # Сообщение пользователю: если не смогли прикрепить сразу — медиа догрузятся фоном (если Celery есть).
+    if media_ids and not sync_import_ok and bg_enqueued:
+        messages.info(request, 'Медиа подгрузятся в черновик в фоне (обычно до 1–2 минут).')
 
     messages.success(request, f'Создан черновик поста из предложки #{suggestion.short_tracking_id}.')
     return redirect('content:edit', pk=post.pk)
