@@ -225,7 +225,12 @@
       </div>
       {% endif %}
       <a class="nav-link {% if request.resolver_match.url_name == 'profile' %}active{% endif %}" href="{% url 'profile' %}">
-        <i class="bi bi-person-circle"></i> {{ user.get_full_name|default:user.username }}
+        {% if user.avatar %}
+          <img src="{{ user.avatar.url }}" alt="" style="width:22px;height:22px;border-radius:50%;object-fit:cover;border:1px solid #e2e8f0;margin-right:.4rem;">
+        {% else %}
+          <i class="bi bi-person-circle"></i>
+        {% endif %}
+        {{ user.get_full_name|default:user.username }}
       </a>
       <a href="{% url 'logout' %}" class="nav-link text-danger">
         <i class="bi bi-box-arrow-right"></i> Выйти

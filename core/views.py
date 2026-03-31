@@ -37,6 +37,11 @@ def privacy(request):
 
 def quickstart(request):
     """Быстрый старт по сервису (в т.ч. для SEO и onboarding)."""
+    # По требованиям: быстрый старт видит только суперпользователь.
+    if getattr(request, "user", None) and request.user.is_authenticated:
+        if request.user.is_superuser:
+            return render(request, 'core/quickstart.html')
+        return redirect('dashboard')
     return render(request, 'core/quickstart.html')
 
 
@@ -123,6 +128,10 @@ def audit_log(request):
     audit = audit_qs.order_by('-created_at')[:500]
     visits = visits_qs.order_by('-created_at')[:500]
 
+    action_choices = list(
+        AuditLog.objects.values_list('action', flat=True).distinct().order_by('action')[:300]
+    )
+
     # Enrich page visits with resolved route name (best effort)
     from django.urls import resolve, Resolver404
 
@@ -147,6 +156,7 @@ def audit_log(request):
     return render(request, 'core/audit_log.html', {
         'audit': audit,
         'visits_enriched': visits_enriched,
+        'action_choices': action_choices,
         'filters': {
             'action': q_action,
             'actor': q_actor,
@@ -171,8 +181,10 @@ def feed(request):
 
     kind = (request.GET.get('kind') or 'all').strip()  # all|post|subscriber|parsing
     status_filter = (request.GET.get('status') or '').strip()  # for subscriber/parsing
+    channel_id = (request.GET.get('channel') or '').strip()
 
     # Visibility scopes
+    allowed_channels = None
     if getattr(request.user, 'role', '') in ('manager', 'assistant_admin') and not (request.user.is_staff or request.user.is_superuser):
         from managers.models import TeamMember
         allowed_channel_ids = TeamMember.objects.filter(
@@ -180,11 +192,18 @@ def feed(request):
             is_active=True,
         ).values_list('channels__pk', flat=True)
         allowed_channel_ids = list(set(int(x) for x in allowed_channel_ids if str(x).isdigit()))
+        from channels.models import Channel
+        allowed_channels = list(Channel.objects.filter(pk__in=allowed_channel_ids, is_active=True).order_by('name'))
         post_qs = Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct()
         sug_qs = Suggestion.objects.filter(bot__channel_id__in=allowed_channel_ids).distinct()
         parsed_qs = ParsedItem.objects.filter(source__channel_id__in=allowed_channel_ids)
     else:
         # owner/staff
+        from channels.models import Channel
+        if request.user.is_staff or request.user.is_superuser:
+            allowed_channels = list(Channel.objects.filter(is_active=True).order_by('name'))
+        else:
+            allowed_channels = list(Channel.objects.filter(owner=request.user, is_active=True).order_by('name'))
         post_qs = Post.objects.filter(author=request.user) if not (request.user.is_staff or request.user.is_superuser) else Post.objects.all()
         sug_qs = Suggestion.objects.filter(bot__owner=request.user) if not (request.user.is_staff or request.user.is_superuser) else Suggestion.objects.all()
         parsed_qs = ParsedItem.objects.filter(source__owner=request.user) if not (request.user.is_staff or request.user.is_superuser) else ParsedItem.objects.all()
@@ -195,7 +214,15 @@ def feed(request):
 
     items = []
 
+    # Channel filter (applies to all kinds)
+    if channel_id and str(channel_id).isdigit():
+        cid = int(channel_id)
+        post_qs = post_qs.filter(channels__pk=cid).distinct()
+        sug_qs = sug_qs.filter(bot__channel_id=cid).distinct()
+        parsed_qs = parsed_qs.filter(source__channel_id=cid)
+
     if kind in ('all', 'post'):
+        from content.models import PostMedia
         for p in post_qs.order_by('-created_at')[:200]:
             items.append({
                 'kind': 'post',
@@ -203,9 +230,12 @@ def feed(request):
                 'title': 'Пост',
                 'text': p.text or '',
                 'status': p.status,
+                'status_display': p.get_status_display(),
                 'channels': list(p.channels.all()),
                 'url': f'/posts/{p.pk}/',
                 'meta': f'Автор: {getattr(p.author, "username", "—")}' + (f' · Опубликовал: {p.published_by.username}' if getattr(p, 'published_by', None) else ''),
+                'obj': p,
+                'media': list(PostMedia.objects.filter(post=p).order_by('order', 'pk')[:6]),
             })
 
     if kind in ('all', 'subscriber'):
@@ -219,9 +249,11 @@ def feed(request):
                 'title': 'От подписчика',
                 'text': s.text or '',
                 'status': s.status,
+                'status_display': s.get_status_display(),
                 'channels': [s.bot.channel] if getattr(s.bot, 'channel', None) else [],
                 'url': '',
                 'meta': f'{s.bot.name} · {s.sender_display}',
+                'obj': s,
             })
 
     if kind in ('all', 'parsing'):
@@ -235,15 +267,19 @@ def feed(request):
             elif status_filter == 'published':
                 q = q.filter(status=ParsedItem.STATUS_USED)
         for pi in q[:200]:
+            st = 'pending' if pi.status == ParsedItem.STATUS_NEW else ('published' if pi.status == ParsedItem.STATUS_USED else 'rejected')
+            st_display = 'Новые' if pi.status == ParsedItem.STATUS_NEW else ('Использованы' if pi.status == ParsedItem.STATUS_USED else 'Пропущены')
             items.append({
                 'kind': 'parsing',
                 'dt': pi.found_at,
                 'title': 'Парсинг',
                 'text': pi.text or '',
-                'status': 'pending' if pi.status == ParsedItem.STATUS_NEW else ('published' if pi.status == ParsedItem.STATUS_USED else 'rejected'),
+                'status': st,
+                'status_display': st_display,
                 'channels': [pi.source.channel] if getattr(pi.source, 'channel', None) else [],
                 'url': pi.original_url or '',
                 'meta': f'{pi.source.get_platform_display()} · {pi.source.name}',
+                'obj': pi,
             })
 
     items.sort(key=lambda x: x.get('dt') or timezone.now(), reverse=True)
@@ -253,4 +289,6 @@ def feed(request):
         'items': items,
         'kind': kind,
         'status_filter': status_filter,
+        'channels': allowed_channels or [],
+        'channel_id': int(channel_id) if (channel_id and channel_id.isdigit()) else '',
     })

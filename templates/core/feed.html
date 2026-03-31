@@ -37,6 +37,15 @@
         </select>
       </div>
       <div class="col-12 col-md-3">
+        <label class="form-label small text-muted mb-1">Канал</label>
+        <select class="form-select form-select-sm" name="channel">
+          <option value="" {% if not channel_id %}selected{% endif %}>Все</option>
+          {% for ch in channels %}
+            <option value="{{ ch.pk }}" {% if channel_id == ch.pk %}selected{% endif %}>{{ ch.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-3">
         <button class="btn btn-brand btn-sm w-100">Фильтровать</button>
       </div>
     </div>
@@ -53,13 +62,13 @@
             <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
               {% if it.kind == 'post' %}
                 <span class="badge bg-light text-dark border">Пост</span>
-                <span class="badge bg-secondary-subtle text-secondary">{{ it.status }}</span>
+                <span class="badge bg-secondary-subtle text-secondary">{{ it.status_display|default:it.status }}</span>
               {% elif it.kind == 'subscriber' %}
                 <span class="badge bg-warning-subtle text-warning border">От подписчика</span>
-                <span class="badge bg-secondary-subtle text-secondary">{{ it.status }}</span>
+                <span class="badge bg-secondary-subtle text-secondary">{{ it.status_display|default:it.status }}</span>
               {% else %}
                 <span class="badge bg-info-subtle text-info border">Парсинг</span>
-                <span class="badge bg-secondary-subtle text-secondary">{{ it.status }}</span>
+                <span class="badge bg-secondary-subtle text-secondary">{{ it.status_display|default:it.status }}</span>
               {% endif %}
               <span class="text-muted small">{{ it.dt|date:"d.m.Y H:i" }}</span>
               <span class="ms-auto d-inline-flex gap-1 flex-wrap">
@@ -73,6 +82,48 @@
             <div class="text-muted small mb-2">{{ it.meta }}</div>
 
             <div style="white-space:pre-wrap;">{{ it.text|truncatechars:600 }}</div>
+
+            {% if it.kind == 'post' and it.media %}
+              <div class="mt-3 d-flex gap-2 flex-wrap">
+                {% for m in it.media %}
+                  {% if m.media_type == 'photo' %}
+                    <a href="{{ m.file.url }}" target="_blank" rel="noopener" class="d-inline-block">
+                      <img src="{{ m.file.url }}" alt="" style="width:96px;height:96px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;">
+                    </a>
+                  {% elif m.media_type == 'video' %}
+                    <a href="{{ m.file.url }}" target="_blank" rel="noopener"
+                       class="d-inline-flex align-items-center justify-content-center"
+                       style="width:96px;height:96px;border-radius:10px;border:1px solid #e2e8f0;background:#0b1220;color:#fff;text-decoration:none;">
+                      <i class="bi bi-play-circle fs-3"></i>
+                    </a>
+                  {% else %}
+                    <a href="{{ m.file.url }}" target="_blank" rel="noopener" class="badge bg-light text-dark border text-decoration-none">
+                      <i class="bi bi-paperclip me-1"></i>Файл
+                    </a>
+                  {% endif %}
+                {% endfor %}
+              </div>
+            {% endif %}
+
+            {% if it.kind == 'subscriber' and it.obj and it.status == 'pending' %}
+              <div class="mt-3 d-flex gap-2 flex-wrap">
+                <form method="post" action="{% url 'bots:moderate' it.obj.pk %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="approve">
+                  <input type="hidden" name="next" value="{% url 'content:create_from_suggestion' tracking_id=it.obj.tracking_id %}">
+                  <button class="btn btn-success btn-sm">
+                    <i class="bi bi-check2 me-1"></i> Одобрить
+                  </button>
+                </form>
+                <form method="post" action="{% url 'bots:moderate' it.obj.pk %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="reject">
+                  <button class="btn btn-outline-danger btn-sm">
+                    <i class="bi bi-x-lg me-1"></i> Отклонить
+                  </button>
+                </form>
+              </div>
+            {% endif %}
 
             {% if it.url %}
               <div class="mt-2 small"><a href="{{ it.url }}" target="_blank" rel="noopener">Открыть</a></div>

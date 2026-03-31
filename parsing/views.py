@@ -94,16 +94,29 @@ def keyword_create(request):
     if request.method == 'POST':
         keyword = request.POST.get('keyword', '').strip()
         source_ids = request.POST.getlist('sources')
+        all_channels = request.POST.get('all_channels') == 'on'
         if not keyword:
             messages.error(request, 'Введите ключевое слово.')
         else:
-            if not selected_channel:
-                messages.error(request, 'Сначала выберите канал для парсинга.')
-                return redirect('parsing:sources')
-            kw = ParseKeyword.objects.create(owner=request.user, channel=selected_channel, keyword=keyword)
-            if source_ids:
-                kw.sources.set(source_ids)
-            messages.success(request, f'Ключевое слово "{keyword}" добавлено.')
+            from channels.models import Channel
+            if all_channels:
+                channel_ids = list(Channel.objects.filter(owner=request.user, is_active=True).values_list('pk', flat=True))
+                if not channel_ids:
+                    messages.error(request, 'Нет активных каналов. Сначала добавьте канал.')
+                    return redirect('parsing:sources')
+                created = 0
+                for cid in channel_ids:
+                    kw = ParseKeyword.objects.create(owner=request.user, channel_id=cid, keyword=keyword)
+                    created += 1
+                messages.success(request, f'Ключевое слово "{keyword}" добавлено для {created} канал(ов).')
+            else:
+                if not selected_channel:
+                    messages.error(request, 'Сначала выберите канал для парсинга.')
+                    return redirect('parsing:sources')
+                kw = ParseKeyword.objects.create(owner=request.user, channel=selected_channel, keyword=keyword)
+                if source_ids:
+                    kw.sources.set(source_ids)
+                messages.success(request, f'Ключевое слово "{keyword}" добавлено.')
         return redirect('parsing:sources')
     sources = ParseSource.objects.filter(owner=request.user, channel=selected_channel) if selected_channel else ParseSource.objects.filter(owner=request.user)
     return render(request, 'parsing/keyword_create.html', {

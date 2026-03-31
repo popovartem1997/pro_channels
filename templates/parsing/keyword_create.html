@@ -28,6 +28,19 @@
           </div>
 
           <div class="mb-4">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="id_all_channels" name="all_channels"
+                     {% if request.POST.all_channels %}checked{% endif %}>
+              <label class="form-check-label" for="id_all_channels">
+                Для всех каналов
+              </label>
+            </div>
+            <div class="form-text">
+              Создаст ключевое слово для каждого вашего активного канала.
+            </div>
+          </div>
+
+          <div class="mb-4">
             <label class="form-label fw-semibold">Источники</label>
             <div class="text-muted small mb-2">Можно выбрать один или несколько. Если не выбирать — ключевик будет активен, но без привязки к источникам.</div>
             <div class="d-flex flex-column gap-2">

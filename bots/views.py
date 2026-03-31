@@ -711,10 +711,25 @@ def suggestion_moderate(request, pk):
         action = request.POST.get('action')
         if action == 'approve':
             suggestion.approve(request.user)
+            # Уведомление автора новости (если возможно)
+            try:
+                from .services import notify_suggestion_approved
+                notify_suggestion_approved(suggestion)
+            except Exception:
+                pass
             messages.success(request, f'Предложение #{suggestion.short_tracking_id} одобрено.')
+            # Если пришли из ленты — сразу ведём в создание поста из предложки
+            next_url = (request.POST.get('next') or '').strip()
+            if next_url:
+                return redirect(next_url)
         elif action == 'reject':
             reason = request.POST.get('reason', '')
             suggestion.reject(reason, request.user)
+            try:
+                from .services import notify_suggestion_rejected
+                notify_suggestion_rejected(suggestion, reason=reason)
+            except Exception:
+                pass
             messages.success(request, f'Предложение #{suggestion.short_tracking_id} отклонено.')
     return redirect(request.META.get('HTTP_REFERER', 'bots:suggestions'))
 

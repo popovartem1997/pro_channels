@@ -46,13 +46,18 @@
               <div class="small text-muted mb-2">Текущие медиа (можно удалить):</div>
               <div class="list-group">
                 {% for m in post.media_files.all %}
-                <label class="list-group-item d-flex align-items-center gap-2">
-                  <input class="form-check-input mt-0" type="checkbox" name="delete_media" value="{{ m.pk }}">
+                <div class="list-group-item d-flex align-items-center gap-2">
+                  <input class="form-check-input mt-0" type="checkbox" name="delete_media" value="{{ m.pk }}" title="Удалить">
                   <div class="flex-grow-1">
                     <div class="fw-semibold small">{{ m.get_media_type_display }}</div>
                     <a class="small text-muted" href="{{ m.file.url }}" target="_blank" rel="noopener">
                       {{ m.file.name }}
                     </a>
+                  </div>
+                  <div style="width:110px;">
+                    <label class="form-label small text-muted mb-1">Порядок</label>
+                    <input type="number" class="form-control form-control-sm" name="media_order_{{ m.pk }}"
+                           value="{{ m.order }}" min="0" step="1">
                   </div>
                 </label>
                 {% endfor %}

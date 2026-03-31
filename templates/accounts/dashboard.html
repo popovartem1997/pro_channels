@@ -125,6 +125,7 @@
   <!-- Быстрые действия + каналы -->
   <div class="col-lg-5">
     <!-- Быстрый старт -->
+    {% if user.is_superuser %}
     <div class="card mb-3">
       <div class="card-body">
         <div class="d-flex align-items-center justify-content-between mb-2">
@@ -136,6 +137,7 @@
         </div>
       </div>
     </div>
+    {% endif %}
 
     <!-- Быстрые действия -->
     <div class="card mb-3">

@@ -78,20 +78,25 @@
       </div>
       <div class="card-body p-0">
         {% if keywords %}
-        <div class="px-4 py-3 d-flex flex-wrap gap-2">
+        <ul class="list-group list-group-flush">
           {% for kw in keywords %}
-          <div class="d-inline-flex align-items-center gap-1 badge bg-light text-dark border px-2 py-2"
-               style="font-size:.8rem;">
-            <span>{{ kw.keyword }}</span>
-            <form method="post" action="{% url 'parsing:keyword_delete' kw.pk %}" class="d-inline">
+          <li class="list-group-item px-4 py-3 d-flex align-items-start justify-content-between gap-3">
+            <div class="min-w-0">
+              <div class="fw-semibold small">{{ kw.keyword }}</div>
+              <div class="text-muted small">
+                {% if kw.channel %}Канал: {{ kw.channel.name }}{% else %}Канал: —{% endif %}
+                · Источников: {{ kw.sources.count }}
+              </div>
+            </div>
+            <form method="post" action="{% url 'parsing:keyword_delete' kw.pk %}" class="flex-shrink-0">
               {% csrf_token %}
-              <button type="submit" class="btn btn-link text-danger p-0 ms-1" style="font-size:.75rem;">
-                <i class="bi bi-x"></i>
+              <button type="submit" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-trash"></i>
               </button>
             </form>
-          </div>
+          </li>
           {% endfor %}
-        </div>
+        </ul>
         {% else %}
         <div class="text-center py-4 text-muted">
           <i class="bi bi-tag fs-3 d-block mb-2"></i>
@@ -106,7 +111,7 @@
 
 <!-- Link to items -->
 <div class="mt-4">
-  <a href="{% url 'parsing:items' %}" class="btn btn-outline-primary">
+  <a href="{% url 'core:feed' %}?kind=parsing{% if selected_channel %}&channel={{ selected_channel.pk }}{% endif %}" class="btn btn-outline-primary">
     <i class="bi bi-collection me-1"></i> Найденные материалы
   </a>
   <a href="{% url 'parsing:ai_rewrite' %}" class="btn btn-outline-secondary ms-2">

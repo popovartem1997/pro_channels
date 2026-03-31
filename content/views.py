@@ -130,14 +130,19 @@ def post_create(request):
             return render(request, 'content/create.html', {'user_channels': user_channels, 'preselected': channel_ids})
         post.channels.set(selected_ids)
 
-        # Загрузка медиафайлов
-        for f in request.FILES.getlist('media_files'):
+        # Загрузка медиафайлов (порядок = порядок загрузки)
+        start_order = 0
+        try:
+            start_order = int(PostMedia.objects.filter(post=post).order_by('-order').values_list('order', flat=True).first() or 0)
+        except Exception:
+            start_order = 0
+        for idx, f in enumerate(request.FILES.getlist('media_files')):
             media_type = PostMedia.TYPE_PHOTO
             if f.content_type.startswith('video'):
                 media_type = PostMedia.TYPE_VIDEO
             elif not f.content_type.startswith('image'):
                 media_type = PostMedia.TYPE_DOCUMENT
-            PostMedia.objects.create(post=post, file=f, media_type=media_type)
+            PostMedia.objects.create(post=post, file=f, media_type=media_type, order=start_order + idx + 1)
 
         if request.POST.get('publish_now'):
             from .tasks import publish_post_task
@@ -304,6 +309,28 @@ def post_edit(request, pk):
                 except Exception:
                     pass
             to_delete.delete()
+
+        # Update media order (best-effort)
+        for m in PostMedia.objects.filter(post=post):
+            key = f'media_order_{m.pk}'
+            if key in request.POST:
+                raw = (request.POST.get(key) or '').strip()
+                if raw.isdigit():
+                    m.order = int(raw)
+                    m.save(update_fields=['order'])
+
+        # Upload new media
+        try:
+            current_max = int(PostMedia.objects.filter(post=post).order_by('-order').values_list('order', flat=True).first() or 0)
+        except Exception:
+            current_max = 0
+        for idx, f in enumerate(request.FILES.getlist('media_files')):
+            media_type = PostMedia.TYPE_PHOTO
+            if f.content_type.startswith('video'):
+                media_type = PostMedia.TYPE_VIDEO
+            elif not f.content_type.startswith('image'):
+                media_type = PostMedia.TYPE_DOCUMENT
+            PostMedia.objects.create(post=post, file=f, media_type=media_type, order=current_max + idx + 1)
 
         channel_ids = request.POST.getlist('channels')
         post.text = request.POST.get('text', post.text).strip()
