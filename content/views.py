@@ -247,6 +247,75 @@ def post_create_from_suggestion(request, tracking_id):
             except Exception as e:
                 messages.warning(request, f'Не удалось загрузить медиа из Telegram (file_id={file_id}): {e}')
 
+    # MAX media import (best-effort via URLs in raw payload)
+    if bot.platform == bot.PLATFORM_MAX:
+        try:
+            raw = suggestion.raw_data or {}
+            msg_obj = raw.get('message') if isinstance(raw, dict) else {}
+            body = (msg_obj.get('body') or {}) if isinstance(msg_obj, dict) else {}
+            attachments = body.get('attachments') or []
+
+            def _iter_attachment_urls(att: dict) -> list[str]:
+                urls: list[str] = []
+                if not isinstance(att, dict):
+                    return urls
+                payload = att.get('payload') or {}
+                if isinstance(payload, dict):
+                    for k in ('url', 'src', 'download_url', 'downloadUrl', 'file_url'):
+                        v = payload.get(k)
+                        if isinstance(v, str) and v.startswith('http'):
+                            urls.append(v)
+                    # Sometimes payload may contain list of sizes/variants
+                    for k in ('sizes', 'variants', 'images', 'files'):
+                        arr = payload.get(k)
+                        if isinstance(arr, list):
+                            for it in arr:
+                                if isinstance(it, dict):
+                                    u = it.get('url') or it.get('src')
+                                    if isinstance(u, str) and u.startswith('http'):
+                                        urls.append(u)
+                return urls
+
+            order = 0
+            for att in attachments[:10]:
+                if not isinstance(att, dict):
+                    continue
+                att_type = (att.get('type') or '').lower()
+                media_type = PostMedia.TYPE_DOCUMENT
+                if att_type in ('image', 'photo'):
+                    media_type = PostMedia.TYPE_PHOTO
+                elif att_type == 'video':
+                    media_type = PostMedia.TYPE_VIDEO
+                elif att_type == 'file':
+                    media_type = PostMedia.TYPE_DOCUMENT
+
+                urls = _iter_attachment_urls(att)
+                if not urls:
+                    continue
+                url = urls[0]
+
+                try:
+                    dl = requests.get(url, timeout=30)
+                    dl.raise_for_status()
+                    ct = (dl.headers.get('Content-Type') or '').lower()
+                    ext = 'bin'
+                    if 'image/' in ct:
+                        ext = ct.split('image/', 1)[1].split(';', 1)[0] or 'jpg'
+                    elif 'video/' in ct:
+                        ext = ct.split('video/', 1)[1].split(';', 1)[0] or 'mp4'
+                    filename = f'max_{suggestion.short_tracking_id}_{order}.{ext}'
+                    PostMedia.objects.create(
+                        post=post,
+                        file=ContentFile(dl.content, name=filename),
+                        media_type=media_type,
+                        order=order,
+                    )
+                    order += 1
+                except Exception as e:
+                    messages.warning(request, f'Не удалось загрузить медиа из MAX: {e}')
+        except Exception:
+            pass
+
     messages.success(request, f'Создан черновик поста из предложки #{suggestion.short_tracking_id}.')
     return redirect('content:edit', pk=post.pk)
 
