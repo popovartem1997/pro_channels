@@ -99,10 +99,10 @@ class MaxBotAPI:
 
     def answer_callback(self, callback_id: str, text: str = None) -> dict:
         """Ответить на нажатие кнопки."""
-        payload = {'callback_id': callback_id}
+        body: dict = {}
         if text:
-            payload['notification'] = text
-        return self.post('answers', payload)
+            body['notification'] = text
+        return self.post('answers', body, params={'callback_id': callback_id})
 
     def edit_message(self, message_id: str, text: str, buttons: list = None) -> dict:
         """Редактировать сообщение."""
@@ -336,9 +336,15 @@ class MAXSuggestionBot:
         """Обработать нажатие кнопки модератора."""
         from bots.models import Suggestion
 
-        callback = update.get('callback', {})
-        callback_id = callback.get('callback_id', '')
-        payload = callback.get('payload', '')
+        callback = update.get('callback', {}) if isinstance(update, dict) else {}
+        callback_id = (callback.get('callback_id') or callback.get('id') or '') if isinstance(callback, dict) else ''
+        payload = callback.get('payload', '') if isinstance(callback, dict) else ''
+        # Иногда payload приходит объектом
+        if isinstance(payload, dict):
+            payload = payload.get('payload') or payload.get('data') or payload.get('text') or ''
+        if payload is None:
+            payload = ''
+        payload = str(payload)
         user = callback.get('user', {})
         message = callback.get('message', {}) or {}
         message_id = message.get('mid', '')
