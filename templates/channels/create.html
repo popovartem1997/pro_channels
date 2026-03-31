@@ -50,11 +50,14 @@
               <div class="form-text">Получите у @BotFather в Telegram</div>
             </div>
             <div class="mb-3">
-              <label class="form-label fw-semibold" for="id_tg_chat_id">ID канала (Telegram)</label>
+              <label class="form-label fw-semibold" for="id_tg_chat_id">ID или @username (Telegram)</label>
               <input type="text" name="tg_chat_id" id="id_tg_chat_id"
                      class="form-control font-monospace"
-                     placeholder="-1001234567890">
-              <div class="form-text">Укажите числовой ID канала, например <code>-1001234567890</code></div>
+                     placeholder="@my_channel или -1001234567890">
+              <div class="form-text">
+                Можно указать <code>@username</code> (публичный канал) или числовой <code>chat_id</code>.
+                Для приватных/закрытых каналов часто используется формат <code>-100...</code>.
+              </div>
             </div>
           </div>
 

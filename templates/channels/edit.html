@@ -111,10 +111,13 @@
               </div>
             </div>
             <div class="mb-4">
-              <label class="form-label fw-semibold">ID канала (Telegram)</label>
+              <label class="form-label fw-semibold">ID или @username (Telegram)</label>
               <input type="text" name="tg_chat_id" class="form-control font-monospace"
-                     value="{{ channel.tg_chat_id }}" placeholder="-1001234567890">
-              <div class="form-text">Числовой ID канала, например <code>-1001234567890</code></div>
+                     value="{{ channel.tg_chat_id }}" placeholder="@my_channel или -1001234567890">
+              <div class="form-text">
+                Можно указать <code>@username</code> (публичный канал) или числовой <code>chat_id</code>.
+                Для приватных/закрытых каналов часто используется формат <code>-100...</code>.
+              </div>
             </div>
 
             <!-- Подпись Telegram -->

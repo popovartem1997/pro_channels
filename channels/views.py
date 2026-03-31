@@ -7,6 +7,7 @@ from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
 from django.contrib import messages
 from django.http import JsonResponse
+from django.db import IntegrityError
 from .models import Channel
 
 
@@ -40,24 +41,48 @@ def channel_create(request):
             token = request.POST.get('tg_bot_token', '').strip()
             channel.tg_chat_id = request.POST.get('tg_chat_id', '').strip()
             if token:
-                channel.set_tg_token(token)
+                try:
+                    channel.set_tg_token(token)
+                except ValueError as e:
+                    messages.error(request, f'Не удалось сохранить токен Telegram: {e}')
+                    return render(request, 'channels/create.html', {'platforms': Channel.PLATFORM_CHOICES})
         elif platform == Channel.PLATFORM_VK:
             token = request.POST.get('vk_access_token', '').strip()
             channel.vk_group_id = request.POST.get('vk_group_id', '').strip()
             if token:
-                channel.set_vk_token(token)
+                try:
+                    channel.set_vk_token(token)
+                except ValueError as e:
+                    messages.error(request, f'Не удалось сохранить токен VK: {e}')
+                    return render(request, 'channels/create.html', {'platforms': Channel.PLATFORM_CHOICES})
         elif platform == Channel.PLATFORM_MAX:
             token = request.POST.get('max_bot_token', '').strip()
             channel.max_channel_id = request.POST.get('max_channel_id', '').strip()
             if token:
-                channel.set_max_token(token)
+                try:
+                    channel.set_max_token(token)
+                except ValueError as e:
+                    messages.error(request, f'Не удалось сохранить токен MAX: {e}')
+                    return render(request, 'channels/create.html', {'platforms': Channel.PLATFORM_CHOICES})
         elif platform == Channel.PLATFORM_INSTAGRAM:
             token = request.POST.get('ig_access_token', '').strip()
             channel.ig_account_id = request.POST.get('ig_account_id', '').strip()
             if token:
-                channel.set_ig_token(token)
+                try:
+                    channel.set_ig_token(token)
+                except ValueError as e:
+                    messages.error(request, f'Не удалось сохранить токен Instagram: {e}')
+                    return render(request, 'channels/create.html', {'platforms': Channel.PLATFORM_CHOICES})
 
-        channel.save()
+        try:
+            channel.save()
+        except IntegrityError as e:
+            messages.error(request, f'Не удалось сохранить канал: {e}')
+            return render(request, 'channels/create.html', {'platforms': Channel.PLATFORM_CHOICES})
+        except Exception as e:
+            messages.error(request, f'Ошибка при сохранении канала: {e}')
+            return render(request, 'channels/create.html', {'platforms': Channel.PLATFORM_CHOICES})
+
         messages.success(request, f'Канал "{name}" добавлен.')
         return redirect('channels:list')
 
