@@ -162,9 +162,6 @@
     {% else %}
       <span class="nav-section">Работа</span>
       <ul class="nav flex-column">
-        <li><a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}">
-          <i class="bi bi-house-door"></i> Главная
-        </a></li>
         <li><a class="nav-link {% if '/posts/' in request.path %}active{% endif %}" href="{% url 'content:list' %}">
           <i class="bi bi-pencil-square"></i> Посты
         </a></li>

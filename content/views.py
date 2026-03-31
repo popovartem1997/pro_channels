@@ -29,7 +29,16 @@ def post_list(request):
 @login_required
 def post_create(request):
     from channels.models import Channel
-    user_channels = Channel.objects.filter(owner=request.user, is_active=True)
+    if request.user.role in ('manager', 'assistant_admin'):
+        from managers.models import TeamMember
+        user_channels = Channel.objects.filter(
+            pk__in=TeamMember.objects.filter(
+                member=request.user, is_active=True, can_publish=True
+            ).values_list('channels__pk', flat=True),
+            is_active=True,
+        ).distinct()
+    else:
+        user_channels = Channel.objects.filter(owner=request.user, is_active=True)
 
     # Pre-selection: ?channel=pk передаётся из страницы канала
     raw = request.GET.getlist('channel') if request.method == 'GET' else request.POST.getlist('channels')
@@ -102,7 +111,14 @@ def post_create(request):
             post.status = Post.STATUS_DRAFT
 
         post.save()
-        post.channels.set(channel_ids)
+        # restrict channel_ids to allowed channels
+        allowed_ids = set(user_channels.values_list('pk', flat=True))
+        selected_ids = [int(x) for x in channel_ids if str(x).isdigit() and int(x) in allowed_ids]
+        if not selected_ids:
+            messages.error(request, 'Нет доступа к выбранным каналам.')
+            post.delete()
+            return render(request, 'content/create.html', {'user_channels': user_channels, 'preselected': channel_ids})
+        post.channels.set(selected_ids)
 
         # Загрузка медиафайлов
         for f in request.FILES.getlist('media_files'):
@@ -144,7 +160,16 @@ def post_detail(request, pk):
 def post_edit(request, pk):
     post = get_object_or_404(Post, pk=pk, author=request.user)
     from channels.models import Channel
-    user_channels = Channel.objects.filter(owner=request.user, is_active=True)
+    if request.user.role in ('manager', 'assistant_admin'):
+        from managers.models import TeamMember
+        user_channels = Channel.objects.filter(
+            pk__in=TeamMember.objects.filter(
+                member=request.user, is_active=True, can_publish=True
+            ).values_list('channels__pk', flat=True),
+            is_active=True,
+        ).distinct()
+    else:
+        user_channels = Channel.objects.filter(owner=request.user, is_active=True)
 
     if request.method == 'POST':
         channel_ids = request.POST.getlist('channels')
@@ -191,7 +216,16 @@ def post_edit(request, pk):
             })
 
         post.save()
-        post.channels.set(channel_ids)
+        allowed_ids = set(user_channels.values_list('pk', flat=True))
+        selected_ids = [int(x) for x in channel_ids if str(x).isdigit() and int(x) in allowed_ids]
+        if not selected_ids:
+            messages.error(request, 'Нет доступа к выбранным каналам.')
+            return render(request, 'content/edit.html', {
+                'post': post,
+                'user_channels': user_channels,
+                'selected_channels': [],
+            })
+        post.channels.set(selected_ids)
         messages.success(request, 'Пост обновлён.')
         return redirect('content:detail', pk=pk)
 

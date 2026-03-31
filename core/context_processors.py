@@ -2,6 +2,7 @@
 Глобальные контекстные переменные для шаблонов.
 """
 from django.conf import settings
+from django.db import models
 
 
 def site_context(request):
@@ -12,9 +13,11 @@ def site_context(request):
     }
     if request.user.is_authenticated:
         from bots.models import Suggestion
+        # Owner sees all his bots; moderator sees only assigned bots
         pending_count = Suggestion.objects.filter(
-            bot__owner=request.user, status='pending'
-        ).count()
+            models.Q(bot__owner=request.user) | models.Q(bot__moderators=request.user),
+            status='pending'
+        ).distinct().count()
         ctx['global_pending_count'] = pending_count
         if request.user.is_staff or getattr(request.user, 'role', '') == 'owner':
             from advertisers.models import AdvertisingOrder

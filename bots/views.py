@@ -15,6 +15,8 @@ URL-схема:
 import json
 import logging
 import asyncio
+from django.db import models
+from django.http import HttpResponse
 
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -24,6 +26,23 @@ from django.shortcuts import get_object_or_404
 from .models import SuggestionBot
 
 logger = logging.getLogger(__name__)
+
+
+def _can_view_bot(user, bot: SuggestionBot) -> bool:
+    if user.is_staff or user.is_superuser:
+        return True
+    if bot.owner_id == user.id:
+        return True
+    # Manager: must be explicitly assigned as moderator
+    return bot.moderators.filter(id=user.id).exists()
+
+
+def _can_moderate_suggestion(user, suggestion) -> bool:
+    if user.is_staff or user.is_superuser:
+        return True
+    if suggestion.bot.owner_id == user.id:
+        return True
+    return suggestion.bot.moderators.filter(id=user.id).exists()
 
 
 def _get_bot_or_404(bot_id: int, platform: str) -> SuggestionBot:
@@ -354,13 +373,15 @@ def suggestions_list(request):
     from .models import Suggestion
     status_filter = request.GET.get('status', 'pending')
     bot_id = request.GET.get('bot', '')
-    suggestions = Suggestion.objects.filter(bot__owner=request.user).select_related('bot')
+    suggestions = Suggestion.objects.filter(
+        models.Q(bot__owner=request.user) | models.Q(bot__moderators=request.user)
+    ).select_related('bot').distinct()
     if status_filter:
         suggestions = suggestions.filter(status=status_filter)
     if bot_id:
         suggestions = suggestions.filter(bot_id=bot_id)
     suggestions = suggestions.order_by('-submitted_at')[:100]
-    bots = SuggestionBot.objects.filter(owner=request.user)
+    bots = SuggestionBot.objects.filter(models.Q(owner=request.user) | models.Q(moderators=request.user)).distinct()
     return render(request, 'bots/suggestions.html', {
         'suggestions': suggestions,
         'status_filter': status_filter,
@@ -373,7 +394,9 @@ def suggestions_list(request):
 @login_required
 def suggestion_moderate(request, pk):
     from .models import Suggestion
-    suggestion = get_object_or_404(Suggestion, pk=pk, bot__owner=request.user)
+    suggestion = get_object_or_404(Suggestion, pk=pk)
+    if not _can_moderate_suggestion(request.user, suggestion):
+        return HttpResponse(status=403)
     if request.method == 'POST':
         action = request.POST.get('action')
         if action == 'approve':
