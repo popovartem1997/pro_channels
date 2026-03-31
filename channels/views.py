@@ -11,6 +11,27 @@ from django.db import IntegrityError
 from .models import Channel
 
 
+def _channel_create_store_form(request, *, platform: str, name: str, data: dict):
+    """
+    Store last entered values for channel create form.
+    Using PRG pattern avoids browser "resubmit form" prompts.
+    """
+    request.session['channel_create_initial'] = {
+        'platform': platform or '',
+        'name': name or '',
+        # platform-specific ids / tokens (tokens kept server-side in session)
+        'tg_bot_token': (data.get('tg_bot_token') or '').strip(),
+        'tg_chat_id': (data.get('tg_chat_id') or '').strip(),
+        'vk_access_token': (data.get('vk_access_token') or '').strip(),
+        'vk_group_id': (data.get('vk_group_id') or '').strip(),
+        'max_bot_token': (data.get('max_bot_token') or '').strip(),
+        'max_channel_id': (data.get('max_channel_id') or '').strip(),
+        'ig_access_token': (data.get('ig_access_token') or '').strip(),
+        'ig_account_id': (data.get('ig_account_id') or '').strip(),
+    }
+    request.session.modified = True
+
+
 @login_required
 def channel_list(request):
     channels = Channel.objects.filter(owner=request.user).order_by('-created_at')
@@ -33,7 +54,8 @@ def channel_create(request):
         name = request.POST.get('name', '').strip()
         if not name or not platform:
             messages.error(request, 'Заполните название и платформу.')
-            return render(request, 'channels/create.html', {'platforms': Channel.PLATFORM_CHOICES})
+            _channel_create_store_form(request, platform=platform, name=name, data=request.POST)
+            return redirect('channels:create')
 
         channel = Channel(owner=request.user, name=name, platform=platform)
 
@@ -45,7 +67,8 @@ def channel_create(request):
                     channel.set_tg_token(token)
                 except ValueError as e:
                     messages.error(request, f'Не удалось сохранить токен Telegram: {e}')
-                    return render(request, 'channels/create.html', {'platforms': Channel.PLATFORM_CHOICES})
+                    _channel_create_store_form(request, platform=platform, name=name, data=request.POST)
+                    return redirect('channels:create')
         elif platform == Channel.PLATFORM_VK:
             token = request.POST.get('vk_access_token', '').strip()
             channel.vk_group_id = request.POST.get('vk_group_id', '').strip()
@@ -54,7 +77,8 @@ def channel_create(request):
                     channel.set_vk_token(token)
                 except ValueError as e:
                     messages.error(request, f'Не удалось сохранить токен VK: {e}')
-                    return render(request, 'channels/create.html', {'platforms': Channel.PLATFORM_CHOICES})
+                    _channel_create_store_form(request, platform=platform, name=name, data=request.POST)
+                    return redirect('channels:create')
         elif platform == Channel.PLATFORM_MAX:
             token = request.POST.get('max_bot_token', '').strip()
             channel.max_channel_id = request.POST.get('max_channel_id', '').strip()
@@ -63,7 +87,8 @@ def channel_create(request):
                     channel.set_max_token(token)
                 except ValueError as e:
                     messages.error(request, f'Не удалось сохранить токен MAX: {e}')
-                    return render(request, 'channels/create.html', {'platforms': Channel.PLATFORM_CHOICES})
+                    _channel_create_store_form(request, platform=platform, name=name, data=request.POST)
+                    return redirect('channels:create')
         elif platform == Channel.PLATFORM_INSTAGRAM:
             token = request.POST.get('ig_access_token', '').strip()
             channel.ig_account_id = request.POST.get('ig_account_id', '').strip()
@@ -72,22 +97,26 @@ def channel_create(request):
                     channel.set_ig_token(token)
                 except ValueError as e:
                     messages.error(request, f'Не удалось сохранить токен Instagram: {e}')
-                    return render(request, 'channels/create.html', {'platforms': Channel.PLATFORM_CHOICES})
+                    _channel_create_store_form(request, platform=platform, name=name, data=request.POST)
+                    return redirect('channels:create')
 
         try:
             channel.save()
         except IntegrityError as e:
             messages.error(request, f'Не удалось сохранить канал: {e}')
-            return render(request, 'channels/create.html', {'platforms': Channel.PLATFORM_CHOICES})
+            _channel_create_store_form(request, platform=platform, name=name, data=request.POST)
+            return redirect('channels:create')
         except Exception as e:
             messages.error(request, f'Ошибка при сохранении канала: {e}')
-            return render(request, 'channels/create.html', {'platforms': Channel.PLATFORM_CHOICES})
+            _channel_create_store_form(request, platform=platform, name=name, data=request.POST)
+            return redirect('channels:create')
 
         messages.success(request, f'Канал "{name}" добавлен.')
         return redirect('channels:list')
 
     return render(request, 'channels/create.html', {
         'platforms': Channel.PLATFORM_CHOICES,
+        'initial': request.session.pop('channel_create_initial', {}),
     })
 
 

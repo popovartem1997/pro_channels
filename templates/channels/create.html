@@ -21,7 +21,9 @@
             <label class="form-label fw-semibold" for="id_name">Название канала</label>
             <input type="text" name="name" id="id_name"
                    class="form-control"
-                   placeholder="Например: Новости компании" required>
+                   placeholder="Например: Новости компании"
+                   value="{{ initial.name|default:'' }}"
+                   required>
           </div>
 
           <!-- Платформа -->
@@ -32,7 +34,7 @@
                     onchange="showPlatformFields(this.value)" required>
               <option value="">— Выберите платформу —</option>
               {% for val, label in platforms %}
-                <option value="{{ val }}">{{ label }}</option>
+                <option value="{{ val }}" {% if initial.platform == val %}selected{% endif %}>{{ label }}</option>
               {% endfor %}
             </select>
           </div>
@@ -46,6 +48,7 @@
               <label class="form-label fw-semibold" for="id_tg_bot_token">Bot Token</label>
               <input type="text" name="tg_bot_token" id="id_tg_bot_token"
                      class="form-control font-monospace"
+                     value="{{ initial.tg_bot_token|default:'' }}"
                      placeholder="123456789:ABC-DEF...">
               <div class="form-text">Получите у @BotFather в Telegram</div>
             </div>
@@ -53,6 +56,7 @@
               <label class="form-label fw-semibold" for="id_tg_chat_id">ID или @username (Telegram)</label>
               <input type="text" name="tg_chat_id" id="id_tg_chat_id"
                      class="form-control font-monospace"
+                     value="{{ initial.tg_chat_id|default:'' }}"
                      placeholder="@my_channel или -1001234567890">
               <div class="form-text">
                 Можно указать <code>@username</code> (публичный канал) или числовой <code>chat_id</code>.
@@ -70,12 +74,14 @@
               <label class="form-label fw-semibold" for="id_vk_access_token">Access Token</label>
               <input type="text" name="vk_access_token" id="id_vk_access_token"
                      class="form-control font-monospace"
+                     value="{{ initial.vk_access_token|default:'' }}"
                      placeholder="vk1.a.xxxxx...">
             </div>
             <div class="mb-3">
               <label class="form-label fw-semibold" for="id_vk_group_id">ID группы / сообщества</label>
               <input type="text" name="vk_group_id" id="id_vk_group_id"
                      class="form-control font-monospace"
+                     value="{{ initial.vk_group_id|default:'' }}"
                      placeholder="123456789">
             </div>
           </div>
@@ -89,6 +95,7 @@
               <label class="form-label fw-semibold" for="id_max_bot_token">Bot Token (access_token)</label>
               <input type="text" name="max_bot_token" id="id_max_bot_token"
                      class="form-control font-monospace"
+                     value="{{ initial.max_bot_token|default:'' }}"
                      placeholder="Токен бота MAX">
               <div class="form-text">Получите в разделе «Боты» на dev.max.ru</div>
             </div>
@@ -96,6 +103,7 @@
               <label class="form-label fw-semibold" for="id_max_channel_id">Chat ID канала</label>
               <input type="text" name="max_channel_id" id="id_max_channel_id"
                      class="form-control font-monospace"
+                     value="{{ initial.max_channel_id|default:'' }}"
                      placeholder="Числовой ID чата/канала">
               <div class="form-text">ID чата MAX куда бот будет постить</div>
             </div>
@@ -110,12 +118,14 @@
               <label class="form-label fw-semibold" for="id_ig_access_token">Access Token</label>
               <input type="text" name="ig_access_token" id="id_ig_access_token"
                      class="form-control font-monospace"
+                     value="{{ initial.ig_access_token|default:'' }}"
                      placeholder="EAAxxxxxxx...">
             </div>
             <div class="mb-3">
               <label class="form-label fw-semibold" for="id_ig_account_id">Account ID</label>
               <input type="text" name="ig_account_id" id="id_ig_account_id"
                      class="form-control font-monospace"
+                     value="{{ initial.ig_account_id|default:'' }}"
                      placeholder="17841400000000000">
             </div>
           </div>
