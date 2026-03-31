@@ -15,6 +15,11 @@
       <i class="bi bi-wifi me-1"></i> Проверить подключение
     </button>
     {% endif %}
+    {% if channel.platform == 'max' %}
+    <button id="btn-max-send" class="btn btn-outline-primary" onclick="testMaxSend()">
+      <i class="bi bi-send me-1"></i> Тест: отправить в MAX
+    </button>
+    {% endif %}
     <a href="{% url 'channels:edit' channel.pk %}" class="btn btn-outline-primary">
       <i class="bi bi-pencil me-1"></i> Редактировать
     </a>
@@ -149,6 +154,38 @@ function testConnection() {
     btn.disabled = false;
     btn.className = 'btn btn-danger';
     btn.innerHTML = '<i class="bi bi-x-circle me-1"></i> Ошибка соединения';
+  });
+}
+
+function testMaxSend() {
+  const btn = document.getElementById('btn-max-send');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Отправляю...';
+  fetch('{% url "channels:test" channel.pk %}', {
+    headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': '{{ csrf_token }}'},
+    method: 'POST',
+    body: new URLSearchParams({action: 'send_test'}),
+  })
+  .then(r => r.json())
+  .then(data => {
+    btn.disabled = false;
+    if (data.ok) {
+      btn.className = 'btn btn-success';
+      btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> ' + data.message;
+    } else {
+      btn.className = 'btn btn-danger';
+      btn.innerHTML = '<i class="bi bi-x-circle me-1"></i> ' + data.message;
+    }
+    setTimeout(() => {
+      btn.className = 'btn btn-outline-primary';
+      btn.innerHTML = '<i class="bi bi-send me-1"></i> Тест: отправить в MAX';
+      btn.disabled = false;
+    }, 6000);
+  })
+  .catch(() => {
+    btn.disabled = false;
+    btn.className = 'btn btn-danger';
+    btn.innerHTML = '<i class="bi bi-x-circle me-1"></i> Ошибка';
   });
 }
 </script>

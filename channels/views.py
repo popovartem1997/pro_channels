@@ -187,6 +187,7 @@ def channel_test(request, pk):
     Возвращает JSON: {ok: true/false, message: '...'}
     """
     channel = get_object_or_404(Channel, pk=pk, owner=request.user)
+    action = (request.POST.get('action') or '').strip()
 
     try:
         if channel.platform == Channel.PLATFORM_TELEGRAM:
@@ -208,6 +209,25 @@ def channel_test(request, pk):
             token = channel.get_max_token()
             if not token:
                 return JsonResponse({'ok': False, 'message': 'Токен бота не задан'})
+
+            # Optional: send a test message to validate recipient/chat_id.
+            if action == 'send_test':
+                if not channel.max_channel_id:
+                    return JsonResponse({'ok': False, 'message': 'MAX Channel ID (chat_id) не задан'})
+                resp = http_requests.post(
+                    'https://botapi.max.ru/messages',
+                    params={'access_token': token},
+                    json={'chat_id': channel.max_channel_id, 'text': '✅ Тестовое сообщение от ProChannels'},
+                    timeout=15,
+                )
+                try:
+                    data = resp.json()
+                except Exception:
+                    data = resp.text
+                if isinstance(data, dict) and ('message' in data or 'mid' in data or 'id' in data):
+                    return JsonResponse({'ok': True, 'message': 'Тестовое сообщение отправлено в MAX'})
+                return JsonResponse({'ok': False, 'message': f'MAX sendMessage error: {data}'})
+
             resp = http_requests.get(
                 'https://botapi.max.ru/me',
                 params={'access_token': token},
