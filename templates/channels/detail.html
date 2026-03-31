@@ -10,7 +10,7 @@
     <h1>{{ channel.name }}</h1>
   </div>
   <div class="d-flex gap-2">
-    {% if channel.platform == 'telegram' or channel.platform == 'max' or channel.platform == 'vk' %}
+    {% if channel.platform == 'telegram' or channel.platform == 'vk' or channel.platform == 'instagram' %}
     <button id="btn-test" class="btn btn-outline-success" onclick="testConnection()">
       <i class="bi bi-wifi me-1"></i> Проверить подключение
     </button>

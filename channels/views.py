@@ -234,7 +234,9 @@ def channel_test(request, pk):
                     data = resp.text
                 if isinstance(data, dict):
                     # Typical error format: {"code": "...", "message": "..."}
-                    if resp.status_code >= 400 or data.get('code') or data.get('message'):
+                    # В успешном ответе MAX тоже есть поле "message" (объект сообщения),
+                    # поэтому признаком ошибки считаем только http>=400 или наличие "code".
+                    if resp.status_code >= 400 or data.get('code'):
                         return JsonResponse({
                             'ok': False,
                             'message': f'MAX sendMessage error (chat_id={chat_id_raw}, http={resp.status_code}): {data}',

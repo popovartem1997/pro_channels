@@ -15,7 +15,16 @@ import secrets
 @login_required
 def post_list(request):
     from channels.models import Channel
-    posts = Post.objects.filter(author=request.user).order_by('-created_at')
+    if request.user.role in ('manager', 'assistant_admin'):
+        from managers.models import TeamMember
+        allowed_channel_ids = TeamMember.objects.filter(
+            member=request.user,
+            is_active=True,
+            can_publish=True,
+        ).values_list('channels__pk', flat=True)
+        posts = Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct().order_by('-created_at')
+    else:
+        posts = Post.objects.filter(author=request.user).order_by('-created_at')
     status_filter = request.GET.get('status', '')
     if status_filter:
         posts = posts.filter(status=status_filter)
@@ -148,7 +157,19 @@ def post_create(request):
 
 @login_required
 def post_detail(request, pk):
-    post = get_object_or_404(Post, pk=pk, author=request.user)
+    if request.user.role in ('manager', 'assistant_admin'):
+        from managers.models import TeamMember
+        allowed_channel_ids = TeamMember.objects.filter(
+            member=request.user,
+            is_active=True,
+            can_publish=True,
+        ).values_list('channels__pk', flat=True)
+        post = get_object_or_404(
+            Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct(),
+            pk=pk,
+        )
+    else:
+        post = get_object_or_404(Post, pk=pk, author=request.user)
     results = PublishResult.objects.filter(post=post).select_related('channel')
     return render(request, 'content/detail.html', {
         'post': post,
@@ -158,10 +179,16 @@ def post_detail(request, pk):
 
 @login_required
 def post_edit(request, pk):
-    post = get_object_or_404(Post, pk=pk, author=request.user)
     from channels.models import Channel
     if request.user.role in ('manager', 'assistant_admin'):
         from managers.models import TeamMember
+        allowed_channel_ids = TeamMember.objects.filter(
+            member=request.user, is_active=True, can_publish=True
+        ).values_list('channels__pk', flat=True)
+        post = get_object_or_404(
+            Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct(),
+            pk=pk,
+        )
         user_channels = Channel.objects.filter(
             pk__in=TeamMember.objects.filter(
                 member=request.user, is_active=True, can_publish=True
@@ -169,6 +196,7 @@ def post_edit(request, pk):
             is_active=True,
         ).distinct()
     else:
+        post = get_object_or_404(Post, pk=pk, author=request.user)
         user_channels = Channel.objects.filter(owner=request.user, is_active=True)
 
     if request.method == 'POST':
@@ -310,7 +338,19 @@ def tg_import_webhook(request):
 
 @login_required
 def post_delete(request, pk):
-    post = get_object_or_404(Post, pk=pk, author=request.user)
+    if request.user.role in ('manager', 'assistant_admin'):
+        from managers.models import TeamMember
+        allowed_channel_ids = TeamMember.objects.filter(
+            member=request.user,
+            is_active=True,
+            can_publish=True,
+        ).values_list('channels__pk', flat=True)
+        post = get_object_or_404(
+            Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct(),
+            pk=pk,
+        )
+    else:
+        post = get_object_or_404(Post, pk=pk, author=request.user)
     if request.method == 'POST':
         post.delete()
         messages.success(request, 'Пост удалён.')
@@ -321,7 +361,19 @@ def post_delete(request, pk):
 @login_required
 def post_publish_now(request, pk):
     """Немедленная публикация поста."""
-    post = get_object_or_404(Post, pk=pk, author=request.user)
+    if request.user.role in ('manager', 'assistant_admin'):
+        from managers.models import TeamMember
+        allowed_channel_ids = TeamMember.objects.filter(
+            member=request.user,
+            is_active=True,
+            can_publish=True,
+        ).values_list('channels__pk', flat=True)
+        post = get_object_or_404(
+            Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct(),
+            pk=pk,
+        )
+    else:
+        post = get_object_or_404(Post, pk=pk, author=request.user)
     if post.status not in (Post.STATUS_DRAFT, Post.STATUS_SCHEDULED, Post.STATUS_FAILED):
         messages.error(request, 'Нельзя опубликовать пост в текущем статусе.')
         return redirect('content:detail', pk=pk)
