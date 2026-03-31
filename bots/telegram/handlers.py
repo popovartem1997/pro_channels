@@ -205,7 +205,13 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             chat_id = 0
 
-        if chat_id and _is_admin_chat(context, chat_id):
+        # ВАЖНО: admin_chat_id часто ставят как личный чат владельца с ботом.
+        # Если считать личку "чатом модерации", владелец никогда не сможет отправить новость
+        # (сообщения будут игнорироваться). Поэтому режим "чат модерации" включаем
+        # только для групп/каналов.
+        chat_type = getattr(getattr(update, "effective_chat", None), "type", "") or ""
+        is_private = (chat_type == "private")
+        if chat_id and _is_admin_chat(context, chat_id) and not is_private:
             # Reply-to: менеджер отвечает на пересланную заявку -> отправляем пользователю
             if message.text and getattr(message, 'reply_to_message', None):
                 replied = message.reply_to_message
