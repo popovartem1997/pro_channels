@@ -27,6 +27,27 @@ from .models import SuggestionBot
 
 logger = logging.getLogger(__name__)
 
+def _ensure_max_webhook(bot: SuggestionBot):
+    """
+    Автоматически настраивает webhook для MAX при сохранении бота.
+    Best-effort: не должен ломать сохранение.
+    """
+    if not bot or bot.platform != SuggestionBot.PLATFORM_MAX or not bot.is_active:
+        return
+    try:
+        from django.conf import settings
+        from django.urls import reverse
+        from .max_bot.bot import MaxBotAPI
+
+        site_url = (getattr(settings, 'SITE_URL', '') or '').rstrip('/')
+        if not site_url:
+            return
+        url = site_url + reverse('bots:max_webhook', kwargs={'bot_id': bot.pk})
+        api = MaxBotAPI(bot.get_token())
+        api.set_webhook(url)
+    except Exception:
+        return
+
 
 def _can_manage_bot_by_channel(user, bot: SuggestionBot) -> bool:
     if user.is_staff or user.is_superuser:
@@ -287,6 +308,8 @@ def bot_create(request):
             bot.group_id = gid
 
         bot.save()
+        # Автоподключение webhook для MAX (без кнопок)
+        _ensure_max_webhook(bot)
 
         # Moderators: only owner team members with can_moderate
         moderator_ids = request.POST.getlist('moderators')
@@ -431,6 +454,9 @@ def bot_edit(request, bot_id: int):
                 bot.group_id = gid
 
         bot.save()
+        # Автоподключение webhook для MAX (без кнопок)
+        if not can_edit_messages_only:
+            _ensure_max_webhook(bot)
 
         if not can_edit_messages_only:
             # apply moderators set (owner only)
