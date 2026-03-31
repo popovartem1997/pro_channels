@@ -35,7 +35,7 @@ def publish_post_task(self, post_id: int):
                 post=post,
                 channel=channel,
                 status=PublishResult.STATUS_OK,
-                platform_message_id=str(result.get('message_id', '')),
+                platform_message_id=str(result.get('message_id', '')) if isinstance(result, dict) else '',
             )
             success_count += 1
             logger.info(f'Пост #{post_id} опубликован в {channel.name}')
@@ -324,12 +324,25 @@ def _publish_max(post, channel):
         payload = {'chat_id': channel_id, 'text': text}
 
     resp = requests.post(f'{base_url}/messages', params=params, json=payload, timeout=30)
-    data = resp.json()
+    # MAX API may return non-JSON or plain string error bodies.
+    try:
+        data = resp.json()
+    except Exception:
+        data = resp.text
 
-    if 'message' in data:
-        msg_id = data['message'].get('mid', '')
-    else:
+    if isinstance(data, dict):
+        # Some MAX responses may contain "message" dict; some may return message fields at top-level.
+        msg = data.get('message')
+        if isinstance(msg, dict):
+            msg_id = msg.get('mid', '') or msg.get('id', '') or ''
+            return {'message_id': msg_id}
+        # Fallback: try common id keys
+        msg_id = data.get('mid', '') or data.get('message_id', '') or data.get('id', '') or ''
+        if msg_id:
+            return {'message_id': msg_id}
         raise ValueError(f'MAX API error: {data}')
+
+    raise ValueError(f'MAX API error: {data}')
 
     return {'message_id': msg_id}
 

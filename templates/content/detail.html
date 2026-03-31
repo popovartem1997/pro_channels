@@ -70,7 +70,20 @@
                 {% endif %}
               </div>
               <div class="flex-grow-1">
-                <div class="fw-semibold small">{{ result.channel.name }}</div>
+                <div class="fw-semibold small d-flex align-items-center gap-2">
+                  {% if result.channel.platform == 'telegram' %}
+                    <i class="bi bi-telegram"></i>
+                  {% elif result.channel.platform == 'vk' %}
+                    <i class="bi bi-people-fill"></i>
+                  {% elif result.channel.platform == 'max' %}
+                    <i class="bi bi-chat-dots"></i>
+                  {% elif result.channel.platform == 'instagram' %}
+                    <i class="bi bi-instagram"></i>
+                  {% else %}
+                    <i class="bi bi-globe"></i>
+                  {% endif %}
+                  <span>{{ result.channel.name }}</span>
+                </div>
                 {% if result.error_message %}
                   <div class="text-danger small mt-1">{{ result.error_message }}</div>
                 {% endif %}
