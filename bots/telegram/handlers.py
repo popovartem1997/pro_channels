@@ -19,6 +19,7 @@ import uuid as uuid_module
 from asgiref.sync import sync_to_async
 from django.utils import timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters, ContextTypes
@@ -68,6 +69,23 @@ async def _send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, *, text
         await update.callback_query.message.reply_text(text, reply_markup=keyboard)
     elif update.effective_chat:
         await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=keyboard)
+
+
+async def _safe_edit_or_reply(query, *, text: str):
+    """
+    Иногда Telegram возвращает 400 'Message is not modified' если пытаться
+    edit_message_text тем же содержимым. Тогда просто отправляем новое сообщение.
+    """
+    try:
+        await query.edit_message_text(text)
+    except BadRequest as e:
+        if 'Message is not modified' in str(e):
+            try:
+                await query.message.reply_text(text)
+            except Exception:
+                pass
+        else:
+            raise
 
 
 def _is_admin_chat(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> bool:
@@ -442,11 +460,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if data == 'menu_send':
             context.user_data['send_mode'] = True
-            await query.edit_message_text('Отправьте новость одним сообщением (текст/фото/видео/файл).')
+            await _safe_edit_or_reply(query, text='Отправьте новость одним сообщением (текст/фото/видео/файл).')
             return
         if data == 'menu_contact':
             context.user_data['contact_mode'] = True
-            await query.edit_message_text('Напишите текст сообщения для менеджера одним сообщением.')
+            await _safe_edit_or_reply(query, text='Напишите текст сообщения для менеджера одним сообщением.')
             return
         if data == 'menu_my':
             await _send_my_news(update, context)
