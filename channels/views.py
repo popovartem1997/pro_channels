@@ -214,19 +214,31 @@ def channel_test(request, pk):
             if action == 'send_test':
                 if not channel.max_channel_id:
                     return JsonResponse({'ok': False, 'message': 'MAX Channel ID (chat_id) не задан'})
+                chat_id = str(channel.max_channel_id).strip()
                 resp = http_requests.post(
                     'https://botapi.max.ru/messages',
                     params={'access_token': token},
-                    json={'chat_id': channel.max_channel_id, 'text': '✅ Тестовое сообщение от ProChannels'},
+                    json={'chat_id': chat_id, 'text': '✅ Тестовое сообщение от ProChannels'},
                     timeout=15,
                 )
                 try:
                     data = resp.json()
                 except Exception:
                     data = resp.text
-                if isinstance(data, dict) and ('message' in data or 'mid' in data or 'id' in data):
-                    return JsonResponse({'ok': True, 'message': 'Тестовое сообщение отправлено в MAX'})
-                return JsonResponse({'ok': False, 'message': f'MAX sendMessage error: {data}'})
+                if isinstance(data, dict):
+                    # Error format usually: {"code": "...", "message": "..."}
+                    if data.get('code') or data.get('message'):
+                        return JsonResponse({
+                            'ok': False,
+                            'message': f'MAX sendMessage error (chat_id={chat_id}): {data}'
+                        })
+                    # Success format may contain message dict or id fields
+                    if ('message' in data and isinstance(data.get('message'), dict)) or data.get('mid') or data.get('id'):
+                        return JsonResponse({'ok': True, 'message': f'Отправлено в MAX (chat_id={chat_id})'})
+                return JsonResponse({
+                    'ok': False,
+                    'message': f'MAX sendMessage error (chat_id={chat_id}, http={resp.status_code}): {data}'
+                })
 
             resp = http_requests.get(
                 'https://botapi.max.ru/me',
