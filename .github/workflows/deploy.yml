@@ -30,15 +30,21 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
 
       - name: Add known_hosts
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+          PORT="${DEPLOY_PORT:-22}"
+          ssh-keyscan -p "${PORT}" -H "${DEPLOY_HOST}" >> ~/.ssh/known_hosts
 
       - name: Deploy via SSH
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
-          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "${DEPLOY_USER}@${DEPLOY_HOST}" "cd '${DEPLOY_PATH}' && ./deploy.sh"
+          PORT="${DEPLOY_PORT:-22}"
+          ssh -p "${PORT}" -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "${DEPLOY_USER}@${DEPLOY_HOST}" "cd '${DEPLOY_PATH}' && ./deploy.sh"
 
