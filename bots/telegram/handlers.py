@@ -524,8 +524,12 @@ def build_application(bot_config) -> Application:
     app.add_handler(CommandHandler('status', cmd_status))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(
-        filters.TEXT | filters.PHOTO | filters.VIDEO |
-        filters.DOCUMENT | filters.AUDIO | filters.VOICE,
+        filters.TEXT
+        | filters.PHOTO
+        | filters.VIDEO
+        | filters.Document.ALL
+        | filters.AUDIO
+        | filters.VOICE,
         handle_suggestion
     ))
 
