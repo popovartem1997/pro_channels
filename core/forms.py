@@ -5,7 +5,11 @@ from .models import GlobalApiKeys
 
 class GlobalApiKeysForm(forms.ModelForm):
     # Secret inputs (raw)
-    openai_api_key = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='OPENAI_API_KEY')
+    openai_api_key = forms.CharField(
+        required=False,
+        widget=forms.PasswordInput(render_value=True, attrs={'disabled': 'disabled'}),
+        label='Нейросеть OpenAI (временно отключено)',
+    )
     tbank_terminal_key = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='TBANK_TERMINAL_KEY')
     tbank_secret_key = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='TBANK_SECRET_KEY')
     vk_ord_access_token = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='VK_ORD_ACCESS_TOKEN')
@@ -23,6 +27,8 @@ class GlobalApiKeysForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Temporarily disable AI toggle too (OpenAI not used now)
+        self.fields['ai_rewrite_enabled'].widget.attrs['disabled'] = 'disabled'
         # Bootstrap classes
         for name, field in self.fields.items():
             widget = field.widget

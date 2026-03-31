@@ -11,23 +11,40 @@
 
 <div class="row justify-content-center">
   <div class="col-12 col-lg-8">
-    <div class="card">
+    <div class="card mb-3">
       <div class="card-body p-4 p-md-5">
         <form method="post" novalidate>
           {% csrf_token %}
 
-          <h6 class="fw-bold text-muted mb-3 border-top pt-3">OpenAI</h6>
+          <div class="alert alert-info">
+            <b>Важно:</b> эти ключи используются сервисом. Доступ к странице только у админов.
+            Не меняйте ключи без необходимости.
+          </div>
+
+          <!-- OpenAI (disabled) -->
+          <h6 class="fw-bold mb-2">Нейросеть OpenAI</h6>
+          <div class="text-muted small mb-3">
+            Временно отключено. Поле оставлено на будущее.
+          </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">{{ form.openai_api_key.label }}</label>
             {{ form.openai_api_key }}
-            <div class="form-text">Оставь пустым, чтобы не менять.</div>
+            <div class="form-text">
+              Как получить ключ: в кабинете OpenAI → API keys. (Подключим позже)
+            </div>
           </div>
           <div class="form-check form-switch mb-4">
             {{ form.ai_rewrite_enabled }}
-            <label class="form-check-label fw-semibold" for="{{ form.ai_rewrite_enabled.id_for_label }}">AI_REWRITE_ENABLED</label>
+            <label class="form-check-label fw-semibold" for="{{ form.ai_rewrite_enabled.id_for_label }}">AI_REWRITE_ENABLED (временно отключено)</label>
           </div>
 
-          <h6 class="fw-bold text-muted mb-3 border-top pt-3">TBank</h6>
+          <hr class="my-4">
+
+          <!-- TBank -->
+          <h6 class="fw-bold mb-2">TBank (оплата)</h6>
+          <div class="text-muted small mb-3">
+            Где взять: личный кабинет Т‑Банк/Тинькофф Касса → терминал/магазин → ключи API (TerminalKey/Secret).
+          </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">{{ form.tbank_terminal_key.label }}</label>
             {{ form.tbank_terminal_key }}
@@ -37,7 +54,13 @@
             {{ form.tbank_secret_key }}
           </div>
 
-          <h6 class="fw-bold text-muted mb-3 border-top pt-3">VK ORD</h6>
+          <hr class="my-4">
+
+          <!-- VK ORD -->
+          <h6 class="fw-bold mb-2">VK ОРД (маркировка рекламы)</h6>
+          <div class="text-muted small mb-3">
+            Где взять: кабинет VK Реклама / ОРД → токен доступа (access_token) и ID кабинета.
+          </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">{{ form.vk_ord_access_token.label }}</label>
             {{ form.vk_ord_access_token }}
@@ -48,7 +71,13 @@
             {% if form.vk_ord_cabinet_id.help_text %}<div class="form-text">{{ form.vk_ord_cabinet_id.help_text }}</div>{% endif %}
           </div>
 
-          <h6 class="fw-bold text-muted mb-3 border-top pt-3">Парсинг Telegram (Telethon)</h6>
+          <hr class="my-4">
+
+          <!-- Telegram parsing -->
+          <h6 class="fw-bold mb-2">Парсинг Telegram</h6>
+          <div class="text-muted small mb-3">
+            Где взять: <b>my.telegram.org</b> → API development tools → создайте приложение → получите <code>api_id</code> и <code>api_hash</code>.
+          </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">{{ form.telegram_api_id.label }}</label>
             {{ form.telegram_api_id }}
@@ -58,13 +87,26 @@
             {{ form.telegram_api_hash }}
           </div>
 
-          <h6 class="fw-bold text-muted mb-3 border-top pt-3">Парсинг VK</h6>
+          <hr class="my-4">
+
+          <!-- VK parsing -->
+          <h6 class="fw-bold mb-2">Парсинг VK</h6>
+          <div class="text-muted small mb-3">
+            Где взять: создайте сервисный токен VK (с доступом к чтению стен/групп) и вставьте его сюда.
+          </div>
           <div class="mb-4">
             <label class="form-label fw-semibold">{{ form.vk_parse_access_token.label }}</label>
             {{ form.vk_parse_access_token }}
           </div>
 
-          <h6 class="fw-bold text-muted mb-3 border-top pt-3">Telegram import bot</h6>
+          <hr class="my-4">
+
+          <!-- Telegram import bot -->
+          <h6 class="fw-bold mb-2">Telegram import bot (Premium emoji)</h6>
+          <div class="text-muted small mb-3">
+            Где взять: BotFather → создайте служебного бота → возьмите токен. Затем поставьте webhook на
+            <code>/posts/tg-import-webhook/</code> (мы уже сделали endpoint).
+          </div>
           <div class="mb-4">
             <label class="form-label fw-semibold">{{ form.tg_import_bot_token.label }}</label>
             {{ form.tg_import_bot_token }}
