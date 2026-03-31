@@ -347,17 +347,51 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
         @sync_to_async
         def save_suggestion():
             from bots.models import SuggestionUserStats
-            suggestion = Suggestion.objects.create(
-                bot=bot_config,
-                platform_user_id=str(user.id),
-                platform_username=user.username or '',
-                platform_first_name=user.first_name or '',
-                platform_last_name=user.last_name or '',
-                content_type=content_type,
-                text=text,
-                media_file_ids=media_ids,
-                raw_data=message.to_dict(),
+            from django.utils import timezone as tz
+            from datetime import timedelta
+
+            merge_window = tz.now() - timedelta(minutes=2)
+            recent = (
+                Suggestion.objects.filter(
+                    bot=bot_config,
+                    platform_user_id=str(user.id),
+                    status=Suggestion.STATUS_PENDING,
+                    submitted_at__gte=merge_window,
+                )
+                .order_by('-submitted_at')
+                .first()
             )
+
+            if recent:
+                merged_text = (recent.text or '').strip()
+                new_text = (text or '').strip()
+                if new_text:
+                    recent.text = (merged_text + '\n\n' + new_text).strip() if merged_text else new_text
+                existing_ids = list(recent.media_file_ids or [])
+                for fid in (media_ids or []):
+                    if fid and fid not in existing_ids:
+                        existing_ids.append(fid)
+                recent.media_file_ids = existing_ids
+                if existing_ids and (recent.text or ''):
+                    recent.content_type = Suggestion.CONTENT_MIXED
+                recent.raw_data = {
+                    'messages': (recent.raw_data.get('messages') if isinstance(recent.raw_data, dict) else []) + [message.to_dict()]
+                }
+                recent.submitted_at = tz.now()
+                recent.save(update_fields=['text', 'media_file_ids', 'content_type', 'raw_data', 'submitted_at'])
+                suggestion = recent
+            else:
+                suggestion = Suggestion.objects.create(
+                    bot=bot_config,
+                    platform_user_id=str(user.id),
+                    platform_username=user.username or '',
+                    platform_first_name=user.first_name or '',
+                    platform_last_name=user.last_name or '',
+                    content_type=content_type,
+                    text=text,
+                    media_file_ids=media_ids,
+                    raw_data=message.to_dict(),
+                )
             # Создаём/обновляем статистику пользователя
             stats, created = SuggestionUserStats.objects.get_or_create(
                 bot=bot_config,
@@ -371,9 +405,10 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if user.username:
                     stats.platform_username = user.username
                 stats.display_name = _build_display_name(user)
-            stats.total += 1
-            stats.pending += 1
-            stats.last_submission = timezone.now()
+            if not recent:
+                stats.total += 1
+                stats.pending += 1
+            stats.last_submission = tz.now()
             stats.save()
             return suggestion
 

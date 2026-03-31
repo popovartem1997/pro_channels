@@ -209,6 +209,8 @@ class MAXSuggestionBot:
     def _handle_message(self, update: dict):
         """Обработать входящее сообщение."""
         from bots.models import Suggestion, SuggestionUserStats
+        from django.utils import timezone as tz
+        from datetime import timedelta
 
         message = update.get('message', {})
         sender = message.get('sender', {})
@@ -233,18 +235,51 @@ class MAXSuggestionBot:
             self.api.send_message(chat_id, 'Извините, этот тип контента не поддерживается.')
             return
 
-        # Сохраняем
-        suggestion = Suggestion.objects.create(
-            bot=self.config,
-            platform_user_id=user_id,
-            platform_username=sender.get('username', ''),
-            platform_first_name=sender.get('name', '').split()[0] if sender.get('name') else '',
-            platform_last_name=' '.join(sender.get('name', '').split()[1:]) if sender.get('name') else '',
-            content_type=content_type,
-            text=text,
-            media_file_ids=media_ids,
-            raw_data=message,
+        # Сохраняем или "склеиваем" с последней pending заявкой (если пользователь догружает медиа)
+        merge_window = tz.now() - timedelta(minutes=2)
+        recent = (
+            Suggestion.objects.filter(
+                bot=self.config,
+                platform_user_id=user_id,
+                status=Suggestion.STATUS_PENDING,
+                submitted_at__gte=merge_window,
+            )
+            .order_by('-submitted_at')
+            .first()
         )
+        if recent:
+            # Merge
+            merged_text = (recent.text or '').strip()
+            new_text = (text or '').strip()
+            if new_text:
+                recent.text = (merged_text + '\n\n' + new_text).strip() if merged_text else new_text
+            # media ids
+            existing_ids = list(recent.media_file_ids or [])
+            for mid in (media_ids or []):
+                if mid and mid not in existing_ids:
+                    existing_ids.append(mid)
+            recent.media_file_ids = existing_ids
+            # content type -> mixed if multiple parts
+            if existing_ids and (recent.text or ''):
+                recent.content_type = Suggestion.CONTENT_MIXED
+            recent.raw_data = {
+                'messages': (recent.raw_data.get('messages') if isinstance(recent.raw_data, dict) else []) + [message]
+            }
+            recent.submitted_at = tz.now()
+            recent.save(update_fields=['text', 'media_file_ids', 'content_type', 'raw_data', 'submitted_at'])
+            suggestion = recent
+        else:
+            suggestion = Suggestion.objects.create(
+                bot=self.config,
+                platform_user_id=user_id,
+                platform_username=sender.get('username', ''),
+                platform_first_name=sender.get('name', '').split()[0] if sender.get('name') else '',
+                platform_last_name=' '.join(sender.get('name', '').split()[1:]) if sender.get('name') else '',
+                content_type=content_type,
+                text=text,
+                media_file_ids=media_ids,
+                raw_data=message,
+            )
 
         stats, created = SuggestionUserStats.objects.get_or_create(
             bot=self.config,
@@ -254,9 +289,11 @@ class MAXSuggestionBot:
                 'display_name': sender.get('name', '') or user_id,
             }
         )
-        stats.total += 1
-        stats.pending += 1
-        stats.last_submission = timezone.now()
+        # Статистику увеличиваем только если это новая заявка, а не догрузка
+        if not recent:
+            stats.total += 1
+            stats.pending += 1
+        stats.last_submission = tz.now()
         stats.save()
 
         confirm = self.config.success_message.replace('{tracking_id}', suggestion.short_tracking_id)
