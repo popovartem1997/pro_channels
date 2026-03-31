@@ -59,9 +59,6 @@ def _menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton('📬 Мои новости', callback_data='menu_my'),
             InlineKeyboardButton('📊 Статистика', callback_data='menu_stats'),
         ],
-        [
-            InlineKeyboardButton('🔄 Обновить меню', callback_data='menu'),
-        ]
     ])
 
 
@@ -625,9 +622,9 @@ async def _send_my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'📢 Опубликовано: {st.published}\n'
         )
     if update.callback_query and update.callback_query.message:
-        await update.callback_query.message.reply_text(text)
+        await update.callback_query.message.reply_text(text, reply_markup=_menu_keyboard())
     elif update.message:
-        await update.message.reply_text(text)
+        await update.message.reply_text(text, reply_markup=_menu_keyboard())
 
 
 async def _send_my_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -652,9 +649,9 @@ async def _send_my_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append('\nКоманда: /status — подробная статистика.')
         text = '\n'.join(lines)
     if update.callback_query and update.callback_query.message:
-        await update.callback_query.message.reply_text(text)
+        await update.callback_query.message.reply_text(text, reply_markup=_menu_keyboard())
     elif update.message:
-        await update.message.reply_text(text)
+        await update.message.reply_text(text, reply_markup=_menu_keyboard())
 
 
 async def _process_approve(query, bot_config, uuid_str: str):

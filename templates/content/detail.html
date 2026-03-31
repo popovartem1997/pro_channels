@@ -114,6 +114,14 @@
           <dt class="text-muted fw-normal">Создан</dt>
           <dd class="mb-2">{{ post.created_at|date:"d.m.Y H:i" }}</dd>
 
+          <dt class="text-muted fw-normal">Автор</dt>
+          <dd class="mb-2">{{ post.author.username|default:"—" }}</dd>
+
+          {% if post.published_by %}
+          <dt class="text-muted fw-normal">Опубликовал</dt>
+          <dd class="mb-2">{{ post.published_by.username }}</dd>
+          {% endif %}
+
           {% if post.scheduled_at %}
           <dt class="text-muted fw-normal">Запланирован</dt>
           <dd class="mb-2">{{ post.scheduled_at|date:"d.m.Y H:i" }}</dd>

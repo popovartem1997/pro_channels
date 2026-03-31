@@ -95,6 +95,14 @@
             <div class="d-flex align-items-center gap-2">
               <span class="status-dot {{ post.status }}"></span>
               <span class="flex-grow-1 text-truncate small">{{ post.text|truncatechars:70 }}</span>
+              <span class="d-none d-md-inline-flex align-items-center gap-1">
+                {% for ch in post.channels.all|slice:":2" %}
+                  {% platform_badge ch.platform %}
+                {% endfor %}
+                {% if post.channels.count > 2 %}
+                  <span class="badge bg-light text-dark border small">+{{ post.channels.count|add:"-2" }}</span>
+                {% endif %}
+              </span>
               <span class="text-muted" style="font-size:.7rem;white-space:nowrap;">{{ post.created_at|date:"d.m H:i" }}</span>
               <a href="{% url 'content:detail' post.pk %}" class="btn btn-outline-secondary btn-sm py-0 px-2">
                 <i class="bi bi-eye" style="font-size:.75rem;"></i>

@@ -487,6 +487,11 @@ def post_publish_now(request, pk):
         messages.error(request, 'Нельзя опубликовать пост в текущем статусе.')
         return redirect('content:detail', pk=pk)
     from .tasks import publish_post_task
+    try:
+        post.published_by = request.user
+        post.save(update_fields=['published_by'])
+    except Exception:
+        pass
     publish_post_task.delay(post.pk, force=force)
     messages.success(request, 'Пост отправлен на публикацию.' if not force else 'Пост отправлен на повторную публикацию.')
     return redirect('content:detail', pk=pk)

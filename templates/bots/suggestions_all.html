@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Все предложения{% endblock %}
+{% block title %}Предложка{% endblock %}
 
 {% block content %}
 <div class="page-header d-flex align-items-center justify-content-between">
@@ -7,20 +7,26 @@
     <a href="{% url 'bots:list' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
       <i class="bi bi-arrow-left me-1"></i> К ботам
     </a>
-    <h1>Все предложения</h1>
+    <h1>Предложка</h1>
     <div class="text-muted small">Со всех ботов (с учётом прав доступа)</div>
   </div>
 </div>
 
 <form method="get" class="mb-4 d-flex gap-2 flex-wrap align-items-end">
   <div>
+    <label class="form-label small text-muted mb-1">Источник</label>
+    <select name="source" class="form-select form-select-sm">
+      {% for val, label in sources %}
+        <option value="{{ val }}" {% if source_filter == val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
     <label class="form-label small text-muted mb-1">Статус</label>
     <select name="status" class="form-select form-select-sm">
-      <option value="" {% if not status_filter %}selected{% endif %}>Все</option>
-      <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>Ожидают</option>
-      <option value="approved" {% if status_filter == 'approved' %}selected{% endif %}>Одобрены</option>
-      <option value="rejected" {% if status_filter == 'rejected' %}selected{% endif %}>Отклонены</option>
-      <option value="published" {% if status_filter == 'published' %}selected{% endif %}>Опубликованные</option>
+      {% for val, label in statuses %}
+        <option value="{{ val }}" {% if status_filter == val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
     </select>
   </div>
   <div>
@@ -28,48 +34,55 @@
   </div>
 </form>
 
-{% if suggestions %}
+{% if items %}
 <div class="d-flex flex-column gap-3">
-  {% for s in suggestions %}
+  {% for it in items %}
   <div class="card">
     <div class="card-body p-4">
       <div class="d-flex align-items-start gap-3">
         <div class="flex-grow-1">
           <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
-            <span class="badge bg-light text-dark border small">{{ s.bot.name }}</span>
-            {% if s.bot.channel %}
-              <span class="badge bg-light text-dark border small">{{ s.bot.channel.name }}</span>
+            {% if it.kind == 'parsing' %}
+              <span class="badge bg-info-subtle text-info border small">Парсинг</span>
+            {% else %}
+              <span class="badge bg-light text-dark border small">{{ it.bot_name }}</span>
             {% endif %}
-            <span class="fw-semibold small">{{ s.sender_display|default:"Аноним" }}</span>
-            <span class="text-muted" style="font-size:.75rem;">{{ s.submitted_at|date:"d.m.Y H:i" }}</span>
-            {% if s.content_type %}
-              <span class="badge bg-light text-dark border small">{{ s.content_type }}</span>
+            {% if it.channel_name %}
+              <span class="badge bg-light text-dark border small">{{ it.channel_name }}</span>
             {% endif %}
-            <span class="font-monospace text-muted" style="font-size:.7rem;">#{{ s.tracking_id }}</span>
+            <span class="fw-semibold small">{{ it.sender|default:"—" }}</span>
+            <span class="text-muted" style="font-size:.75rem;">{{ it.created_at|date:"d.m.Y H:i" }}</span>
           </div>
 
-          <p class="mb-3" style="white-space:pre-wrap;">{{ s.text|truncatechars:300 }}</p>
+          <p class="mb-2" style="white-space:pre-wrap;">{{ it.text|truncatechars:300 }}</p>
+          {% if it.url %}
+            <div class="small">
+              <a href="{{ it.url }}" target="_blank" rel="noopener">Оригинал</a>
+            </div>
+          {% endif %}
 
           <div class="d-flex align-items-center gap-2 flex-wrap">
-            {% if s.status == 'pending' %}
+            {% if it.status == 'pending' %}
               <span class="badge bg-warning-subtle text-warning rounded-pill px-3">На рассмотрении</span>
-              <form method="post" action="{% url 'bots:moderate' s.pk %}" class="d-inline">
-                {% csrf_token %}
-                <button type="submit" name="action" value="approve" class="btn btn-success btn-sm">
-                  <i class="bi bi-check-lg me-1"></i> Одобрить
-                </button>
-              </form>
-              <form method="post" action="{% url 'bots:moderate' s.pk %}" class="d-inline">
-                {% csrf_token %}
-                <button type="submit" name="action" value="reject" class="btn btn-outline-danger btn-sm">
-                  <i class="bi bi-x-lg me-1"></i> Отклонить
-                </button>
-              </form>
-            {% elif s.status == 'approved' %}
+              {% if it.kind == 'subscriber' %}
+                <form method="post" action="{% url 'bots:moderate' it.obj.pk %}" class="d-inline">
+                  {% csrf_token %}
+                  <button type="submit" name="action" value="approve" class="btn btn-success btn-sm">
+                    <i class="bi bi-check-lg me-1"></i> Одобрить
+                  </button>
+                </form>
+                <form method="post" action="{% url 'bots:moderate' it.obj.pk %}" class="d-inline">
+                  {% csrf_token %}
+                  <button type="submit" name="action" value="reject" class="btn btn-outline-danger btn-sm">
+                    <i class="bi bi-x-lg me-1"></i> Отклонить
+                  </button>
+                </form>
+              {% endif %}
+            {% elif it.status == 'approved' %}
               <span class="badge bg-success-subtle text-success rounded-pill px-3">✅ Одобрено</span>
-            {% elif s.status == 'rejected' %}
+            {% elif it.status == 'rejected' %}
               <span class="badge bg-danger-subtle text-danger rounded-pill px-3">❌ Отклонено</span>
-            {% elif s.status == 'published' %}
+            {% elif it.status == 'published' %}
               <span class="badge bg-primary-subtle text-primary rounded-pill px-3">Опубликовано</span>
             {% endif %}
           </div>

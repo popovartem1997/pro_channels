@@ -225,6 +225,12 @@ def bot_create(request):
     from channels.models import Channel
     owner_channels = Channel.objects.filter(owner=request.user).order_by('name')
 
+    # Preselect from querystring (e.g., after creating a channel)
+    channel_prefill = (request.GET.get('channel_id') or '').strip() if request.method == 'GET' else ''
+    platform_prefill = (request.GET.get('platform') or '').strip() if request.method == 'GET' else ''
+    if platform_prefill and platform_prefill not in dict(SuggestionBot.PLATFORM_CHOICES):
+        platform_prefill = ''
+
     if request.method == 'POST':
         import re
         name = request.POST.get('name', '').strip()
@@ -315,6 +321,8 @@ def bot_create(request):
         'team_members': team_members,
         'selected_moderators': selected_moderators,
         'owner_channels': owner_channels,
+        'channel_prefill': channel_prefill,
+        'platform_prefill': platform_prefill,
     })
 
 
@@ -599,13 +607,17 @@ def suggestions_all(request):
     - Владелец/админ: все предложения по своим ботам
     - Менеджер: предложения по ботам, привязанным к каналам, к которым есть доступ (can_moderate)
     """
-    from .models import Suggestion, SuggestionBot
+    from .models import Suggestion
+    from parsing.models import ParsedItem
 
     status_filter = request.GET.get('status', 'pending')
+    if status_filter in ('all', ''):
+        status_filter = ''
+    source_filter = request.GET.get('source', 'all')  # all | subscriber | parsing
 
+    # ---- Subscriber suggestions (from bots) ----
     if request.user.is_staff or request.user.is_superuser:
-        # staff/superuser: show all suggestions (useful for support)
-        qs = Suggestion.objects.all()
+        sug_qs = Suggestion.objects.all()
     elif getattr(request.user, 'role', '') in ('manager', 'assistant_admin'):
         from managers.models import TeamMember
         allowed_channel_ids = TeamMember.objects.filter(
@@ -613,22 +625,79 @@ def suggestions_all(request):
             is_active=True,
             can_moderate=True,
         ).values_list('channels__pk', flat=True)
-        qs = Suggestion.objects.filter(
+        sug_qs = Suggestion.objects.filter(
             models.Q(bot__channel_id__in=allowed_channel_ids)
             | models.Q(bot__moderators=request.user)
         )
     else:
-        qs = Suggestion.objects.filter(bot__owner=request.user)
+        sug_qs = Suggestion.objects.filter(bot__owner=request.user)
 
-    qs = qs.select_related('bot', 'bot__channel').distinct()
+    sug_qs = sug_qs.select_related('bot', 'bot__channel').distinct()
     if status_filter:
-        qs = qs.filter(status=status_filter)
-    suggestions = qs.order_by('-submitted_at')[:200]
+        sug_qs = sug_qs.filter(status=status_filter)
+
+    # ---- Parsed items (from parsing) ----
+    if request.user.is_staff or request.user.is_superuser:
+        parsed_qs = ParsedItem.objects.all()
+    elif getattr(request.user, 'role', '') in ('manager', 'assistant_admin'):
+        from managers.models import TeamMember
+        allowed_channel_ids = TeamMember.objects.filter(
+            member=request.user,
+            is_active=True,
+            can_moderate=True,
+        ).values_list('channels__pk', flat=True)
+        parsed_qs = ParsedItem.objects.filter(source__channel_id__in=allowed_channel_ids)
+    else:
+        parsed_qs = ParsedItem.objects.filter(source__owner=request.user)
+
+    parsed_qs = parsed_qs.select_related('source', 'source__channel', 'keyword')
+
+    items = []
+    if source_filter in ('all', 'subscriber'):
+        for s in sug_qs.order_by('-submitted_at')[:200]:
+            items.append({
+                'kind': 'subscriber',
+                'created_at': s.submitted_at,
+                'status': s.status,
+                'bot_name': getattr(s.bot, 'name', ''),
+                'channel_name': getattr(getattr(s.bot, 'channel', None), 'name', ''),
+                'sender': getattr(s, 'sender_display', '') or (s.platform_username or s.platform_user_id),
+                'text': s.text or '',
+                'obj': s,
+            })
+
+    if source_filter in ('all', 'parsing'):
+        for p in parsed_qs.order_by('-found_at')[:200]:
+            # map parsed status to suggestion-like
+            st = 'pending' if p.status == ParsedItem.STATUS_NEW else ('published' if p.status == ParsedItem.STATUS_USED else 'rejected')
+            items.append({
+                'kind': 'parsing',
+                'created_at': p.found_at,
+                'status': st,
+                'bot_name': 'Парсинг',
+                'channel_name': getattr(getattr(p.source, 'channel', None), 'name', '') or '',
+                'sender': f'{p.source.get_platform_display()} · {p.source.name}',
+                'text': p.text or '',
+                'url': p.original_url or '',
+                'obj': p,
+            })
+
+    # Sort unified feed
+    items.sort(key=lambda x: x.get('created_at') or timezone.now(), reverse=True)
+    items = items[:300]
 
     return render(request, 'bots/suggestions_all.html', {
-        'suggestions': suggestions,
+        'items': items,
         'status_filter': status_filter,
-        'statuses': [('pending', 'Ожидают'), ('approved', 'Одобренные'), ('rejected', 'Отклонённые'), ('published', 'Опубликованные')],
+        'source_filter': source_filter,
+        'statuses': [
+            ('', 'Все'),
+            ('pending', 'Ожидают'),
+            ('approved', 'Одобренные'),
+            ('rejected', 'Отклонённые'),
+            ('published', 'Опубликованные'),
+        ],
+        'sources': [('all', 'Все'), ('subscriber', 'От подписчиков'), ('parsing', 'Парсинг')],
     })
 
 

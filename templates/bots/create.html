@@ -29,7 +29,12 @@
             <select name="channel_id" id="id_channel_id" class="form-select" required>
               <option value="">— Выберите канал —</option>
               {% for ch in owner_channels %}
-                <option value="{{ ch.pk }}" {% if request.POST.channel_id|stringformat:"s" == ch.pk|stringformat:"s" %}selected{% endif %}>
+                <option value="{{ ch.pk }}"
+                        {% if request.POST.channel_id|stringformat:"s" == ch.pk|stringformat:"s" %}
+                          selected
+                        {% elif not request.POST.channel_id and channel_prefill|stringformat:"s" == ch.pk|stringformat:"s" %}
+                          selected
+                        {% endif %}>
                   {{ ch.name }} ({{ ch.get_platform_display }})
                 </option>
               {% endfor %}
@@ -46,7 +51,14 @@
                     onchange="showBotFields(this.value)" required>
               <option value="">— Выберите платформу —</option>
               {% for val, label in platforms %}
-                <option value="{{ val }}" {% if request.POST.platform == val %}selected{% endif %}>{{ label }}</option>
+                <option value="{{ val }}"
+                        {% if request.POST.platform == val %}
+                          selected
+                        {% elif not request.POST.platform and platform_prefill == val %}
+                          selected
+                        {% endif %}>
+                  {{ label }}
+                </option>
               {% endfor %}
             </select>
           </div>

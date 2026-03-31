@@ -161,7 +161,12 @@ def dashboard(request):
         assigned_channels = Channel.objects.filter(
             pk__in=TeamMember.objects.filter(member=user, is_active=True).values_list('channels__pk', flat=True)
         ).distinct()
-        recent_posts = Post.objects.filter(channels__in=assigned_channels).distinct().order_by('-created_at')[:10]
+        recent_posts = (
+            Post.objects.filter(channels__in=assigned_channels)
+            .distinct()
+            .prefetch_related('channels')
+            .order_by('-created_at')[:10]
+        )
         return render(request, 'accounts/dashboard_manager.html', {
             'memberships': memberships,
             'assigned_channels': assigned_channels,
@@ -170,7 +175,7 @@ def dashboard(request):
     bots = SuggestionBot.objects.filter(owner=user)
     channels = Channel.objects.filter(owner=user)
     pending_count = Suggestion.objects.filter(bot__owner=user, status='pending').count()
-    recent_posts = Post.objects.filter(author=user).order_by('-created_at')[:5]
+    recent_posts = Post.objects.filter(author=user).prefetch_related('channels').order_by('-created_at')[:5]
     scheduled_posts = Post.objects.filter(
         author=user, status='scheduled'
     ).order_by('scheduled_at')[:5]

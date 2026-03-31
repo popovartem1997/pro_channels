@@ -27,6 +27,14 @@ class Post(models.Model):
 
     uid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='posts', verbose_name='Автор')
+    published_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='published_posts',
+        verbose_name='Опубликовал (сайт)',
+    )
     channels = models.ManyToManyField('channels.Channel', related_name='posts', verbose_name='Каналы для публикации')
 
     text = models.TextField(verbose_name='Текст поста')

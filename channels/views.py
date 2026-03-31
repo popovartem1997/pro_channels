@@ -112,6 +112,18 @@ def channel_create(request):
             return redirect('channels:create')
 
         messages.success(request, f'Канал "{name}" добавлен.')
+        if request.POST.get('create_suggestion_bot') == 'on':
+            from django.urls import reverse
+            platform_map = {
+                Channel.PLATFORM_TELEGRAM: 'telegram',
+                Channel.PLATFORM_VK: 'vk',
+                Channel.PLATFORM_MAX: 'max',
+            }
+            qs = f'?channel_id={channel.pk}'
+            p = platform_map.get(channel.platform)
+            if p:
+                qs += f'&platform={p}'
+            return redirect(reverse('bots:create') + qs)
         return redirect('channels:list')
 
     return render(request, 'channels/create.html', {

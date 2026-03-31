@@ -175,7 +175,8 @@ def _parse_telegram(source, keywords, keyword_objects):
         found = 0
         try:
             channel = await client.get_entity(source.source_id)
-            async for message in client.iter_messages(channel, limit=50):
+            # Берём только последние 20 сообщений, чтобы не упереться в лимиты API
+            async for message in client.iter_messages(channel, limit=20):
                 if not message.text:
                     continue
                 matched = _match_keywords(message.text, keywords)
@@ -235,7 +236,8 @@ def _parse_vk(source, keywords, keyword_objects):
 
     found = 0
     try:
-        posts = vk.wall.get(owner_id=owner_id, count=50, filter='owner')
+        # Берём только последние 20 постов, чтобы не упереться в лимиты API
+        posts = vk.wall.get(owner_id=owner_id, count=20, filter='owner')
         for item in posts.get('items', []):
             text = item.get('text', '')
             if not text:
