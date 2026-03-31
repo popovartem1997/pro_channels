@@ -15,6 +15,7 @@ def process_telegram_update_task(self, bot_id: int, update_data: dict):
     а тяжёлая логика выполняется в celery worker.
     """
     try:
+        logger.info("[TG Task] received update for bot_id=%s keys=%s", bot_id, list(update_data.keys())[:20])
         from bots.models import SuggestionBot
         from bots.telegram.handlers import build_application
         from telegram import Update
@@ -28,6 +29,7 @@ def process_telegram_update_task(self, bot_id: int, update_data: dict):
                 await app.process_update(upd)
 
         asyncio.run(process())
+        logger.info("[TG Task] processed update ok for bot_id=%s", bot_id)
         return True
     except Exception as e:
         logger.exception("[TG Task] update failed for bot_id=%s: %s", bot_id, e)

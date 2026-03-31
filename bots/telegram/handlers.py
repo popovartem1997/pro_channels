@@ -75,6 +75,17 @@ async def _send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, *, text
         await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=keyboard)
 
 
+async def _on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Глобальный обработчик ошибок PTB.
+    Без него ошибки в callback/message handlers легко выглядят как "бот молчит".
+    """
+    try:
+        logger.exception("Telegram bot handler error: %s", getattr(context, "error", None))
+    except Exception:
+        pass
+
+
 async def _safe_edit_or_reply(query, *, text: str, reply_markup=None, parse_mode=None):
     """
     Иногда Telegram возвращает 400 'Message is not modified' если пытаться
@@ -683,6 +694,7 @@ def build_application(bot_config) -> Application:
     app.add_handler(CommandHandler('menu', cmd_menu))
     app.add_handler(CommandHandler('status', cmd_status))
     app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_error_handler(_on_error)
     app.add_handler(MessageHandler(
         filters.TEXT
         | filters.PHOTO
