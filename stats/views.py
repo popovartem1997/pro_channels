@@ -12,7 +12,17 @@ from datetime import timedelta
 def stats_dashboard(request):
     from channels.models import Channel
     from .models import ChannelStat, PostStat
-    channels = Channel.objects.filter(owner=request.user)
+    if getattr(request.user, 'role', '') in ('manager', 'assistant_admin'):
+        from managers.models import TeamMember
+        channels = Channel.objects.filter(
+            pk__in=TeamMember.objects.filter(
+                member=request.user,
+                is_active=True,
+                can_view_stats=True,
+            ).values_list('channels__pk', flat=True)
+        ).distinct()
+    else:
+        channels = Channel.objects.filter(owner=request.user)
     today = timezone.now().date()
     week_ago = today - timedelta(days=7)
 
@@ -43,7 +53,16 @@ def stats_dashboard(request):
 def channel_stats(request, channel_pk):
     from channels.models import Channel
     from .models import ChannelStat, PostStat
-    channel = get_object_or_404(Channel, pk=channel_pk, owner=request.user)
+    if getattr(request.user, 'role', '') in ('manager', 'assistant_admin'):
+        from managers.models import TeamMember
+        allowed_ids = TeamMember.objects.filter(
+            member=request.user,
+            is_active=True,
+            can_view_stats=True,
+        ).values_list('channels__pk', flat=True)
+        channel = get_object_or_404(Channel.objects.filter(pk__in=allowed_ids).distinct(), pk=channel_pk)
+    else:
+        channel = get_object_or_404(Channel, pk=channel_pk, owner=request.user)
 
     period = int(request.GET.get('period', 30))
     since = timezone.now().date() - timedelta(days=period)

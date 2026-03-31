@@ -24,4 +24,15 @@ def site_context(request):
             ctx['adv_pending_count'] = AdvertisingOrder.objects.filter(
                 status='submitted'
             ).count()
+        # Меню: показывать "Статистика" менеджеру только если ему выдали это право.
+        if getattr(request.user, 'role', '') in ('manager', 'assistant_admin'):
+            try:
+                from managers.models import TeamMember
+                ctx['manager_can_view_stats'] = TeamMember.objects.filter(
+                    member=request.user,
+                    is_active=True,
+                    can_view_stats=True,
+                ).exists()
+            except Exception:
+                ctx['manager_can_view_stats'] = False
     return ctx
