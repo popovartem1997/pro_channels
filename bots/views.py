@@ -28,6 +28,26 @@ from .models import SuggestionBot
 logger = logging.getLogger(__name__)
 
 
+def _can_manage_bot_by_channel(user, bot: SuggestionBot) -> bool:
+    if user.is_staff or user.is_superuser:
+        return True
+    if bot.owner_id == user.id:
+        return True
+    if getattr(user, 'role', '') in ('manager', 'assistant_admin'):
+        try:
+            from managers.models import TeamMember
+            if bot.channel_id:
+                return TeamMember.objects.filter(
+                    member=user,
+                    is_active=True,
+                    can_manage_bots=True,
+                    channels__pk=bot.channel_id,
+                ).exists()
+        except Exception:
+            return False
+    return False
+
+
 def _can_view_bot(user, bot: SuggestionBot) -> bool:
     if user.is_staff or user.is_superuser:
         return True
@@ -410,6 +430,84 @@ def bot_edit(request, bot_id: int):
         'owner_channels': owner_channels,
         'can_edit_messages_only': can_edit_messages_only,
     })
+
+
+@login_required
+def conversations_list(request):
+    """Список диалогов 'подписчик ↔ менеджер' по ботам предложки."""
+    from .models import BotConversation
+    qs = BotConversation.objects.select_related('bot', 'bot__channel')
+    if getattr(request.user, 'role', '') in ('manager', 'assistant_admin') and not (request.user.is_staff or request.user.is_superuser):
+        from managers.models import TeamMember
+        allowed_channel_ids = TeamMember.objects.filter(
+            member=request.user,
+            is_active=True,
+            can_manage_bots=True,
+        ).values_list('channels__pk', flat=True)
+        qs = qs.filter(bot__channel_id__in=allowed_channel_ids)
+    else:
+        qs = qs.filter(bot__owner=request.user)
+    qs = qs.order_by('-last_message_at', '-created_at')[:200]
+    return render(request, 'bots/conversations_list.html', {'conversations': qs})
+
+
+@login_required
+def conversation_detail(request, pk: int):
+    """Просмотр диалога и ответ менеджера пользователю (через Telegram Bot API)."""
+    from .models import BotConversation, BotConversationMessage, AuditLog
+    conv = get_object_or_404(BotConversation.objects.select_related('bot', 'bot__channel', 'bot__owner'), pk=pk)
+    if not _can_manage_bot_by_channel(request.user, conv.bot) and not _can_view_bot(request.user, conv.bot):
+        return HttpResponse(status=403)
+
+    if request.method == 'POST':
+        text = (request.POST.get('text') or '').strip()
+        if not text:
+            messages.error(request, 'Введите текст ответа.')
+            return redirect('bots:conversation_detail', pk=pk)
+
+        if conv.bot.platform != SuggestionBot.PLATFORM_TELEGRAM:
+            messages.error(request, 'Ответы через сайт пока поддерживаются только для Telegram.')
+            return redirect('bots:conversation_detail', pk=pk)
+
+        # Send to user via Telegram Bot API
+        try:
+            import requests
+            token = conv.bot.get_token()
+            resp = requests.post(
+                f'https://api.telegram.org/bot{token}/sendMessage',
+                json={'chat_id': conv.platform_user_id, 'text': text},
+                timeout=10,
+            )
+            data = resp.json()
+            if not data.get('ok'):
+                raise ValueError(data.get('description', 'Telegram error'))
+        except Exception as e:
+            messages.error(request, f'Не удалось отправить сообщение: {e}')
+            return redirect('bots:conversation_detail', pk=pk)
+
+        BotConversationMessage.objects.create(
+            conversation=conv,
+            direction='out',
+            sender_user=request.user,
+            text=text,
+            raw_data={},
+        )
+        conv.last_message_at = timezone.now()
+        conv.save(update_fields=['last_message_at'])
+
+        AuditLog.objects.create(
+            actor=request.user,
+            owner=conv.bot.owner,
+            action='bot_conversation.reply',
+            object_type='BotConversation',
+            object_id=str(conv.pk),
+            data={'bot_id': conv.bot_id},
+        )
+        messages.success(request, 'Ответ отправлен.')
+        return redirect('bots:conversation_detail', pk=pk)
+
+    msgs = BotConversationMessage.objects.filter(conversation=conv).select_related('sender_user')
+    return render(request, 'bots/conversation_detail.html', {'conv': conv, 'messages_list': msgs})
 
 
 @login_required

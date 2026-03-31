@@ -40,7 +40,10 @@ REJECT_REASONS = [
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Приветствие при /start."""
     bot_config = context.bot_data['bot_config']
-    await update.message.reply_text(bot_config.welcome_message)
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton('💬 Связаться с менеджером', callback_data='contact'),
+    ]])
+    await update.message.reply_text(bot_config.welcome_message, reply_markup=keyboard)
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -97,6 +100,62 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_config = context.bot_data['bot_config']
     user = update.effective_user
     message = update.effective_message
+
+    # Contact flow: user wants to talk to manager (MVP: text only)
+    if context.user_data.get('contact_mode'):
+        if not message.text:
+            await update.message.reply_text('Пожалуйста, отправьте текстовое сообщение для менеджера.')
+            return
+
+        @sync_to_async
+        def save_dialog():
+            from bots.models import BotConversation, BotConversationMessage
+            conv, _ = BotConversation.objects.get_or_create(
+                bot=bot_config,
+                platform_user_id=str(user.id),
+                defaults={
+                    'platform_username': user.username or '',
+                    'display_name': _build_display_name(user),
+                    'last_message_at': timezone.now(),
+                }
+            )
+            conv.platform_username = user.username or conv.platform_username
+            conv.display_name = _build_display_name(user)
+            conv.last_message_at = timezone.now()
+            conv.status = 'open'
+            conv.save(update_fields=['platform_username', 'display_name', 'last_message_at', 'status'])
+            BotConversationMessage.objects.create(
+                conversation=conv,
+                direction='in',
+                text=message.text or '',
+                raw_data=message.to_dict(),
+            )
+            return conv.pk
+
+        conv_id = await save_dialog()
+        context.user_data['contact_mode'] = False
+
+        await update.message.reply_text('Сообщение отправлено менеджеру. Мы ответим здесь в чате.')
+
+        # Notify moderation chats with link to site dialog
+        admin_chat_ids = []
+        try:
+            admin_chat_ids = bot_config.get_moderation_chat_ids()
+        except Exception:
+            admin_chat_ids = [bot_config.admin_chat_id] if bot_config.admin_chat_id else []
+        try:
+            from django.conf import settings
+            url = f'{settings.SITE_URL}/bots/conversations/{conv_id}/'
+        except Exception:
+            url = ''
+        if admin_chat_ids:
+            text_notify = f'💬 Новое сообщение для менеджера от @{user.username or user.id}\nДиалог: {url}'.strip()
+            for admin_chat_id in admin_chat_ids:
+                try:
+                    await context.bot.send_message(chat_id=admin_chat_id, text=text_notify)
+                except Exception:
+                    pass
+        return
 
     # Определяем тип контента и собираем медиа-ID
     from bots.models import Suggestion
@@ -257,6 +316,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     bot_config = context.bot_data['bot_config']
     data = query.data
+
+    if data == 'contact':
+        context.user_data['contact_mode'] = True
+        await query.edit_message_text('Напишите текст сообщения для менеджера одним сообщением.')
+        return
 
     if data.startswith('approve|'):
         await _process_approve(query, bot_config, data[8:])

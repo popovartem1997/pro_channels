@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+{% block title %}Диалог{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'bots:conversations' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К диалогам
+  </a>
+  <h1>Диалог</h1>
+  <div class="text-muted small">
+    Пользователь: {{ conv.display_name|default:conv.platform_username|default:conv.platform_user_id }} · Бот: {{ conv.bot.name }}
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-8">
+    <div class="card">
+      <div class="card-body p-0">
+        {% if messages_list %}
+          <ul class="list-group list-group-flush">
+            {% for m in messages_list %}
+            <li class="list-group-item px-4 py-3">
+              <div class="d-flex justify-content-between align-items-start gap-3">
+                <div class="min-w-0">
+                  <div class="small text-muted mb-1">
+                    {% if m.direction == 'in' %}
+                      <span class="badge bg-secondary-subtle text-secondary">Входящее</span>
+                    {% else %}
+                      <span class="badge bg-success-subtle text-success">Исходящее</span>
+                      {% if m.sender_user %}<span class="ms-2">{{ m.sender_user.get_full_name|default:m.sender_user.username }}</span>{% endif %}
+                    {% endif %}
+                  </div>
+                  <div style="white-space:pre-wrap;">{{ m.text }}</div>
+                </div>
+                <div class="text-muted small flex-shrink-0">
+                  {{ m.created_at|date:"d.m H:i" }}
+                </div>
+              </div>
+            </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <div class="p-4 text-muted">Сообщений пока нет</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-4">
+    <div class="card">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3">Ответить</h6>
+        {% if conv.bot.platform != 'telegram' %}
+          <div class="alert alert-warning py-2 small mb-0">
+            Ответы через сайт пока доступны только для Telegram.
+          </div>
+        {% else %}
+          <form method="post">
+            {% csrf_token %}
+            <textarea class="form-control mb-2" name="text" rows="4" placeholder="Текст ответа..."></textarea>
+            <button class="btn btn-brand w-100" type="submit">
+              <i class="bi bi-send me-1"></i> Отправить
+            </button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+

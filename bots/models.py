@@ -345,3 +345,56 @@ class SuggestionUserStats(models.Model):
 
     def __str__(self):
         return f'{self.display_name or self.platform_user_id} — {self.total} заявок'
+
+
+class BotConversation(models.Model):
+    """Диалог подписчика с менеджерами по конкретному боту (MVP: текст)."""
+    bot = models.ForeignKey(SuggestionBot, on_delete=models.CASCADE, related_name='conversations', verbose_name='Бот')
+    platform_user_id = models.CharField(max_length=100, db_index=True, verbose_name='ID пользователя на платформе')
+    platform_username = models.CharField(max_length=100, blank=True, verbose_name='Username')
+    display_name = models.CharField(max_length=200, blank=True, verbose_name='Отображаемое имя')
+    status = models.CharField(max_length=20, default='open', db_index=True, verbose_name='Статус')
+    last_message_at = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name='Последнее сообщение')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Диалог (предложка)'
+        verbose_name_plural = 'Диалоги (предложка)'
+        ordering = ['-last_message_at', '-created_at']
+        unique_together = ('bot', 'platform_user_id')
+
+    def __str__(self):
+        return f'{self.bot_id}:{self.platform_user_id} ({self.status})'
+
+
+class BotConversationMessage(models.Model):
+    conversation = models.ForeignKey(BotConversation, on_delete=models.CASCADE, related_name='messages', verbose_name='Диалог')
+    direction = models.CharField(max_length=10, choices=[('in', 'Входящее'), ('out', 'Исходящее')], verbose_name='Направление')
+    sender_user = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='bot_conversation_messages', verbose_name='Отправитель (сайт)'
+    )
+    text = models.TextField(blank=True, verbose_name='Текст')
+    raw_data = models.JSONField(default=dict, blank=True, verbose_name='Сырые данные')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Сообщение диалога (предложка)'
+        verbose_name_plural = 'Сообщения диалога (предложка)'
+        ordering = ['created_at']
+
+
+class AuditLog(models.Model):
+    """Аудит-лог действий в кабинете (MVP: правки ботов/подписок/каналов)."""
+    actor = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='audit_logs', verbose_name='Кто')
+    owner = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='audit_logs_owner', verbose_name='Владелец')
+    action = models.CharField(max_length=100, db_index=True, verbose_name='Действие')
+    object_type = models.CharField(max_length=100, blank=True, verbose_name='Тип объекта')
+    object_id = models.CharField(max_length=100, blank=True, verbose_name='ID объекта')
+    data = models.JSONField(default=dict, blank=True, verbose_name='Данные')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'Аудит-лог'
+        verbose_name_plural = 'Аудит-лог'
+        ordering = ['-created_at']
