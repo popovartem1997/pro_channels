@@ -48,10 +48,16 @@
           <div class="mb-3">
             <label class="form-label fw-semibold">{{ form.tbank_terminal_key.label }}</label>
             {{ form.tbank_terminal_key }}
+            {% if obj.tbank_terminal_key_enc %}
+              <div class="form-text"><i class="bi bi-check-circle-fill text-success me-1"></i>Ключ задан (не отображается).</div>
+            {% endif %}
           </div>
           <div class="mb-4">
             <label class="form-label fw-semibold">{{ form.tbank_secret_key.label }}</label>
             {{ form.tbank_secret_key }}
+            {% if obj.tbank_secret_key_enc %}
+              <div class="form-text"><i class="bi bi-check-circle-fill text-success me-1"></i>Ключ задан (не отображается).</div>
+            {% endif %}
           </div>
 
           <hr class="my-4">
@@ -64,6 +70,9 @@
           <div class="mb-3">
             <label class="form-label fw-semibold">{{ form.vk_ord_access_token.label }}</label>
             {{ form.vk_ord_access_token }}
+            {% if obj.vk_ord_access_token_enc %}
+              <div class="form-text"><i class="bi bi-check-circle-fill text-success me-1"></i>Токен задан (не отображается).</div>
+            {% endif %}
           </div>
           <div class="mb-4">
             <label class="form-label fw-semibold">{{ form.vk_ord_cabinet_id.label }}</label>
@@ -85,6 +94,15 @@
           <div class="mb-4">
             <label class="form-label fw-semibold">{{ form.telegram_api_hash.label }}</label>
             {{ form.telegram_api_hash }}
+            {% if obj.telegram_api_hash_enc %}
+              <div class="form-text">
+                <i class="bi bi-check-circle-fill text-success me-1"></i>Ключ уже задан. Вставьте новый только если хотите заменить.
+              </div>
+            {% else %}
+              <div class="form-text text-warning">
+                <i class="bi bi-exclamation-circle-fill me-1"></i>Ключ не задан.
+              </div>
+            {% endif %}
           </div>
 
           <hr class="my-4">
@@ -97,6 +115,9 @@
           <div class="mb-4">
             <label class="form-label fw-semibold">{{ form.vk_parse_access_token.label }}</label>
             {{ form.vk_parse_access_token }}
+            {% if obj.vk_parse_access_token_enc %}
+              <div class="form-text"><i class="bi bi-check-circle-fill text-success me-1"></i>Токен задан (не отображается).</div>
+            {% endif %}
           </div>
 
           <hr class="my-4">
@@ -110,6 +131,9 @@
           <div class="mb-4">
             <label class="form-label fw-semibold">{{ form.tg_import_bot_token.label }}</label>
             {{ form.tg_import_bot_token }}
+            {% if obj.tg_import_bot_token_enc %}
+              <div class="form-text"><i class="bi bi-check-circle-fill text-success me-1"></i>Токен задан (не отображается).</div>
+            {% endif %}
           </div>
 
           <div class="d-flex gap-2">
