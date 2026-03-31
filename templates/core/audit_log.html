@@ -23,19 +23,39 @@
       </div>
       <div class="col-12 col-md-2">
         <label class="form-label small text-muted mb-1">Актор</label>
-        <input class="form-control form-control-sm" name="actor" value="{{ filters.actor|default:'' }}" placeholder="username">
+        <select class="form-select form-select-sm" name="actor">
+          <option value="" {% if not filters.actor %}selected{% endif %}>Все</option>
+          {% for u in actor_choices %}
+            <option value="{{ u }}" {% if filters.actor == u %}selected{% endif %}>{{ u }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div class="col-12 col-md-2">
         <label class="form-label small text-muted mb-1">Тип объекта</label>
-        <input class="form-control form-control-sm" name="object_type" value="{{ filters.object_type|default:'' }}" placeholder="Channel">
+        <select class="form-select form-select-sm" name="object_type">
+          <option value="" {% if not filters.object_type %}selected{% endif %}>Все</option>
+          {% for t in object_type_choices %}
+            <option value="{{ t }}" {% if filters.object_type == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div class="col-12 col-md-3">
         <label class="form-label small text-muted mb-1">Путь (visits)</label>
-        <input class="form-control form-control-sm" name="path" value="{{ filters.path|default:'' }}" placeholder="/posts/">
+        <select class="form-select form-select-sm" name="path">
+          <option value="" {% if not filters.path %}selected{% endif %}>Все</option>
+          {% for p in path_choices %}
+            <option value="{{ p }}" {% if filters.path == p %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div class="col-12 col-md-2">
         <label class="form-label small text-muted mb-1">IP</label>
-        <input class="form-control form-control-sm" name="ip" value="{{ filters.ip|default:'' }}" placeholder="94.228.">
+        <select class="form-select form-select-sm" name="ip">
+          <option value="" {% if not filters.ip %}selected{% endif %}>Все</option>
+          {% for ip in ip_choices %}
+            <option value="{{ ip }}" {% if filters.ip == ip %}selected{% endif %}>{{ ip }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div class="col-12 col-md-2">
         <label class="form-label small text-muted mb-1">С</label>

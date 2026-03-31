@@ -89,16 +89,16 @@ def audit_log(request):
     visits_qs = PageVisit.objects.select_related('user').all()
 
     if q_action:
-        audit_qs = audit_qs.filter(action__icontains=q_action)
+        audit_qs = audit_qs.filter(action=q_action)
     if q_actor:
-        audit_qs = audit_qs.filter(actor__username__icontains=q_actor)
+        audit_qs = audit_qs.filter(actor__username=q_actor)
     if q_object_type:
-        audit_qs = audit_qs.filter(object_type__icontains=q_object_type)
+        audit_qs = audit_qs.filter(object_type=q_object_type)
 
     if q_path:
-        visits_qs = visits_qs.filter(path__icontains=q_path)
+        visits_qs = visits_qs.filter(path=q_path)
     if q_ip:
-        visits_qs = visits_qs.filter(ip__icontains=q_ip)
+        visits_qs = visits_qs.filter(ip=q_ip)
 
     # Date range (created_at)
     def _parse_dt(val: str):
@@ -125,12 +125,43 @@ def audit_log(request):
         audit_qs = audit_qs.filter(created_at__lte=dt_to)
         visits_qs = visits_qs.filter(created_at__lte=dt_to)
 
+    # Choices for dropdown filters (take from recent history to keep short)
+    recent_audit = AuditLog.objects.order_by('-created_at')
+    action_choices = list(recent_audit.values_list('action', flat=True).distinct().order_by('action')[:300])
+    actor_choices = list(
+        recent_audit.values_list('actor__username', flat=True)
+        .exclude(actor__isnull=True)
+        .exclude(actor__username__isnull=True)
+        .exclude(actor__username='')
+        .distinct()
+        .order_by('actor__username')[:300]
+    )
+    object_type_choices = list(
+        recent_audit.values_list('object_type', flat=True)
+        .exclude(object_type__isnull=True)
+        .exclude(object_type='')
+        .distinct()
+        .order_by('object_type')[:200]
+    )
+
+    recent_visits = PageVisit.objects.order_by('-created_at')
+    path_choices = list(
+        recent_visits.values_list('path', flat=True)
+        .exclude(path__isnull=True)
+        .exclude(path='')
+        .distinct()
+        .order_by('path')[:300]
+    )
+    ip_choices = list(
+        recent_visits.values_list('ip', flat=True)
+        .exclude(ip__isnull=True)
+        .exclude(ip='')
+        .distinct()
+        .order_by('ip')[:200]
+    )
+
     audit = audit_qs.order_by('-created_at')[:500]
     visits = visits_qs.order_by('-created_at')[:500]
-
-    action_choices = list(
-        AuditLog.objects.values_list('action', flat=True).distinct().order_by('action')[:300]
-    )
 
     # Enrich page visits with resolved route name (best effort)
     from django.urls import resolve, Resolver404
@@ -157,6 +188,10 @@ def audit_log(request):
         'audit': audit,
         'visits_enriched': visits_enriched,
         'action_choices': action_choices,
+        'actor_choices': actor_choices,
+        'object_type_choices': object_type_choices,
+        'path_choices': path_choices,
+        'ip_choices': ip_choices,
         'filters': {
             'action': q_action,
             'actor': q_actor,
