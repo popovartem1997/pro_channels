@@ -8,7 +8,9 @@ echo "==> Pull latest code"
 git pull
 
 echo "==> Build & start containers"
-docker compose up -d --build
+# На сервере уже работает системный Nginx (порт 80 занят),
+# поэтому поднимаем только сервисы приложения без docker-nginx.
+docker compose up -d --build db redis web celery celery-beat
 
 echo "==> Run migrations"
 docker compose exec -T web python manage.py migrate
