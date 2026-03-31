@@ -75,17 +75,17 @@ async def _send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, *, text
         await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=keyboard)
 
 
-async def _safe_edit_or_reply(query, *, text: str, reply_markup=None):
+async def _safe_edit_or_reply(query, *, text: str, reply_markup=None, parse_mode=None):
     """
     Иногда Telegram возвращает 400 'Message is not modified' если пытаться
     edit_message_text тем же содержимым. Тогда просто отправляем новое сообщение.
     """
     try:
-        await query.edit_message_text(text, reply_markup=reply_markup)
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
     except BadRequest as e:
         if 'Message is not modified' in str(e):
             try:
-                await query.message.reply_text(text, reply_markup=reply_markup)
+                await query.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
             except Exception:
                 pass
         else:
@@ -561,13 +561,11 @@ async def _process_approve(query, bot_config, uuid_str: str):
     """Одобрить заявку, уведомить пользователя."""
     suggestion = await _get_suggestion(bot_config, uuid_str)
     if not suggestion:
-        await query.edit_message_text('Заявка не найдена.')
+        await _safe_edit_or_reply(query, text='Заявка не найдена.')
         return
 
     if suggestion.status != 'pending':
-        await query.edit_message_text(
-            f'Заявка уже обработана: {suggestion.get_status_display()}'
-        )
+        await _safe_edit_or_reply(query, text=f'Заявка уже обработана: {suggestion.get_status_display()}')
         return
 
     @sync_to_async
@@ -581,10 +579,14 @@ async def _process_approve(query, bot_config, uuid_str: str):
     await _notify_user(query.bot, suggestion.platform_user_id, notify)
 
     moderator = query.from_user.first_name or 'Модератор'
-    await query.edit_message_text(
-        f'✅ Заявка `#{suggestion.short_tracking_id}` одобрена.\n'
-        f'Модератор: {moderator}',
-        parse_mode='Markdown'
+    await _safe_edit_or_reply(
+        query,
+        text=(
+            f'✅ Заявка `#{suggestion.short_tracking_id}` одобрена.\n'
+            f'Модератор: {moderator}'
+        ),
+        reply_markup=None,
+        parse_mode='Markdown',
     )
 
 
@@ -603,13 +605,11 @@ async def _process_reject(query, bot_config, uuid_str: str, reason_idx: int):
     """Отклонить заявку с выбранной причиной."""
     suggestion = await _get_suggestion(bot_config, uuid_str)
     if not suggestion:
-        await query.edit_message_text('Заявка не найдена.')
+        await _safe_edit_or_reply(query, text='Заявка не найдена.')
         return
 
     if suggestion.status != 'pending':
-        await query.edit_message_text(
-            f'Заявка уже обработана: {suggestion.get_status_display()}'
-        )
+        await _safe_edit_or_reply(query, text=f'Заявка уже обработана: {suggestion.get_status_display()}')
         return
 
     reason = REJECT_REASONS[reason_idx] if 0 <= reason_idx < len(REJECT_REASONS) else 'Не соответствует требованиям'
@@ -628,11 +628,15 @@ async def _process_reject(query, bot_config, uuid_str: str, reason_idx: int):
     await _notify_user(query.bot, suggestion.platform_user_id, notify)
 
     moderator = query.from_user.first_name or 'Модератор'
-    await query.edit_message_text(
-        f'❌ Заявка `#{suggestion.short_tracking_id}` отклонена.\n'
-        f'Причина: {reason}\n'
-        f'Модератор: {moderator}',
-        parse_mode='Markdown'
+    await _safe_edit_or_reply(
+        query,
+        text=(
+            f'❌ Заявка `#{suggestion.short_tracking_id}` отклонена.\n'
+            f'Причина: {reason}\n'
+            f'Модератор: {moderator}'
+        ),
+        reply_markup=None,
+        parse_mode='Markdown',
     )
 
 
