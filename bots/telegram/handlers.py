@@ -475,22 +475,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── User menu actions (private chat) ─────────────────────────────────────
     if data in ('menu', 'menu_send', 'menu_contact', 'menu_my', 'menu_stats'):
         if data == 'menu':
-            # Меняем текст у пользователя, но оставляем меню-кнопки
-            await _safe_edit_or_reply(query, text='Меню:', reply_markup=_menu_keyboard())
+            # Не редактируем старое сообщение — присылаем новое
+            await query.message.reply_text('Меню:', reply_markup=_menu_keyboard())
             return
         if data == 'menu_send':
             context.user_data['send_mode'] = True
-            await _safe_edit_or_reply(
-                query,
-                text='Отправьте новость одним сообщением (текст/фото/видео/файл).',
+            await query.message.reply_text(
+                'Отправьте новость одним сообщением (текст/фото/видео/файл).',
                 reply_markup=_menu_keyboard(),
             )
             return
         if data == 'menu_contact':
             context.user_data['contact_mode'] = True
-            await _safe_edit_or_reply(
-                query,
-                text='Напишите текст сообщения для менеджера одним сообщением.',
+            await query.message.reply_text(
+                'Напишите текст сообщения для менеджера одним сообщением.',
                 reply_markup=_menu_keyboard(),
             )
             return
@@ -572,11 +570,11 @@ async def _process_approve(query, bot_config, uuid_str: str):
     """Одобрить заявку, уведомить пользователя."""
     suggestion = await _get_suggestion(bot_config, uuid_str)
     if not suggestion:
-        await _safe_edit_or_reply(query, text='Заявка не найдена.')
+        await query.message.reply_text('Заявка не найдена.')
         return
 
     if suggestion.status != 'pending':
-        await _safe_edit_or_reply(query, text=f'Заявка уже обработана: {suggestion.get_status_display()}')
+        await query.message.reply_text(f'Заявка уже обработана: {suggestion.get_status_display()}')
         return
 
     @sync_to_async
@@ -590,13 +588,11 @@ async def _process_approve(query, bot_config, uuid_str: str):
     await _notify_user(query.bot, suggestion.platform_user_id, notify)
 
     moderator = query.from_user.first_name or 'Модератор'
-    await _safe_edit_or_reply(
-        query,
-        text=(
+    await query.message.reply_text(
+        (
             f'✅ Заявка `#{suggestion.short_tracking_id}` одобрена.\n'
             f'Модератор: {moderator}'
         ),
-        reply_markup=None,
         parse_mode='Markdown',
     )
 
@@ -616,11 +612,11 @@ async def _process_reject(query, bot_config, uuid_str: str, reason_idx: int):
     """Отклонить заявку с выбранной причиной."""
     suggestion = await _get_suggestion(bot_config, uuid_str)
     if not suggestion:
-        await _safe_edit_or_reply(query, text='Заявка не найдена.')
+        await query.message.reply_text('Заявка не найдена.')
         return
 
     if suggestion.status != 'pending':
-        await _safe_edit_or_reply(query, text=f'Заявка уже обработана: {suggestion.get_status_display()}')
+        await query.message.reply_text(f'Заявка уже обработана: {suggestion.get_status_display()}')
         return
 
     reason = REJECT_REASONS[reason_idx] if 0 <= reason_idx < len(REJECT_REASONS) else 'Не соответствует требованиям'
@@ -639,14 +635,12 @@ async def _process_reject(query, bot_config, uuid_str: str, reason_idx: int):
     await _notify_user(query.bot, suggestion.platform_user_id, notify)
 
     moderator = query.from_user.first_name or 'Модератор'
-    await _safe_edit_or_reply(
-        query,
-        text=(
+    await query.message.reply_text(
+        (
             f'❌ Заявка `#{suggestion.short_tracking_id}` отклонена.\n'
             f'Причина: {reason}\n'
             f'Модератор: {moderator}'
         ),
-        reply_markup=None,
         parse_mode='Markdown',
     )
 
