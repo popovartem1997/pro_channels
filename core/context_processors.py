@@ -13,11 +13,34 @@ def site_context(request):
     }
     if request.user.is_authenticated:
         from bots.models import Suggestion
-        # Owner sees all his bots; moderator sees only assigned bots
-        pending_count = Suggestion.objects.filter(
-            models.Q(bot__owner=request.user) | models.Q(bot__moderators=request.user),
-            status='pending'
-        ).distinct().count()
+        # Pending suggestions badge:
+        # - owner/staff: their bots (or all for staff)
+        # - manager/assistant: only suggestions in channels they can moderate + bots where they are moderator
+        role = getattr(request.user, 'role', '') or ''
+        if role in ('manager', 'assistant_admin') and not (request.user.is_staff or request.user.is_superuser):
+            try:
+                from managers.models import TeamMember
+                allowed_channel_ids = TeamMember.objects.filter(
+                    member=request.user,
+                    is_active=True,
+                    can_moderate=True,
+                ).values_list('channels__pk', flat=True)
+                pending_count = Suggestion.objects.filter(
+                    status='pending'
+                ).filter(
+                    models.Q(bot__channel_id__in=allowed_channel_ids)
+                    | models.Q(bot__moderators=request.user)
+                ).distinct().count()
+            except Exception:
+                pending_count = Suggestion.objects.filter(
+                    models.Q(bot__moderators=request.user),
+                    status='pending'
+                ).distinct().count()
+        else:
+            pending_count = Suggestion.objects.filter(
+                models.Q(bot__owner=request.user) | models.Q(bot__moderators=request.user),
+                status='pending'
+            ).distinct().count()
         ctx['global_pending_count'] = pending_count
         if request.user.is_staff or getattr(request.user, 'role', '') == 'owner':
             from advertisers.models import AdvertisingOrder
