@@ -56,6 +56,32 @@ class Channel(models.Model):
         help_text='Обычный текст. Ссылки: [club123|Название] или https://...'
     )
 
+    # Контакты владельца (для кнопки "Связаться с админом" в предложке)
+    admin_contact_site = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name='Ник админа (сайт)',
+        help_text='Как показывать владельца в боте. Можно оставить пустым — будет взят username пользователя.'
+    )
+    admin_contact_tg = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name='Ник админа (Telegram)',
+        help_text='Например: @myadmin (или username без @).'
+    )
+    admin_contact_vk = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name='Ник/ссылка админа (VK)',
+        help_text='Например: https://vk.com/id123 или https://vk.com/username'
+    )
+    admin_contact_max_phone = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name='Телефон админа (MAX)',
+        help_text='Например: +79990000000'
+    )
+
     subscribers_count = models.PositiveIntegerField(default=0, verbose_name='Подписчиков')
     last_synced_at = models.DateTimeField(null=True, blank=True, verbose_name='Последняя синхронизация')
 

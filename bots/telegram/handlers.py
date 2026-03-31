@@ -53,7 +53,7 @@ def _menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton('📰 Прислать новость', callback_data='menu_send'),
-            InlineKeyboardButton('💬 Связаться', callback_data='menu_contact'),
+            InlineKeyboardButton('💬 Связаться с админом', callback_data='menu_contact'),
         ],
         [
             InlineKeyboardButton('📬 Мои новости', callback_data='menu_my'),
@@ -518,9 +518,68 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         if data == 'menu_contact':
+            bot_config = context.bot_data['bot_config']
+            channel = getattr(bot_config, 'channel', None)
+            owner = getattr(bot_config, 'owner', None)
+
+            site_nick = ''
+            tg_nick = ''
+            vk_nick = ''
+            max_phone = ''
+            try:
+                if channel:
+                    site_nick = (channel.admin_contact_site or '').strip()
+                    tg_nick = (channel.admin_contact_tg or '').strip()
+                    vk_nick = (channel.admin_contact_vk or '').strip()
+                    max_phone = (channel.admin_contact_max_phone or '').strip()
+            except Exception:
+                pass
+            if not site_nick:
+                site_nick = getattr(owner, 'username', '') or ''
+
+            if tg_nick and not tg_nick.startswith('@') and 't.me/' not in tg_nick:
+                tg_nick = '@' + tg_nick
+
+            lines = ['Контакты админа канала:']
+            if site_nick:
+                lines.append(f'— Сайт: {site_nick}')
+            if tg_nick:
+                lines.append(f'— Telegram: {tg_nick}')
+            if vk_nick:
+                lines.append(f'— VK: {vk_nick}')
+            if max_phone:
+                lines.append(f'— MAX (телефон): {max_phone}')
+            if len(lines) == 1:
+                lines.append('— Контакты не заполнены. Админ может добавить их в настройках канала.')
+
+            # Log on site
+            try:
+                from asgiref.sync import sync_to_async
+
+                @sync_to_async
+                def log_press():
+                    from bots.models import AuditLog
+                    AuditLog.objects.create(
+                        actor=None,
+                        owner=owner,
+                        action='bot.contact_pressed',
+                        object_type='SuggestionBot',
+                        object_id=str(getattr(bot_config, 'id', '')),
+                        data={
+                            'channel_id': getattr(channel, 'id', None),
+                            'platform': 'telegram',
+                            'platform_user_id': str(update.effective_user.id) if update and update.effective_user else '',
+                            'platform_username': getattr(update.effective_user, 'username', '') if update and update.effective_user else '',
+                        },
+                    )
+                await log_press()
+            except Exception:
+                pass
+
             context.user_data['contact_mode'] = True
+            await query.message.reply_text('\n'.join(lines))
             await query.message.reply_text(
-                'Напишите текст сообщения для менеджера одним сообщением.',
+                'Напишите сообщение админу одним сообщением (текст).',
                 reply_markup=_menu_keyboard(),
             )
             return

@@ -11,6 +11,7 @@ urlpatterns = [
     path('<int:bot_id>/delete/', views.bot_delete, name='delete'),
     path('<int:bot_id>/', views.bot_detail, name='detail'),
     path('suggestions/', views.suggestions_list, name='suggestions'),
+    path('suggestions/all/', views.suggestions_all, name='suggestions_all'),
     path('suggestions/<int:pk>/moderate/', views.suggestion_moderate, name='moderate'),
     path('conversations/', views.conversations_list, name='conversations'),
     path('conversations/<int:pk>/', views.conversation_detail, name='conversation_detail'),

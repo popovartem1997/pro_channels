@@ -215,6 +215,13 @@ def channel_edit(request, pk):
         channel.tg_footer = request.POST.get('tg_footer', '').strip()
         channel.max_footer = request.POST.get('max_footer', '').strip()
         channel.vk_footer = request.POST.get('vk_footer', '').strip()
+
+        # Контакты админа (для предложки)
+        channel.admin_contact_site = (request.POST.get('admin_contact_site') or '').strip()
+        channel.admin_contact_tg = (request.POST.get('admin_contact_tg') or '').strip()
+        channel.admin_contact_vk = (request.POST.get('admin_contact_vk') or '').strip()
+        channel.admin_contact_max_phone = (request.POST.get('admin_contact_max_phone') or '').strip()
+
         channel.save()
         messages.success(request, 'Канал обновлён.')
         return redirect('channels:detail', pk=pk)

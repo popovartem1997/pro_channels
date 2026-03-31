@@ -593,6 +593,46 @@ def suggestions_list(request):
 
 
 @login_required
+def suggestions_all(request):
+    """
+    Отдельная страница: все предложения со всех ботов.
+    - Владелец/админ: все предложения по своим ботам
+    - Менеджер: предложения по ботам, привязанным к каналам, к которым есть доступ (can_moderate)
+    """
+    from .models import Suggestion, SuggestionBot
+
+    status_filter = request.GET.get('status', 'pending')
+
+    if request.user.is_staff or request.user.is_superuser:
+        # staff/superuser: show all suggestions (useful for support)
+        qs = Suggestion.objects.all()
+    elif getattr(request.user, 'role', '') in ('manager', 'assistant_admin'):
+        from managers.models import TeamMember
+        allowed_channel_ids = TeamMember.objects.filter(
+            member=request.user,
+            is_active=True,
+            can_moderate=True,
+        ).values_list('channels__pk', flat=True)
+        qs = Suggestion.objects.filter(
+            models.Q(bot__channel_id__in=allowed_channel_ids)
+            | models.Q(bot__moderators=request.user)
+        )
+    else:
+        qs = Suggestion.objects.filter(bot__owner=request.user)
+
+    qs = qs.select_related('bot', 'bot__channel').distinct()
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    suggestions = qs.order_by('-submitted_at')[:200]
+
+    return render(request, 'bots/suggestions_all.html', {
+        'suggestions': suggestions,
+        'status_filter': status_filter,
+        'statuses': [('pending', 'Ожидают'), ('approved', 'Одобренные'), ('rejected', 'Отклонённые'), ('published', 'Опубликованные')],
+    })
+
+
+@login_required
 def suggestion_moderate(request, pk):
     from .models import Suggestion
     suggestion = get_object_or_404(Suggestion, pk=pk)

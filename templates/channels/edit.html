@@ -101,6 +101,38 @@
                      value="{{ channel.ad_price }}">
             </div>
           </div>
+
+          <!-- Контакты админа -->
+          <h6 class="fw-bold mb-3 border-top pt-3 text-muted">
+            <i class="bi bi-person-lines-fill me-1"></i> Контакты админа (для кнопки «Связаться с админом»)
+          </h6>
+          <div class="row g-3 mb-4">
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-semibold" for="id_admin_contact_site">Ник (сайт)</label>
+              <input type="text" class="form-control" id="id_admin_contact_site" name="admin_contact_site"
+                     value="{{ channel.admin_contact_site|default:'' }}"
+                     placeholder="например: artempopov">
+              <div class="form-text">Если пусто — будет использован `username` владельца аккаунта.</div>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-semibold" for="id_admin_contact_tg">Telegram</label>
+              <input type="text" class="form-control" id="id_admin_contact_tg" name="admin_contact_tg"
+                     value="{{ channel.admin_contact_tg|default:'' }}"
+                     placeholder="@myadmin или myadmin">
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-semibold" for="id_admin_contact_vk">VK</label>
+              <input type="text" class="form-control" id="id_admin_contact_vk" name="admin_contact_vk"
+                     value="{{ channel.admin_contact_vk|default:'' }}"
+                     placeholder="https://vk.com/username">
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-semibold" for="id_admin_contact_max_phone">MAX (телефон)</label>
+              <input type="text" class="form-control" id="id_admin_contact_max_phone" name="admin_contact_max_phone"
+                     value="{{ channel.admin_contact_max_phone|default:'' }}"
+                     placeholder="+79990000000">
+            </div>
+          </div>
           {% else %}
             <input type="hidden" name="platform" value="{{ channel.platform }}">
           {% endif %}
