@@ -222,8 +222,9 @@ def channel_test(request, pk):
                 except Exception:
                     chat_id = chat_id_raw
                 resp = http_requests.post(
-                    'https://botapi.max.ru/messages',
-                    params={'access_token': token},
+                    'https://platform-api.max.ru/messages',
+                    params={'chat_id': chat_id},
+                    headers={'Authorization': token},
                     json={'chat_id': chat_id, 'text': '✅ Тестовое сообщение от ProChannels'},
                     timeout=15,
                 )
@@ -250,8 +251,8 @@ def channel_test(request, pk):
                 })
 
             resp = http_requests.get(
-                'https://botapi.max.ru/me',
-                params={'access_token': token},
+                'https://platform-api.max.ru/me',
+                headers={'Authorization': token},
                 timeout=10
             )
             data = resp.json()
