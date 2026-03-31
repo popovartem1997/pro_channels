@@ -239,6 +239,9 @@ class MAXSuggestionBot:
         stats.save()
 
         confirm = self.config.success_message.replace('{tracking_id}', suggestion.short_tracking_id)
+        tracking_tag = f'#{suggestion.short_tracking_id}'
+        if tracking_tag not in confirm:
+            confirm = f'{tracking_tag}\n' + confirm
         self.api.send_message(chat_id, confirm, buttons=self._menu_buttons())
 
         # Переслать модераторам

@@ -386,6 +386,9 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Подтверждение пользователю
         confirm = bot_config.success_message.replace('{tracking_id}', suggestion.short_tracking_id)
+        tracking_tag = f'#{suggestion.short_tracking_id}'
+        if tracking_tag not in confirm:
+            confirm = f'{tracking_tag}\n' + confirm
         if send_mode:
             confirm = '✅ Новость получена!\n\n' + confirm
         try:

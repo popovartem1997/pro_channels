@@ -5,6 +5,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from .models import Advertiser, AdvertisingOrder, Act
 from billing.models import Invoice
 from .services import ensure_ad_post_for_order
@@ -22,13 +23,52 @@ def catalog(request):
 
 def advertiser_register(request):
     """Регистрация профиля рекламодателя."""
-    if not request.user.is_authenticated:
-        return redirect('/login/?next=/advertisers/register/')
-
-    if hasattr(request.user, 'advertiser_profile'):
+    if request.user.is_authenticated and hasattr(request.user, 'advertiser_profile'):
         return redirect('advertisers:dashboard')
 
     if request.method == 'POST':
+        next_url = request.POST.get('next') or request.GET.get('next') or ''
+        # Если пользователь не залогинен — создаём аккаунт рекламодателя сразу здесь,
+        # чтобы путь /advertisers/order/new/ не упирался в 404.
+        if not request.user.is_authenticated:
+            from django.contrib.auth import get_user_model, login
+            User = get_user_model()
+            email = request.POST.get('email', '').strip().lower()
+            password1 = request.POST.get('password1', '')
+            password2 = request.POST.get('password2', '')
+            first_name = request.POST.get('first_name', '').strip()
+            phone = request.POST.get('phone', '').strip()
+
+            if not email or '@' not in email:
+                messages.error(request, 'Укажите корректный email.')
+                return render(request, 'advertisers/register.html')
+            if not password1 or password1 != password2 or len(password1) < 8:
+                messages.error(request, 'Проверьте пароль (минимум 8 символов) и совпадение паролей.')
+                return render(request, 'advertisers/register.html')
+            if User.objects.filter(email=email).exists():
+                messages.error(request, 'Пользователь с таким email уже существует. Войдите в аккаунт.')
+                return render(request, 'advertisers/register.html')
+
+            user = User(
+                email=email,
+                username=email,
+                first_name=first_name or email.split('@')[0],
+                phone=phone,
+                company=request.POST.get('company_name', '').strip(),
+                role=User.ROLE_ADVERTISER,
+                is_email_verified=False,
+            )
+            user.set_password(password1)
+            user.save()
+            try:
+                from accounts.models import EmailVerification
+                from accounts.views import _send_verification_email
+                verification = EmailVerification.objects.create(user=user)
+                _send_verification_email(user, verification, request)
+            except Exception:
+                pass
+            login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+
         company_name = request.POST.get('company_name', '').strip()
         inn = request.POST.get('inn', '').strip()
         legal_address = request.POST.get('legal_address', '').strip()
@@ -36,6 +76,8 @@ def advertiser_register(request):
 
         if not all([company_name, inn, legal_address, contact_person]):
             messages.error(request, 'Заполните все обязательные поля.')
+        elif not inn.isdigit() or len(inn) not in (10, 12):
+            messages.error(request, 'ИНН должен состоять из 10 или 12 цифр.')
         else:
             Advertiser.objects.create(
                 user=request.user,
@@ -47,9 +89,12 @@ def advertiser_register(request):
                 contact_person=contact_person,
                 contact_phone=request.POST.get('contact_phone', '').strip(),
             )
-            request.user.role = request.user.ROLE_ADVERTISER
-            request.user.save(update_fields=['role'])
+            if getattr(request.user, 'role', '') != request.user.ROLE_ADVERTISER:
+                request.user.role = request.user.ROLE_ADVERTISER
+                request.user.save(update_fields=['role'])
             messages.success(request, 'Профиль рекламодателя создан.')
+            if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+                return redirect(next_url)
             return redirect('advertisers:dashboard')
 
     return render(request, 'advertisers/register.html')
@@ -57,7 +102,11 @@ def advertiser_register(request):
 
 @login_required
 def advertiser_dashboard(request):
-    adv = get_object_or_404(Advertiser, user=request.user)
+    try:
+        adv = Advertiser.objects.get(user=request.user)
+    except Advertiser.DoesNotExist:
+        messages.info(request, 'Чтобы создавать заявки на рекламу, заполните профиль рекламодателя.')
+        return redirect('advertisers:register')
     orders = AdvertisingOrder.objects.filter(advertiser=adv).select_related('invoice').order_by('-created_at')
     orders_total_count = orders.count()
     active_orders_count = orders.filter(
@@ -73,7 +122,11 @@ def advertiser_dashboard(request):
 
 @login_required
 def order_create(request):
-    adv = get_object_or_404(Advertiser, user=request.user)
+    try:
+        adv = Advertiser.objects.get(user=request.user)
+    except Advertiser.DoesNotExist:
+        messages.info(request, 'Сначала заполните профиль рекламодателя (ИНН и название компании).')
+        return redirect(f"/advertisers/register/?next={request.path}")
     from channels.models import Channel
     from django.contrib.auth import get_user_model
     User = get_user_model()
@@ -147,7 +200,11 @@ def order_create(request):
 
 @login_required
 def order_detail(request, pk):
-    adv = get_object_or_404(Advertiser, user=request.user)
+    try:
+        adv = Advertiser.objects.get(user=request.user)
+    except Advertiser.DoesNotExist:
+        messages.info(request, 'Сначала заполните профиль рекламодателя.')
+        return redirect('advertisers:register')
     order = get_object_or_404(AdvertisingOrder, pk=pk, advertiser=adv)
     acts = Act.objects.filter(order=order)
     return render(request, 'advertisers/order_detail.html', {

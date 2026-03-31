@@ -13,15 +13,49 @@
         <div class="card-body p-4 p-md-5">
           <form method="post" novalidate>
             {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.POST.next|default:request.GET.next|default:'' }}">
+            {% if not user.is_authenticated %}
+            <div class="row g-3 mb-3">
+              <div class="col-12">
+                <label class="form-label fw-semibold" for="id_email">Email</label>
+                <input class="form-control" id="id_email" name="email" type="email" required
+                       value="{{ request.POST.email|default:'' }}" placeholder="email@company.ru">
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label fw-semibold" for="id_password1">Пароль</label>
+                <input class="form-control" id="id_password1" name="password1" type="password" required
+                       value="{{ request.POST.password1|default:'' }}">
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label fw-semibold" for="id_password2">Повторите пароль</label>
+                <input class="form-control" id="id_password2" name="password2" type="password" required
+                       value="{{ request.POST.password2|default:'' }}">
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label fw-semibold" for="id_first_name">Имя (необязательно)</label>
+                <input class="form-control" id="id_first_name" name="first_name"
+                       value="{{ request.POST.first_name|default:'' }}">
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label fw-semibold" for="id_phone">Телефон (необязательно)</label>
+                <input class="form-control" id="id_phone" name="phone"
+                       value="{{ request.POST.phone|default:'' }}" placeholder="+7 (999) 999-99-99">
+              </div>
+            </div>
+            {% endif %}
             <div class="mb-3">
               <label class="form-label fw-semibold" for="id_company_name">Название компании / ИП</label>
               <input class="form-control" id="id_company_name" name="company_name" required
                      value="{{ request.POST.company_name|default:'' }}">
+              <div class="form-text">
+                Для ИП — ФИО. Для ООО/юрлица — название + организационно‑правовая форма.
+              </div>
             </div>
             <div class="mb-3">
               <label class="form-label fw-semibold" for="id_inn">ИНН</label>
               <input class="form-control" id="id_inn" name="inn" required
                      value="{{ request.POST.inn|default:'' }}">
+              <div class="form-text">10 цифр (юрлицо) или 12 цифр (ИП).</div>
             </div>
             <div class="mb-3">
               <label class="form-label fw-semibold" for="id_legal_address">Юридический адрес</label>
