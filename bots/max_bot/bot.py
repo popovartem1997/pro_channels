@@ -393,13 +393,20 @@ class MAXSuggestionBot:
             payload = ''
         payload = str(payload)
         user = callback.get('user', {})
-        message = callback.get('message', {}) or {}
+        # В реальных вебхуках MAX message часто приходит на одном уровне с callback.
+        message = (callback.get('message') if isinstance(callback, dict) else None) or (update.get('message') if isinstance(update, dict) else None) or {}
+        if not isinstance(message, dict):
+            message = {}
         message_id = message.get('mid', '')
-        chat_id = message.get('recipient', {}).get('chat_id', '') or callback.get('chat_id', '')
+        recipient = message.get('recipient') or {}
+        if not isinstance(recipient, dict):
+            recipient = {}
+        chat_id = recipient.get('chat_id') or callback.get('chat_id', '')
 
         # User menu actions
         if payload in ('menu_send', 'menu_contact', 'menu_my', 'menu_stats'):
-            self.api.answer_callback(callback_id)
+            if callback_id:
+                self.api.answer_callback(callback_id)
             if payload == 'menu_send':
                 self.api.send_message(str(chat_id), 'Отправьте новость одним сообщением (текст/фото/видео/файл).', buttons=self._menu_buttons())
                 return
@@ -417,12 +424,14 @@ class MAXSuggestionBot:
             uuid_str = payload[8:]
             suggestion = self._get_suggestion(uuid_str)
             if not suggestion or suggestion.status != Suggestion.STATUS_PENDING:
-                self.api.answer_callback(callback_id, 'Заявка уже обработана.')
+                if callback_id:
+                    self.api.answer_callback(callback_id, 'Заявка уже обработана.')
                 return
             suggestion.approve()
             notify = self.config.approved_message.replace('{tracking_id}', suggestion.short_tracking_id)
             self._notify_user(suggestion.platform_user_id, notify)
-            self.api.answer_callback(callback_id, 'Одобрено!')
+            if callback_id:
+                self.api.answer_callback(callback_id, 'Одобрено!')
             mod_name = user.get('name', 'Модератор')
             if chat_id:
                 self.api.send_message(str(chat_id), f'✅ Заявка #{suggestion.short_tracking_id} одобрена.\nМодератор: {mod_name}')
@@ -434,7 +443,8 @@ class MAXSuggestionBot:
                 [{'type': 'callback', 'text': f'{i+1}. {r}', 'payload': f'rr|{uuid_str}|{i}'}]
                 for i, r in enumerate(REJECT_REASONS)
             ]
-            self.api.answer_callback(callback_id)
+            if callback_id:
+                self.api.answer_callback(callback_id)
             if chat_id:
                 self.api.send_message(str(chat_id), 'Выберите причину отклонения:', buttons=buttons)
 
@@ -446,7 +456,8 @@ class MAXSuggestionBot:
             reason = REJECT_REASONS[reason_idx] if 0 <= reason_idx < len(REJECT_REASONS) else 'Не соответствует'
             suggestion = self._get_suggestion(uuid_str)
             if not suggestion or suggestion.status != Suggestion.STATUS_PENDING:
-                self.api.answer_callback(callback_id, 'Заявка уже обработана.')
+                if callback_id:
+                    self.api.answer_callback(callback_id, 'Заявка уже обработана.')
                 return
             suggestion.reject(reason=reason)
             notify = (
@@ -455,7 +466,8 @@ class MAXSuggestionBot:
                 .replace('{reason}', reason)
             )
             self._notify_user(suggestion.platform_user_id, notify)
-            self.api.answer_callback(callback_id, 'Отклонено.')
+            if callback_id:
+                self.api.answer_callback(callback_id, 'Отклонено.')
             mod_name = user.get('name', 'Модератор')
             if chat_id:
                 self.api.send_message(
