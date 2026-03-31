@@ -247,13 +247,29 @@ def post_create_from_suggestion(request, tracking_id):
             except Exception as e:
                 messages.warning(request, f'Не удалось загрузить медиа из Telegram (file_id={file_id}): {e}')
 
-    # MAX media import (best-effort via URLs in raw payload)
+    # MAX media import (best-effort)
     if bot.platform == bot.PLATFORM_MAX:
         try:
             raw = suggestion.raw_data or {}
-            msg_obj = raw.get('message') if isinstance(raw, dict) else {}
-            body = (msg_obj.get('body') or {}) if isinstance(msg_obj, dict) else {}
-            attachments = body.get('attachments') or []
+            # В MAX мы сохраняем raw_data как объект message (без update wrapper).
+            msg_obj = raw.get('message') if isinstance(raw, dict) and isinstance(raw.get('message'), dict) else raw
+
+            # 1) Попытка: получить полное сообщение через API по mid (часто там есть URL вложений)
+            attachments = []
+            mid = msg_obj.get('mid') if isinstance(msg_obj, dict) else ''
+            try:
+                from bots.max_bot.bot import MaxBotAPI
+                api = MaxBotAPI(bot.get_token())
+                full_msg = api.get_message(mid) if mid else {}
+                body_full = (full_msg.get('body') or {}) if isinstance(full_msg, dict) else {}
+                attachments = body_full.get('attachments') or []
+            except Exception:
+                attachments = []
+
+            # 2) Фоллбек: attachments из исходного payload
+            if not attachments:
+                body = (msg_obj.get('body') or {}) if isinstance(msg_obj, dict) else {}
+                attachments = body.get('attachments') or []
 
             def _iter_attachment_urls(att: dict) -> list[str]:
                 urls: list[str] = []

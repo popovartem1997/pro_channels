@@ -73,6 +73,16 @@ class MaxBotAPI:
             params['marker'] = marker
         return self.call('updates', params=params)
 
+    def get_message(self, message_id: str) -> dict:
+        """Получить сообщение по mid."""
+        try:
+            mid = str(message_id).strip()
+        except Exception:
+            mid = ''
+        if not mid:
+            return {}
+        return self.call(f'messages/{mid}', params={})
+
     def send_message(self, chat_id: str, text: str, attachments: list = None, buttons: list = None) -> dict:
         """Отправить текстовое сообщение."""
         payload = {
