@@ -223,6 +223,21 @@ def max_webhook(request, bot_id: int):
                 if isinstance(cb_payload, dict):
                     cb_payload = cb_payload.get('payload') or cb_payload.get('data') or ''
                 cb_payload = str(cb_payload or '')
+            msg = update_data.get('message') if isinstance(update_data, dict) else None
+            att_preview = []
+            if isinstance(msg, dict):
+                body = msg.get('body') or {}
+                if isinstance(body, dict):
+                    atts = body.get('attachments') or []
+                    if isinstance(atts, list):
+                        for a in atts[:6]:
+                            if isinstance(a, dict):
+                                payload = a.get('payload') or {}
+                                att_preview.append({
+                                    'type': a.get('type'),
+                                    'payload_keys': list(payload.keys())[:20] if isinstance(payload, dict) else [],
+                                    'payload_url': (payload.get('url') if isinstance(payload, dict) else None),
+                                })
             AuditLog.objects.create(
                 actor=None,
                 owner=bot_config.owner,
@@ -234,6 +249,7 @@ def max_webhook(request, bot_id: int):
                     'keys': list(update_data.keys())[:30] if isinstance(update_data, dict) else [],
                     'callback_id': cb_id,
                     'callback_payload': cb_payload[:200],
+                    'attachments': att_preview,
                 }
             )
         except Exception:
