@@ -214,7 +214,13 @@ def channel_test(request, pk):
             if action == 'send_test':
                 if not channel.max_channel_id:
                     return JsonResponse({'ok': False, 'message': 'MAX Channel ID (chat_id) не задан'})
-                chat_id = str(channel.max_channel_id).strip()
+                chat_id_raw = str(channel.max_channel_id).strip()
+                chat_id: object = chat_id_raw
+                try:
+                    # MAX API ожидает числовой chat_id; если в базе строка — приведём.
+                    chat_id = int(chat_id_raw)
+                except Exception:
+                    chat_id = chat_id_raw
                 resp = http_requests.post(
                     'https://botapi.max.ru/messages',
                     params={'access_token': token},
@@ -226,18 +232,21 @@ def channel_test(request, pk):
                 except Exception:
                     data = resp.text
                 if isinstance(data, dict):
-                    # Error format usually: {"code": "...", "message": "..."}
-                    if data.get('code') or data.get('message'):
+                    # Typical error format: {"code": "...", "message": "..."}
+                    if resp.status_code >= 400 or data.get('code') or data.get('message'):
                         return JsonResponse({
                             'ok': False,
-                            'message': f'MAX sendMessage error (chat_id={chat_id}): {data}'
+                            'message': f'MAX sendMessage error (chat_id={chat_id_raw}, http={resp.status_code}): {data}',
                         })
-                    # Success format may contain message dict or id fields
-                    if ('message' in data and isinstance(data.get('message'), dict)) or data.get('mid') or data.get('id'):
-                        return JsonResponse({'ok': True, 'message': f'Отправлено в MAX (chat_id={chat_id})'})
+                    # Success formats differ; treat "no code/message + 2xx" as success
+                    if 200 <= resp.status_code < 300:
+                        return JsonResponse({
+                            'ok': True,
+                            'message': f'Отправлено в MAX (chat_id={chat_id_raw}). Ответ: {data}',
+                        })
                 return JsonResponse({
                     'ok': False,
-                    'message': f'MAX sendMessage error (chat_id={chat_id}, http={resp.status_code}): {data}'
+                    'message': f'MAX sendMessage error (chat_id={chat_id_raw}, http={resp.status_code}): {data}',
                 })
 
             resp = http_requests.get(
