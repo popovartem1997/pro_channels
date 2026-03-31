@@ -159,7 +159,6 @@
       </a></li>
       <li><a class="nav-link {% if '/bots/' in request.path and '/bots/suggestions/' not in request.path %}active{% endif %}" href="{% url 'bots:list' %}">
         <i class="bi bi-robot"></i> Боты предложки
-        {% if global_pending_count %}<span class="ms-auto badge rounded-pill bg-warning text-dark">{{ global_pending_count }}</span>{% endif %}
       </a></li>
       {% if manager_can_manage_bots %}
       <li><a class="nav-link {% if '/bots/conversations/' in request.path %}active{% endif %}" href="{% url 'bots:conversations' %}">
