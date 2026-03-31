@@ -734,6 +734,47 @@ def suggestion_moderate(request, pk):
     return redirect(request.META.get('HTTP_REFERER', 'bots:suggestions'))
 
 
+@login_required
+def suggestion_media(request, pk: int, idx: int):
+    """
+    Прокси для медиа предложки (нужно для миниатюр в ленте).
+    Не отдаём прямые ссылки вида https://api.telegram.org/file/bot<TOKEN>/... в браузер.
+    """
+    from .models import Suggestion
+    import requests
+
+    suggestion = get_object_or_404(Suggestion.objects.select_related('bot'), pk=pk)
+    if not _can_moderate_suggestion(request.user, suggestion):
+        return HttpResponse(status=403)
+
+    bot = suggestion.bot
+    if not bot or bot.platform != SuggestionBot.PLATFORM_TELEGRAM:
+        return HttpResponse(status=404)
+
+    media_ids = suggestion.media_file_ids or []
+    if idx < 0 or idx >= len(media_ids):
+        return HttpResponse(status=404)
+    file_id = media_ids[idx]
+    if not file_id:
+        return HttpResponse(status=404)
+
+    token = bot.get_token()
+    api_base = f'https://api.telegram.org/bot{token}'
+    file_base = f'https://api.telegram.org/file/bot{token}'
+    try:
+        r = requests.get(f'{api_base}/getFile', params={'file_id': file_id}, timeout=15)
+        data = r.json()
+        if not data.get('ok'):
+            return HttpResponse(status=404)
+        file_path = data['result']['file_path']
+        dl = requests.get(f'{file_base}/{file_path}', timeout=30)
+        dl.raise_for_status()
+        ct = dl.headers.get('Content-Type') or 'application/octet-stream'
+        return HttpResponse(dl.content, content_type=ct)
+    except Exception:
+        return HttpResponse(status=404)
+
+
 # ─── Страница лидерборда (публичная) ──────────────────────────────────────────
 
 def leaderboard(request, bot_id: int):
