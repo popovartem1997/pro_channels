@@ -8,9 +8,16 @@
     <p class="text-muted small mb-0">Отслеживайте источники и ключевые слова</p>
   </div>
   <div class="d-flex gap-2 flex-wrap">
-    <a href="{% url 'parsing:telethon_connect' %}" class="btn btn-outline-secondary btn-sm">
-      <i class="bi bi-telegram me-1"></i> Подключить Telegram
-    </a>
+    {% if telethon_connected %}
+      <button class="btn btn-outline-secondary btn-sm" type="button" disabled
+              title="Telegram уже подключён">
+        <i class="bi bi-telegram me-1"></i> Telegram подключён
+      </button>
+    {% else %}
+      <a href="{% url 'parsing:telethon_connect' %}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-telegram me-1"></i> Подключить Telegram
+      </a>
+    {% endif %}
   </div>
 </div>
 

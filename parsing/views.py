@@ -7,6 +7,7 @@ from django.contrib import messages
 from .models import ParseSource, ParseKeyword, ParsedItem, ParseTask, AIRewriteJob
 from django.http import JsonResponse
 from django.http import HttpResponse
+import os
 
 
 def _ensure_parse_scheduler_every_20m():
@@ -78,6 +79,19 @@ def _get_selected_channel(request):
     # 3) first active channel
     return Channel.objects.filter(owner=request.user, is_active=True).order_by('created_at').first()
 
+def _telethon_session_exists_for_user(user_id: int) -> bool:
+    """
+    Быстрый признак "Telegram подключён": наличие session-файла Telethon.
+    Полная проверка через is_user_authorized() возможна, но дороже для обычных страниц.
+    """
+    try:
+        from django.conf import settings
+        session_dir = settings.BASE_DIR / 'media' / 'telethon_sessions'
+        session_path = str(session_dir / f'user_{user_id}')
+        return os.path.exists(session_path + '.session')
+    except Exception:
+        return False
+
 
 @login_required
 def sources_list(request):
@@ -96,6 +110,7 @@ def sources_list(request):
         'selected_channel': selected_channel,
         'sources': sources,
         'keywords': keywords,
+        'telethon_connected': _telethon_session_exists_for_user(request.user.id),
     })
 
 
@@ -120,6 +135,11 @@ def telethon_connect(request):
     session_dir = settings.BASE_DIR / 'media' / 'telethon_sessions'
     session_dir.mkdir(parents=True, exist_ok=True)
     session_path = str(session_dir / f'user_{request.user.id}')
+
+    telethon_connected = _telethon_session_exists_for_user(request.user.id)
+    if telethon_connected:
+        messages.info(request, 'Telegram уже подключён для парсинга. Повторная авторизация не требуется.')
+        return redirect('parsing:sources')
 
     step = (request.GET.get('step') or '').strip()
     if request.method == 'POST':
@@ -194,6 +214,7 @@ def telethon_connect(request):
 
     return render(request, 'parsing/telethon_connect.html', {
         'step': step or 'phone',
+        'telethon_connected': telethon_connected,
     })
 
 

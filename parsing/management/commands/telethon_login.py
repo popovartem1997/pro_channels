@@ -24,7 +24,9 @@ class Command(BaseCommand):
         if not api_id or not api_hash:
             raise CommandError('TELEGRAM_API_ID / TELEGRAM_API_HASH не заданы (Ключи API → Парсинг Telegram).')
 
-        session_path = str(settings.BASE_DIR / 'media' / 'telethon_session')
+        session_dir = settings.BASE_DIR / 'media' / 'telethon_sessions'
+        session_dir.mkdir(parents=True, exist_ok=True)
+        session_path = str(session_dir / 'user_default')
 
         async def _login():
             from telethon import TelegramClient
