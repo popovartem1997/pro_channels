@@ -40,13 +40,34 @@ REJECT_REASONS = [
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Приветствие при /start."""
     bot_config = context.bot_data['bot_config']
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton('💬 Связаться с менеджером', callback_data='contact'),
-    ]])
+    await _send_menu(update, context, text=bot_config.welcome_message)
+
+
+async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать меню."""
+    await _send_menu(update, context, text='Выберите действие:')
+
+
+async def _send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, *, text: str):
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton('📰 Прислать новость', callback_data='menu_send'),
+            InlineKeyboardButton('💬 Связаться', callback_data='menu_contact'),
+        ],
+        [
+            InlineKeyboardButton('📬 Мои новости', callback_data='menu_my'),
+            InlineKeyboardButton('📊 Статистика', callback_data='menu_stats'),
+        ],
+        [
+            InlineKeyboardButton('🔄 Обновить меню', callback_data='menu'),
+        ]
+    ])
     if update.message:
-        await update.message.reply_text(bot_config.welcome_message, reply_markup=keyboard)
+        await update.message.reply_text(text, reply_markup=keyboard)
+    elif update.callback_query and update.callback_query.message:
+        await update.callback_query.message.reply_text(text, reply_markup=keyboard)
     elif update.effective_chat:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=bot_config.welcome_message, reply_markup=keyboard)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=keyboard)
 
 
 def _is_admin_chat(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> bool:
@@ -224,6 +245,11 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     pass
         return
 
+    # Explicit "send news" mode (optional). If user clicked menu_send we ask to send content;
+    # here we just reset mode after first accepted message.
+    if context.user_data.get('send_mode'):
+        context.user_data['send_mode'] = False
+
     # Определяем тип контента и собираем медиа-ID
     from bots.models import Suggestion
 
@@ -384,10 +410,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_config = context.bot_data['bot_config']
     data = query.data
 
-    if data == 'contact':
-        context.user_data['contact_mode'] = True
-        await query.edit_message_text('Напишите текст сообщения для менеджера одним сообщением.')
-        return
+    # ── User menu actions (private chat) ─────────────────────────────────────
+    if data in ('menu', 'menu_send', 'menu_contact', 'menu_my', 'menu_stats'):
+        if data == 'menu':
+            await _send_menu(update, context, text='Меню:')
+            return
+        if data == 'menu_send':
+            context.user_data['send_mode'] = True
+            await query.edit_message_text('Отправьте новость одним сообщением (текст/фото/видео/файл).')
+            return
+        if data == 'menu_contact':
+            context.user_data['contact_mode'] = True
+            await query.edit_message_text('Напишите текст сообщения для менеджера одним сообщением.')
+            return
+        if data == 'menu_my':
+            await _send_my_news(update, context)
+            return
+        if data == 'menu_stats':
+            await _send_my_stats(update, context)
+            return
 
     if data.startswith('approve|'):
         await _process_approve(query, bot_config, data[8:])
@@ -400,6 +441,60 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parts = data.split('|', 2)
         if len(parts) == 3:
             await _process_reject(query, bot_config, parts[1], int(parts[2]))
+
+
+async def _send_my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    bot_config = context.bot_data['bot_config']
+    user = update.effective_user
+
+    @sync_to_async
+    def get_stats():
+        from bots.models import SuggestionUserStats
+        return SuggestionUserStats.objects.filter(bot=bot_config, platform_user_id=str(user.id)).first()
+
+    st = await get_stats()
+    if not st:
+        text = 'Пока нет статистики. Нажмите «Прислать новость» и отправьте сообщение.'
+    else:
+        text = (
+            '📊 Ваша статистика\n\n'
+            f'📬 Всего: {st.total}\n'
+            f'⏳ На модерации: {st.pending}\n'
+            f'✅ Одобрено: {st.approved}\n'
+            f'❌ Отклонено: {st.rejected}\n'
+            f'📢 Опубликовано: {st.published}\n'
+        )
+    if update.callback_query and update.callback_query.message:
+        await update.callback_query.message.reply_text(text)
+    elif update.message:
+        await update.message.reply_text(text)
+
+
+async def _send_my_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    bot_config = context.bot_data['bot_config']
+    user = update.effective_user
+
+    @sync_to_async
+    def get_recent():
+        from bots.models import Suggestion
+        return list(
+            Suggestion.objects.filter(bot=bot_config, platform_user_id=str(user.id))
+            .order_by('-submitted_at')[:10]
+        )
+
+    items = await get_recent()
+    if not items:
+        text = 'У вас пока нет отправленных новостей. Нажмите «Прислать новость».'
+    else:
+        lines = ['📬 Ваши новости (последние 10):\n']
+        for s in items:
+            lines.append(f'{s.status_emoji} #{s.short_tracking_id} — {s.get_status_display()}')
+        lines.append('\nКоманда: /status — подробная статистика.')
+        text = '\n'.join(lines)
+    if update.callback_query and update.callback_query.message:
+        await update.callback_query.message.reply_text(text)
+    elif update.message:
+        await update.message.reply_text(text)
 
 
 async def _process_approve(query, bot_config, uuid_str: str):
@@ -521,6 +616,7 @@ def build_application(bot_config) -> Application:
         app.bot_data['admin_chat_ids'] = [bot_config.admin_chat_id] if bot_config.admin_chat_id else []
 
     app.add_handler(CommandHandler('start', cmd_start))
+    app.add_handler(CommandHandler('menu', cmd_menu))
     app.add_handler(CommandHandler('status', cmd_status))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(
