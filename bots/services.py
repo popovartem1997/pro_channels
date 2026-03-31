@@ -30,8 +30,8 @@ def notify_suggestion_approved(suggestion):
 
     elif bot.platform == bot.PLATFORM_MAX:
         try:
-            from .max_bot.api import MAXBotAPI
-            api = MAXBotAPI(bot.get_token())
+            from .max_bot.bot import MaxBotAPI
+            api = MaxBotAPI(bot.get_token())
             api.send_message(str(suggestion.platform_user_id), text)
         except Exception:
             return
@@ -68,8 +68,8 @@ def notify_suggestion_rejected(suggestion, reason: str = ''):
 
     elif bot.platform == bot.PLATFORM_MAX:
         try:
-            from .max_bot.api import MAXBotAPI
-            api = MAXBotAPI(bot.get_token())
+            from .max_bot.bot import MaxBotAPI
+            api = MaxBotAPI(bot.get_token())
             api.send_message(str(suggestion.platform_user_id), text)
         except Exception:
             return

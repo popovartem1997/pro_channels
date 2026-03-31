@@ -504,7 +504,14 @@ def process_max_webhook(bot_config, update_data: dict):
     Используется вместо Long Polling в production.
     """
     bot = MAXSuggestionBot(bot_config)
-    update_type = update_data.get('update_type', '')
+    # MAX может присылать как одиночный update, так и батч.
+    if isinstance(update_data, dict) and isinstance(update_data.get('updates'), list):
+        for u in update_data.get('updates') or []:
+            if isinstance(u, dict):
+                process_max_webhook(bot_config, u)
+        return
+
+    update_type = (update_data or {}).get('update_type', '') if isinstance(update_data, dict) else ''
 
     if update_type == 'bot_started':
         bot._handle_start(update_data)
@@ -512,3 +519,10 @@ def process_max_webhook(bot_config, update_data: dict):
         bot._handle_message(update_data)
     elif update_type == 'message_callback':
         bot._handle_callback(update_data)
+    else:
+        # Best-effort fallback for alternative payload shapes
+        if isinstance(update_data, dict):
+            if update_data.get('callback'):
+                bot._handle_callback(update_data)
+            elif update_data.get('message'):
+                bot._handle_message(update_data)
