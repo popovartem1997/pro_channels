@@ -40,6 +40,27 @@
           <label class="form-label fw-semibold">
             <i class="bi bi-images me-1"></i> Медиафайлы
           </label>
+          {% if post.media_files.all %}
+            {% if post.media_files.count %}
+            <div class="mb-3">
+              <div class="small text-muted mb-2">Текущие медиа (можно удалить):</div>
+              <div class="list-group">
+                {% for m in post.media_files.all %}
+                <label class="list-group-item d-flex align-items-center gap-2">
+                  <input class="form-check-input mt-0" type="checkbox" name="delete_media" value="{{ m.pk }}">
+                  <div class="flex-grow-1">
+                    <div class="fw-semibold small">{{ m.get_media_type_display }}</div>
+                    <a class="small text-muted" href="{{ m.file.url }}" target="_blank" rel="noopener">
+                      {{ m.file.name }}
+                    </a>
+                  </div>
+                </label>
+                {% endfor %}
+              </div>
+              <div class="form-text">Отметь чекбоксы и нажми “Сохранить” — файлы удалятся.</div>
+            </div>
+            {% endif %}
+          {% endif %}
           <input type="file" name="media_files" class="form-control" multiple accept="image/*,video/*">
           <div class="form-text">Загрузите новые файлы или оставьте пустым для сохранения существующих</div>
         </div>

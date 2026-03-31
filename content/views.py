@@ -10,6 +10,7 @@ from .models import Post, PostMedia, PublishResult
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse
 import secrets
+from django.core.files.base import ContentFile
 
 
 @login_required
@@ -156,6 +157,96 @@ def post_create(request):
 
 
 @login_required
+def post_create_from_suggestion(request, tracking_id):
+    """
+    Создать черновик поста из предложки и сразу открыть редактирование.
+    Текст и медиа подставляются автоматически, медиа можно удалить на странице редактирования.
+    """
+    from bots.models import Suggestion
+    import requests
+
+    suggestion = get_object_or_404(
+        Suggestion.objects.select_related('bot', 'bot__owner', 'bot__channel'),
+        tracking_id=tracking_id,
+    )
+    bot = suggestion.bot
+
+    # Access control
+    if request.user.is_staff or request.user.is_superuser or bot.owner_id == request.user.id:
+        allowed = True
+    else:
+        allowed = False
+        if getattr(request.user, 'role', '') in ('manager', 'assistant_admin') and bot.channel_id:
+            try:
+                from managers.models import TeamMember
+                allowed = TeamMember.objects.filter(
+                    member=request.user,
+                    is_active=True,
+                    can_publish=True,
+                    channels__pk=bot.channel_id,
+                ).exists()
+            except Exception:
+                allowed = False
+    if not allowed:
+        return HttpResponse(status=403)
+
+    if not bot.channel_id:
+        messages.error(request, 'У бота предложки не выбран канал. Привяжите бота к каналу и повторите.')
+        return redirect('bots:detail', bot_id=bot.id)
+
+    # Reuse if already created
+    existing = Post.objects.filter(suggestion=suggestion).order_by('-created_at').first()
+    if existing:
+        return redirect('content:edit', pk=existing.pk)
+
+    text = (suggestion.text or '').strip() or '📩 Пост из предложки (проверьте медиа).'
+
+    post = Post.objects.create(
+        author=bot.owner,
+        text=text,
+        status=Post.STATUS_DRAFT,
+        suggestion=suggestion,
+    )
+    post.channels.set([bot.channel_id])
+
+    # Telegram media import
+    if bot.platform == bot.PLATFORM_TELEGRAM and (suggestion.media_file_ids or []):
+        token = bot.get_token()
+        api_base = f'https://api.telegram.org/bot{token}'
+        file_base = f'https://api.telegram.org/file/bot{token}'
+
+        media_type = PostMedia.TYPE_DOCUMENT
+        if suggestion.content_type == Suggestion.CONTENT_PHOTO:
+            media_type = PostMedia.TYPE_PHOTO
+        elif suggestion.content_type == Suggestion.CONTENT_VIDEO:
+            media_type = PostMedia.TYPE_VIDEO
+        elif suggestion.content_type == Suggestion.CONTENT_DOCUMENT:
+            media_type = PostMedia.TYPE_DOCUMENT
+
+        for idx, file_id in enumerate(suggestion.media_file_ids or []):
+            try:
+                r = requests.get(f'{api_base}/getFile', params={'file_id': file_id}, timeout=15)
+                data = r.json()
+                if not data.get('ok'):
+                    raise ValueError(data.get('description') or 'getFile failed')
+                file_path = data['result']['file_path']
+                dl = requests.get(f'{file_base}/{file_path}', timeout=30)
+                dl.raise_for_status()
+                filename = (file_path.split('/')[-1] or f'media_{idx}')
+                PostMedia.objects.create(
+                    post=post,
+                    file=ContentFile(dl.content, name=filename),
+                    media_type=media_type,
+                    order=idx,
+                )
+            except Exception as e:
+                messages.warning(request, f'Не удалось загрузить медиа из Telegram (file_id={file_id}): {e}')
+
+    messages.success(request, f'Создан черновик поста из предложки #{suggestion.short_tracking_id}.')
+    return redirect('content:edit', pk=post.pk)
+
+
+@login_required
 def post_detail(request, pk):
     if request.user.role in ('manager', 'assistant_admin'):
         from managers.models import TeamMember
@@ -200,6 +291,20 @@ def post_edit(request, pk):
         user_channels = Channel.objects.filter(owner=request.user, is_active=True)
 
     if request.method == 'POST':
+        # Delete selected existing media
+        delete_media_ids = request.POST.getlist('delete_media')
+        if delete_media_ids:
+            to_delete = PostMedia.objects.filter(
+                post=post,
+                pk__in=[int(x) for x in delete_media_ids if str(x).isdigit()],
+            )
+            for m in to_delete:
+                try:
+                    m.file.delete(save=False)
+                except Exception:
+                    pass
+            to_delete.delete()
+
         channel_ids = request.POST.getlist('channels')
         post.text = request.POST.get('text', post.text).strip()
         post.pin_message = request.POST.get('pin_message') == 'on'

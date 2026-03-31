@@ -619,6 +619,20 @@ async def _process_approve(query, bot_config, uuid_str: str):
     notify = bot_config.approved_message.replace('{tracking_id}', suggestion.short_tracking_id)
     await _notify_user(query.bot, suggestion.platform_user_id, notify)
 
+    # Ссылка на создание поста на сайте (черновик из предложки)
+    try:
+        from django.conf import settings
+        from django.urls import reverse
+        url = f"{settings.SITE_URL}{reverse('content:create_from_suggestion', kwargs={'tracking_id': suggestion.tracking_id})}"
+        await query.message.reply_text(
+            '📝 Открыть создание поста из этой новости (текст + медиа будут подставлены):',
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton('📝 Создать пост', url=url),
+            ]]),
+        )
+    except Exception:
+        pass
+
     moderator = query.from_user.first_name or 'Модератор'
     await query.message.reply_text(
         (

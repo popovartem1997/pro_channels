@@ -6,6 +6,7 @@ app_name = 'content'
 urlpatterns = [
     path('', views.post_list, name='list'),
     path('create/', views.post_create, name='create'),
+    path('from-suggestion/<uuid:tracking_id>/', views.post_create_from_suggestion, name='create_from_suggestion'),
     path('tg-import/', views.tg_import_link, name='tg_import_link'),
     path('tg-import/webhook/', views.tg_import_webhook, name='tg_import_webhook'),
     path('<int:pk>/', views.post_detail, name='detail'),
