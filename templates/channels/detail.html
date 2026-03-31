@@ -125,6 +125,32 @@
 
 {% block extra_js %}
 <script>
+function flashNotice(kind, text) {
+  // kind: 'success' | 'danger' | 'warning' | 'info'
+  const host = document.querySelector('.main-content') || document.body;
+  const wrapId = 'pc-flash-wrap';
+  let wrap = document.getElementById(wrapId);
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = wrapId;
+    wrap.style.position = 'sticky';
+    wrap.style.top = '12px';
+    wrap.style.zIndex = '1050';
+    host.prepend(wrap);
+  }
+  const el = document.createElement('div');
+  el.className = `alert alert-${kind} alert-dismissible fade show py-2 mb-2`;
+  el.innerHTML = `
+    <div class="small">${String(text)}</div>
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+  `;
+  wrap.appendChild(el);
+  setTimeout(() => {
+    try { el.classList.remove('show'); } catch (e) {}
+    setTimeout(() => { try { el.remove(); } catch (e) {} }, 200);
+  }, 3000);
+}
+
 function testConnection() {
   const btn = document.getElementById('btn-test');
   btn.disabled = true;
@@ -139,21 +165,29 @@ function testConnection() {
     btn.disabled = false;
     if (data.ok) {
       btn.className = 'btn btn-success';
-      btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> ' + data.message;
+      btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> OK';
+      flashNotice('success', data.message || 'OK');
     } else {
       btn.className = 'btn btn-danger';
-      btn.innerHTML = '<i class="bi bi-x-circle me-1"></i> ' + data.message;
+      btn.innerHTML = '<i class="bi bi-x-circle me-1"></i> Ошибка';
+      flashNotice('danger', data.message || 'Ошибка');
     }
     setTimeout(() => {
       btn.className = 'btn btn-outline-success';
       btn.innerHTML = '<i class="bi bi-wifi me-1"></i> Проверить подключение';
       btn.disabled = false;
-    }, 5000);
+    }, 3000);
   })
   .catch(() => {
     btn.disabled = false;
     btn.className = 'btn btn-danger';
-    btn.innerHTML = '<i class="bi bi-x-circle me-1"></i> Ошибка соединения';
+    btn.innerHTML = '<i class="bi bi-x-circle me-1"></i> Ошибка';
+    flashNotice('danger', 'Ошибка соединения');
+    setTimeout(() => {
+      btn.className = 'btn btn-outline-success';
+      btn.innerHTML = '<i class="bi bi-wifi me-1"></i> Проверить подключение';
+      btn.disabled = false;
+    }, 3000);
   });
 }
 
@@ -171,21 +205,29 @@ function testMaxSend() {
     btn.disabled = false;
     if (data.ok) {
       btn.className = 'btn btn-success';
-      btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> ' + data.message;
+      btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> OK';
+      flashNotice('success', data.message || 'OK');
     } else {
       btn.className = 'btn btn-danger';
-      btn.innerHTML = '<i class="bi bi-x-circle me-1"></i> ' + data.message;
+      btn.innerHTML = '<i class="bi bi-x-circle me-1"></i> Ошибка';
+      flashNotice('danger', data.message || 'Ошибка');
     }
     setTimeout(() => {
       btn.className = 'btn btn-outline-primary';
       btn.innerHTML = '<i class="bi bi-send me-1"></i> Тест: отправить в MAX';
       btn.disabled = false;
-    }, 6000);
+    }, 3000);
   })
   .catch(() => {
     btn.disabled = false;
     btn.className = 'btn btn-danger';
     btn.innerHTML = '<i class="bi bi-x-circle me-1"></i> Ошибка';
+    flashNotice('danger', 'Ошибка соединения');
+    setTimeout(() => {
+      btn.className = 'btn btn-outline-primary';
+      btn.innerHTML = '<i class="bi bi-send me-1"></i> Тест: отправить в MAX';
+      btn.disabled = false;
+    }, 3000);
   });
 }
 </script>
