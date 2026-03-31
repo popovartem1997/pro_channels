@@ -21,7 +21,9 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
-MAX_API_URL = 'https://botapi.max.ru'
+# Важно: Bot API переехал на platform-api.max.ru, токен передаётся через Authorization header.
+# https://dev.max.ru/docs-api/methods/POST/messages
+MAX_API_URL = 'https://platform-api.max.ru'
 
 # Причины отклонения
 REJECT_REASONS = [
@@ -38,25 +40,26 @@ class MaxBotAPI:
     def __init__(self, token: str):
         self.token = token
         self.session = requests.Session()
-        self.session.params = {'access_token': token}
+        self.session.headers.update({'Authorization': token})
+        self.session.headers.update({'Content-Type': 'application/json'})
         self.base = MAX_API_URL
 
-    def call(self, method: str, **params) -> dict:
+    def call(self, method: str, params: dict | None = None) -> dict:
         """Выполнить GET-запрос к API."""
         url = f'{self.base}/{method}'
         try:
-            resp = self.session.get(url, params=params, timeout=30)
+            resp = self.session.get(url, params=params or {}, timeout=30)
             resp.raise_for_status()
             return resp.json()
         except Exception as e:
             logger.error('[MAX] Ошибка вызова %s: %s', method, e)
             return {}
 
-    def post(self, method: str, json_data: dict) -> dict:
+    def post(self, method: str, json_data: dict, params: dict | None = None) -> dict:
         """Выполнить POST-запрос к API."""
         url = f'{self.base}/{method}'
         try:
-            resp = self.session.post(url, json=json_data, timeout=30)
+            resp = self.session.post(url, params=params or {}, json=json_data, timeout=30)
             resp.raise_for_status()
             return resp.json()
         except Exception as e:
@@ -68,7 +71,7 @@ class MaxBotAPI:
         params = {'limit': limit, 'timeout': timeout}
         if marker:
             params['marker'] = marker
-        return self.call('updates', **params)
+        return self.call('updates', params=params)
 
     def send_message(self, chat_id: str, text: str, attachments: list = None, buttons: list = None) -> dict:
         """Отправить текстовое сообщение."""
@@ -84,7 +87,15 @@ class MaxBotAPI:
                 'type': 'inline_keyboard',
                 'payload': {'buttons': buttons}
             }]
-        return self.post('messages', payload)
+        # По API: chat_id передаётся как query параметр, не в теле.
+        body = {'text': text}
+        if payload.get('attachments'):
+            body['attachments'] = payload['attachments']
+        try:
+            cid = int(chat_id)
+        except Exception:
+            cid = chat_id
+        return self.post('messages', body, params={'chat_id': cid})
 
     def answer_callback(self, callback_id: str, text: str = None) -> dict:
         """Ответить на нажатие кнопки."""
