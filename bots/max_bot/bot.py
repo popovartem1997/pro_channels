@@ -304,8 +304,9 @@ class MAXSuggestionBot:
                 'messages': prev_msgs + [message],
                 'last_message': message,
             }
-            recent.submitted_at = tz.now()
-            recent.save(update_fields=['text', 'media_file_ids', 'content_type', 'raw_data', 'submitted_at'])
+            # ВАЖНО: не обновляем submitted_at при склейке,
+            # иначе окно "2 минуты" станет скользящим и все сообщения будут попадать в одну заявку.
+            recent.save(update_fields=['text', 'media_file_ids', 'content_type', 'raw_data'])
             suggestion = recent
         else:
             suggestion = Suggestion.objects.create(

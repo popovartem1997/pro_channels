@@ -339,15 +339,18 @@ def post_create_from_suggestion(request, tracking_id):
 
                 try:
                     # Некоторые CDN-ссылки MAX не требуют Authorization; пробуем без него, а при ошибке — с ним.
-                    dl = requests.get(url, timeout=30)
+                    dl = requests.get(url, timeout=30, stream=True)
                     if dl.status_code >= 400:
-                        dl = requests.get(url, headers={'Authorization': bot.get_token()}, timeout=30)
+                        dl = requests.get(url, headers={'Authorization': bot.get_token()}, timeout=30, stream=True)
                     dl.raise_for_status()
                     ct = (dl.headers.get('Content-Type') or '').lower()
                     # If we got HTML/JSON instead of binary — skip
                     if ct.startswith('text/') or 'json' in ct:
                         raise ValueError(f'Unexpected content-type: {ct}')
-                    if dl.content and dl.content[:20].lstrip().startswith(b'<!DOCTYPE'):
+                    data_bytes = dl.content or b''
+                    if not data_bytes or len(data_bytes) < 100:
+                        raise ValueError(f'Empty/too small response: {len(data_bytes)} bytes')
+                    if data_bytes[:20].lstrip().startswith(b'<!DOCTYPE'):
                         raise ValueError('Unexpected HTML response')
                     ext = 'bin'
                     if 'image/' in ct:
@@ -357,7 +360,7 @@ def post_create_from_suggestion(request, tracking_id):
                     filename = f'max_{suggestion.short_tracking_id}_{order}.{ext}'
                     PostMedia.objects.create(
                         post=post,
-                        file=ContentFile(dl.content, name=filename),
+                        file=ContentFile(data_bytes, name=filename),
                         media_type=media_type,
                         order=order,
                     )

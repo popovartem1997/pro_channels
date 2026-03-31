@@ -381,8 +381,8 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if isinstance(prev, list):
                         prev_msgs = prev
                 recent.raw_data = {'messages': prev_msgs + [message.to_dict()]}
-                recent.submitted_at = tz.now()
-                recent.save(update_fields=['text', 'media_file_ids', 'content_type', 'raw_data', 'submitted_at'])
+                # Не обновляем submitted_at при склейке, чтобы окно склейки не было скользящим.
+                recent.save(update_fields=['text', 'media_file_ids', 'content_type', 'raw_data'])
                 suggestion = recent
             else:
                 suggestion = Suggestion.objects.create(
