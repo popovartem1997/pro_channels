@@ -374,10 +374,14 @@ def post_publish_now(request, pk):
         )
     else:
         post = get_object_or_404(Post, pk=pk, author=request.user)
-    if post.status not in (Post.STATUS_DRAFT, Post.STATUS_SCHEDULED, Post.STATUS_FAILED):
+    force = False
+    if post.status == Post.STATUS_PUBLISHED:
+        # Разрешаем "переопубликовать" отредактированный пост.
+        force = True
+    elif post.status not in (Post.STATUS_DRAFT, Post.STATUS_SCHEDULED, Post.STATUS_FAILED):
         messages.error(request, 'Нельзя опубликовать пост в текущем статусе.')
         return redirect('content:detail', pk=pk)
     from .tasks import publish_post_task
-    publish_post_task.delay(post.pk)
-    messages.success(request, 'Пост отправлен на публикацию.')
+    publish_post_task.delay(post.pk, force=force)
+    messages.success(request, 'Пост отправлен на публикацию.' if not force else 'Пост отправлен на повторную публикацию.')
     return redirect('content:detail', pk=pk)

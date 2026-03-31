@@ -92,15 +92,24 @@ def _get_subscribers_count(channel):
         channel_id = channel.max_channel_id
         if not token or not channel_id:
             return None
+        chat_id_raw = str(channel_id).strip()
+        try:
+            chat_id = int(chat_id_raw)
+        except Exception:
+            chat_id = chat_id_raw
         resp = requests.get(
-            'https://botapi.max.ru/chats',
-            params={'access_token': token, 'chat_ids': channel_id},
+            f'https://platform-api.max.ru/chats/{chat_id}',
+            headers={'Authorization': token},
             timeout=10,
         )
-        data = resp.json()
-        chats = data.get('chats', [])
-        if chats:
-            return chats[0].get('participants_count', 0)
+        try:
+            data = resp.json()
+        except Exception:
+            return None
+        if resp.status_code >= 400 or (isinstance(data, dict) and data.get('code')):
+            raise ValueError(f'MAX API error (chat_id={chat_id_raw}, http={resp.status_code}): {data}')
+        if isinstance(data, dict):
+            return data.get('participants_count', 0)
 
     elif channel.platform == Ch.PLATFORM_INSTAGRAM:
         token = channel.get_ig_token()
@@ -214,8 +223,14 @@ def _get_tg_post_stats(channel, msg_id):
     from django.conf import settings
     import asyncio
 
-    api_id = getattr(settings, 'TELEGRAM_API_ID', '')
-    api_hash = getattr(settings, 'TELEGRAM_API_HASH', '')
+    try:
+        from core.models import get_global_api_keys
+        keys = get_global_api_keys()
+        api_id = (keys.telegram_api_id or '').strip()
+        api_hash = (keys.get_telegram_api_hash() or '').strip()
+    except Exception:
+        api_id = getattr(settings, 'TELEGRAM_API_ID', '')
+        api_hash = getattr(settings, 'TELEGRAM_API_HASH', '')
     if not api_id or not api_hash:
         return None
 

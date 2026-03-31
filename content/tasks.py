@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
-def publish_post_task(self, post_id: int):
+def publish_post_task(self, post_id: int, force: bool = False):
     """Публикует пост во все подключённые каналы."""
     from .models import Post, PublishResult
     try:
@@ -18,8 +18,8 @@ def publish_post_task(self, post_id: int):
         logger.error(f'Пост #{post_id} не найден')
         return
 
-    if post.status == Post.STATUS_PUBLISHED:
-        logger.info(f'Пост #{post_id} уже опубликован, пропускаем')
+    if post.status == Post.STATUS_PUBLISHED and not force:
+        logger.info(f'Пост #{post_id} уже опубликован, пропускаем (force=False)')
         return
 
     post.status = Post.STATUS_PUBLISHING
@@ -320,11 +320,56 @@ def _publish_max(post, channel):
     except Exception:
         chat_id = chat_id_raw
 
+    # MAX форматирование: чтобы ссылки точно работали, используем Markdown и конвертируем наш HTML.
+    def _max_html_to_markdown(s: str) -> str:
+        import re
+        import html as html_module
+
+        text0 = html_module.unescape(s or '')
+        # Normalize line breaks
+        text0 = text0.replace('\r\n', '\n')
+        # Convert <br> to newline
+        text0 = re.sub(r'<\s*br\s*/?\s*>', '\n', text0, flags=re.IGNORECASE)
+
+        # Links
+        def _link(m):
+            url = (m.group(1) or '').strip()
+            label = (m.group(2) or '').strip() or url
+            return f'[{label}]({url})'
+        text0 = re.sub(r'<a\s+[^>]*href="([^"]+)"[^>]*>(.*?)</a>', _link, text0, flags=re.IGNORECASE | re.DOTALL)
+
+        # Basic tags
+        text0 = re.sub(r'<\s*(b|strong)\s*>', '**', text0, flags=re.IGNORECASE)
+        text0 = re.sub(r'</\s*(b|strong)\s*>', '**', text0, flags=re.IGNORECASE)
+        text0 = re.sub(r'<\s*(i|em)\s*>', '_', text0, flags=re.IGNORECASE)
+        text0 = re.sub(r'</\s*(i|em)\s*>', '_', text0, flags=re.IGNORECASE)
+        text0 = re.sub(r'<\s*(u)\s*>', '++', text0, flags=re.IGNORECASE)
+        text0 = re.sub(r'</\s*(u)\s*>', '++', text0, flags=re.IGNORECASE)
+        text0 = re.sub(r'<\s*(s|del|strike)\s*>', '~~', text0, flags=re.IGNORECASE)
+        text0 = re.sub(r'</\s*(s|del|strike)\s*>', '~~', text0, flags=re.IGNORECASE)
+
+        # Inline code
+        text0 = re.sub(r'<\s*code\s*>(.*?)</\s*code\s*>', lambda m: '`' + re.sub(r'\s+', ' ', (m.group(1) or '').strip()) + '`', text0, flags=re.IGNORECASE | re.DOTALL)
+
+        # Blockquote: prefix each line with >
+        def _bq(m):
+            inner = (m.group(1) or '').strip()
+            inner = re.sub(r'<[^>]+>', '', inner)  # strip remaining tags inside quote
+            lines = [ln.strip() for ln in inner.splitlines() if ln.strip()]
+            return '\n'.join('> ' + ln for ln in lines) + '\n'
+        text0 = re.sub(r'<\s*blockquote\s*>(.*?)</\s*blockquote\s*>', _bq, text0, flags=re.IGNORECASE | re.DOTALL)
+
+        # Strip any remaining tags
+        text0 = re.sub(r'<[^>]+>', '', text0)
+        return text0.strip()
+
+    max_text = _max_html_to_markdown(text)
+
     resp = requests.post(
         'https://platform-api.max.ru/messages',
         params={'chat_id': chat_id},
         headers={'Authorization': bot_token},
-        json={'text': text, 'format': 'html'},
+        json={'text': max_text, 'format': 'markdown'},
         timeout=30,
     )
     # MAX API may return non-JSON or plain string error bodies.
