@@ -339,9 +339,19 @@ def post_create_from_suggestion(request, tracking_id):
 
                 try:
                     # Некоторые CDN-ссылки MAX не требуют Authorization; пробуем без него, а при ошибке — с ним.
-                    dl = requests.get(url, timeout=30, stream=True)
+                    headers_common = {
+                        'User-Agent': 'Mozilla/5.0 (compatible; ProChannelsBot/1.0; +https://prochannels.ru)',
+                        'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+                        'Referer': 'https://prochannels.ru/',
+                    }
+                    dl = requests.get(url, timeout=30, stream=True, headers=headers_common)
                     if dl.status_code >= 400:
-                        dl = requests.get(url, headers={'Authorization': bot.get_token()}, timeout=30, stream=True)
+                        dl = requests.get(
+                            url,
+                            headers={**headers_common, 'Authorization': bot.get_token()},
+                            timeout=30,
+                            stream=True
+                        )
                     dl.raise_for_status()
                     ct = (dl.headers.get('Content-Type') or '').lower()
                     # If we got HTML/JSON instead of binary — skip
@@ -352,6 +362,15 @@ def post_create_from_suggestion(request, tracking_id):
                         raise ValueError(f'Empty/too small response: {len(data_bytes)} bytes')
                     if data_bytes[:20].lstrip().startswith(b'<!DOCTYPE'):
                         raise ValueError('Unexpected HTML response')
+                    # Basic magic-bytes validation for images (to avoid saving placeholders)
+                    if media_type == PostMedia.TYPE_PHOTO:
+                        sig = data_bytes[:16]
+                        is_png = sig.startswith(b'\x89PNG\r\n\x1a\n')
+                        is_jpg = sig.startswith(b'\xff\xd8\xff')
+                        is_gif = sig.startswith(b'GIF87a') or sig.startswith(b'GIF89a')
+                        is_webp = sig[0:4] == b'RIFF' and sig[8:12] == b'WEBP'
+                        if not (is_png or is_jpg or is_gif or is_webp):
+                            raise ValueError(f'Unexpected image signature: {sig[:12].hex()}')
                     ext = 'bin'
                     if 'image/' in ct:
                         ext = ct.split('image/', 1)[1].split(';', 1)[0] or 'jpg'
@@ -366,7 +385,13 @@ def post_create_from_suggestion(request, tracking_id):
                     )
                     order += 1
                 except Exception as e:
-                    messages.warning(request, f'Не удалось загрузить медиа из MAX: {e}')
+                    try:
+                        messages.warning(
+                            request,
+                            f'Не удалось загрузить медиа из MAX: {e} (url={url})'
+                        )
+                    except Exception:
+                        pass
         except Exception:
             pass
 
