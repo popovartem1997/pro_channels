@@ -171,7 +171,13 @@ def _parse_telegram(source, keywords, keyword_objects):
         from telethon import TelegramClient
         session_path = str(settings.BASE_DIR / 'media' / 'telethon_session')
         client = TelegramClient(session_path, int(api_id), api_hash)
-        await client.start()
+        await client.connect()
+        if not await client.is_user_authorized():
+            raise ValueError(
+                'Telethon session не авторизована. '
+                'Нужно один раз залогиниться (ввести телефон/код) командой '
+                '`python3 manage.py telethon_login` внутри web-контейнера.'
+            )
         found = 0
         try:
             channel = await client.get_entity(source.source_id)
