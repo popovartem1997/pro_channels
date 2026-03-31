@@ -214,8 +214,19 @@ def post_create_from_suggestion(request, tracking_id):
     )
     post.channels.set([bot.channel_id])
 
+    # IMPORTANT: медиа импорт может быть долгим (MAX/Telegram CDN). Чтобы «Одобрить» не зависало,
+    # по умолчанию запускаем импорт в фоне (Celery) и НЕ тянем медиа синхронно в этом запросе.
+    do_sync_media_import = False
+    try:
+        from .tasks import import_media_from_suggestion_task
+        import_media_from_suggestion_task.delay(post.pk)
+        messages.info(request, 'Медиа подгрузятся в черновик в течение 1–2 минут.')
+    except Exception:
+        # Если Celery не настроен — оставляем старое синхронное поведение.
+        do_sync_media_import = True
+
     # Telegram media import
-    if bot.platform == bot.PLATFORM_TELEGRAM and (suggestion.media_file_ids or []):
+    if do_sync_media_import and bot.platform == bot.PLATFORM_TELEGRAM and (suggestion.media_file_ids or []):
         token = bot.get_token()
         api_base = f'https://api.telegram.org/bot{token}'
         file_base = f'https://api.telegram.org/file/bot{token}'
@@ -248,7 +259,7 @@ def post_create_from_suggestion(request, tracking_id):
                 messages.warning(request, f'Не удалось загрузить медиа из Telegram (file_id={file_id}): {e}')
 
     # MAX media import (best-effort)
-    if bot.platform == bot.PLATFORM_MAX:
+    if do_sync_media_import and bot.platform == bot.PLATFORM_MAX:
         try:
             raw = suggestion.raw_data or {}
             # В MAX мы сохраняем raw_data как объект message (без update wrapper).

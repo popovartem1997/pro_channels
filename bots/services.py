@@ -32,7 +32,8 @@ def notify_suggestion_approved(suggestion):
         try:
             from .max_bot.bot import MaxBotAPI
             api = MaxBotAPI(bot.get_token())
-            api.send_message(str(suggestion.platform_user_id), text)
+            # В личных сообщениях MAX обычно нужен user_id (а не chat_id)
+            api.send_message_to_user(str(suggestion.platform_user_id), text)
         except Exception:
             return
 
@@ -70,7 +71,7 @@ def notify_suggestion_rejected(suggestion, reason: str = ''):
         try:
             from .max_bot.bot import MaxBotAPI
             api = MaxBotAPI(bot.get_token())
-            api.send_message(str(suggestion.platform_user_id), text)
+            api.send_message_to_user(str(suggestion.platform_user_id), text)
         except Exception:
             return
 
