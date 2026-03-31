@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.contrib import messages
 from django import forms
 
-from .models import SuggestionBot, Suggestion, SuggestionUserStats
+from .models import SuggestionBot, Suggestion, SuggestionUserStats, BotConversation, BotConversationMessage, AuditLog
 
 
 # ─── Форма для создания/редактирования бота ───────────────────────────────────
@@ -272,3 +272,27 @@ class SuggestionUserStatsAdmin(admin.ModelAdmin):
         'total', 'approved', 'rejected', 'pending', 'published', 'last_submission'
     ]
     ordering = ['-approved', '-total']
+
+
+@admin.register(BotConversation)
+class BotConversationAdmin(admin.ModelAdmin):
+    list_display = ['id', 'bot', 'platform_user_id', 'platform_username', 'display_name', 'status', 'last_message_at', 'created_at']
+    list_filter = ['status', 'bot']
+    search_fields = ['platform_user_id', 'platform_username', 'display_name']
+    readonly_fields = ['created_at']
+
+
+@admin.register(BotConversationMessage)
+class BotConversationMessageAdmin(admin.ModelAdmin):
+    list_display = ['id', 'conversation', 'direction', 'sender_user', 'created_at']
+    list_filter = ['direction']
+    search_fields = ['text']
+    readonly_fields = ['created_at']
+
+
+@admin.register(AuditLog)
+class AuditLogAdmin(admin.ModelAdmin):
+    list_display = ['id', 'created_at', 'action', 'actor', 'owner', 'object_type', 'object_id']
+    list_filter = ['action', 'object_type']
+    search_fields = ['action', 'object_type', 'object_id']
+    readonly_fields = ['created_at']

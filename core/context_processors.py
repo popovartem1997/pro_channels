@@ -33,6 +33,12 @@ def site_context(request):
                     is_active=True,
                     can_view_stats=True,
                 ).exists()
+                ctx['manager_can_manage_bots'] = TeamMember.objects.filter(
+                    member=request.user,
+                    is_active=True,
+                    can_manage_bots=True,
+                ).exists()
             except Exception:
                 ctx['manager_can_view_stats'] = False
+                ctx['manager_can_manage_bots'] = False
     return ctx

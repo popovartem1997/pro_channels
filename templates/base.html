@@ -165,6 +165,14 @@
         <li><a class="nav-link {% if '/posts/' in request.path %}active{% endif %}" href="{% url 'content:list' %}">
           <i class="bi bi-pencil-square"></i> Посты
         </a></li>
+        {% if manager_can_manage_bots %}
+        <li><a class="nav-link {% if '/bots/' in request.path %}active{% endif %}" href="{% url 'bots:list' %}">
+          <i class="bi bi-robot"></i> Боты предложки
+        </a></li>
+        <li><a class="nav-link {% if '/bots/conversations/' in request.path %}active{% endif %}" href="{% url 'bots:conversations' %}">
+          <i class="bi bi-chat-left-text"></i> Диалоги
+        </a></li>
+        {% endif %}
       </ul>
     {% endif %}
 
