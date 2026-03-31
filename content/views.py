@@ -262,22 +262,37 @@ def post_create_from_suggestion(request, tracking_id):
             else:
                 msg_obj = raw
 
-            # 1) Попытка: получить полное сообщение через API по mid (часто там есть URL вложений)
-            attachments = []
-            mid = msg_obj.get('mid') if isinstance(msg_obj, dict) else ''
+            # Собираем вложения со всех сообщений "склейки" (текст может прийти отдельно от фото)
+            messages_chain = []
+            if isinstance(raw, dict) and isinstance(raw.get('messages'), list) and raw.get('messages'):
+                messages_chain = [m for m in raw.get('messages') if isinstance(m, dict)]
+            elif isinstance(msg_obj, dict):
+                messages_chain = [msg_obj]
+
+            attachments: list[dict] = []
+            # 1) Попытка: получить полные сообщения через API по mid (часто там есть URL вложений)
             try:
                 from bots.max_bot.bot import MaxBotAPI
                 api = MaxBotAPI(bot.get_token())
-                full_msg = api.get_message(mid) if mid else {}
-                body_full = (full_msg.get('body') or {}) if isinstance(full_msg, dict) else {}
-                attachments = body_full.get('attachments') or []
+                for m in messages_chain:
+                    mid = m.get('mid')
+                    if not mid:
+                        continue
+                    full_msg = api.get_message(mid)
+                    body_full = (full_msg.get('body') or {}) if isinstance(full_msg, dict) else {}
+                    atts = body_full.get('attachments') or []
+                    if isinstance(atts, list):
+                        attachments.extend([a for a in atts if isinstance(a, dict)])
             except Exception:
-                attachments = []
+                pass
 
-            # 2) Фоллбек: attachments из исходного payload
+            # 2) Фоллбек: attachments из исходных payload-ов
             if not attachments:
-                body = (msg_obj.get('body') or {}) if isinstance(msg_obj, dict) else {}
-                attachments = body.get('attachments') or []
+                for m in messages_chain:
+                    body = (m.get('body') or {}) if isinstance(m, dict) else {}
+                    atts = body.get('attachments') or []
+                    if isinstance(atts, list):
+                        attachments.extend([a for a in atts if isinstance(a, dict)])
 
             def _iter_attachment_urls(att: dict) -> list[str]:
                 urls: list[str] = []
@@ -301,6 +316,7 @@ def post_create_from_suggestion(request, tracking_id):
                 return urls
 
             order = 0
+            seen_urls = set()
             for att in attachments[:10]:
                 if not isinstance(att, dict):
                     continue
@@ -317,14 +333,22 @@ def post_create_from_suggestion(request, tracking_id):
                 if not urls:
                     continue
                 url = urls[0]
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
 
                 try:
-                    dl = requests.get(url, headers={'Authorization': bot.get_token()}, timeout=30)
+                    # Некоторые CDN-ссылки MAX не требуют Authorization; пробуем без него, а при ошибке — с ним.
+                    dl = requests.get(url, timeout=30)
+                    if dl.status_code >= 400:
+                        dl = requests.get(url, headers={'Authorization': bot.get_token()}, timeout=30)
                     dl.raise_for_status()
                     ct = (dl.headers.get('Content-Type') or '').lower()
                     # If we got HTML/JSON instead of binary — skip
                     if ct.startswith('text/') or 'json' in ct:
                         raise ValueError(f'Unexpected content-type: {ct}')
+                    if dl.content and dl.content[:20].lstrip().startswith(b'<!DOCTYPE'):
+                        raise ValueError('Unexpected HTML response')
                     ext = 'bin'
                     if 'image/' in ct:
                         ext = ct.split('image/', 1)[1].split(';', 1)[0] or 'jpg'
