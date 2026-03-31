@@ -43,7 +43,29 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton('💬 Связаться с менеджером', callback_data='contact'),
     ]])
-    await update.message.reply_text(bot_config.welcome_message, reply_markup=keyboard)
+    if update.message:
+        await update.message.reply_text(bot_config.welcome_message, reply_markup=keyboard)
+    elif update.effective_chat:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=bot_config.welcome_message, reply_markup=keyboard)
+
+
+def _is_admin_chat(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> bool:
+    ids = context.bot_data.get('admin_chat_ids') or []
+    try:
+        return str(chat_id) in [str(x) for x in ids]
+    except Exception:
+        return False
+
+
+def _extract_user_id_from_admin_caption(text: str) -> str | None:
+    # caption содержит строку: 🆔 `123456`
+    import re
+    if not text:
+        return None
+    m = re.search(r'🆔\s*`(\d+)`', text)
+    if m:
+        return m.group(1)
+    return None
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -100,6 +122,51 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_config = context.bot_data['bot_config']
     user = update.effective_user
     message = update.effective_message
+
+    # Если это чат модерации — это не "предложение", а ответы/действия менеджера.
+    try:
+        chat_id = int(update.effective_chat.id) if update.effective_chat else 0
+    except Exception:
+        chat_id = 0
+
+    if chat_id and _is_admin_chat(context, chat_id):
+        # Reply-to: менеджер отвечает на пересланную заявку -> отправляем пользователю
+        if message and message.text and getattr(message, 'reply_to_message', None):
+            replied = message.reply_to_message
+            replied_text = (getattr(replied, 'text', None) or getattr(replied, 'caption', None) or '') or ''
+            user_id = _extract_user_id_from_admin_caption(replied_text)
+            if user_id:
+                try:
+                    await context.bot.send_message(chat_id=user_id, text=message.text)
+                except Exception as e:
+                    await message.reply_text(f'Не удалось отправить пользователю: {e}')
+                    return
+
+                @sync_to_async
+                def save_outgoing():
+                    from bots.models import BotConversation, BotConversationMessage
+                    conv, _ = BotConversation.objects.get_or_create(
+                        bot=bot_config,
+                        platform_user_id=str(user_id),
+                        defaults={'last_message_at': timezone.now()},
+                    )
+                    conv.last_message_at = timezone.now()
+                    conv.status = 'open'
+                    conv.save(update_fields=['last_message_at', 'status'])
+                    BotConversationMessage.objects.create(
+                        conversation=conv,
+                        direction='out',
+                        sender_user=None,
+                        text=message.text,
+                        raw_data=message.to_dict() if message else {},
+                    )
+                await save_outgoing()
+
+                await message.reply_text('✅ Отправлено пользователю.')
+                return
+
+        # В чате модерации, если не reply — игнорируем, чтобы не плодить "предложения"
+        return
 
     # Contact flow: user wants to talk to manager (MVP: text only)
     if context.user_data.get('contact_mode'):
@@ -447,6 +514,11 @@ def build_application(bot_config) -> Application:
 
     # Сохраняем конфиг в bot_data — доступен во всех хендлерах
     app.bot_data['bot_config'] = bot_config
+    # Кешируем чаты модерации (для распознавания "ответа менеджера")
+    try:
+        app.bot_data['admin_chat_ids'] = bot_config.get_moderation_chat_ids()
+    except Exception:
+        app.bot_data['admin_chat_ids'] = [bot_config.admin_chat_id] if bot_config.admin_chat_id else []
 
     app.add_handler(CommandHandler('start', cmd_start))
     app.add_handler(CommandHandler('status', cmd_status))
