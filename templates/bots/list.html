@@ -35,6 +35,9 @@
           <a href="{% url 'bots:detail' bot.pk %}" class="btn btn-outline-secondary btn-sm flex-grow-1">
             <i class="bi bi-eye me-1"></i> Детали
           </a>
+          <a href="{% url 'bots:edit' bot.pk %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-gear"></i>
+          </a>
           <a href="{% url 'bots:suggestions' %}?bot={{ bot.pk }}" class="btn btn-outline-primary btn-sm flex-grow-1">
             <i class="bi bi-inbox me-1"></i> Предложения
             {% if bot.pending_count %}

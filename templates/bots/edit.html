@@ -1,0 +1,127 @@
+{% extends 'base.html' %}
+{% block title %}Редактировать бота{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'bots:detail' bot.pk %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К боту
+  </a>
+  <h1>Редактировать — {{ bot.name }}</h1>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-body p-4 p-md-5">
+        <form method="post" novalidate>
+          {% csrf_token %}
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_name">Название бота</label>
+            <input type="text" name="name" id="id_name"
+                   class="form-control"
+                   value="{{ request.POST.name|default:bot.name }}"
+                   required>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Платформа</label>
+            <input type="text" class="form-control" value="{{ bot.get_platform_display }}" disabled>
+            <div class="form-text">Платформа не меняется. Если нужна другая — создайте нового бота.</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_bot_token">Bot Token</label>
+            <input type="text" name="bot_token" id="id_bot_token"
+                   class="form-control font-monospace"
+                   value="{{ request.POST.bot_token|default:'' }}"
+                   placeholder="Оставьте пустым, чтобы не менять">
+          </div>
+
+          {% if bot.platform == 'telegram' %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Куда слать модерацию (Telegram)</label>
+            <input type="text" name="admin_chat_id" class="form-control font-monospace"
+                   value="{{ request.POST.admin_chat_id|default:bot.admin_chat_id }}"
+                   placeholder="-1001234567890">
+          </div>
+
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   id="id_notify_owner" name="notify_owner"
+                   {% if request.POST %}{% if request.POST.notify_owner %}checked{% endif %}{% else %}{% if bot.notify_owner %}checked{% endif %}{% endif %}>
+            <label class="form-check-label fw-semibold" for="id_notify_owner">
+              Уведомлять владельца в Telegram (если привязан Telegram ID)
+            </label>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Модераторы (сайт) — кому дублировать в Telegram</label>
+            <select name="moderators" class="form-select" multiple size="5">
+              {% for tm in team_members %}
+                <option value="{{ tm.member_id }}" {% if tm.member_id|stringformat:"s" in selected_moderators %}selected{% endif %}>
+                  {{ tm.member.get_full_name|default:tm.member.username }} ({{ tm.member.username }})
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Доп. chat_id/user_id (через запятую/пробел/перенос)</label>
+            <textarea name="custom_admin_chat_ids" class="form-control font-monospace" rows="2"
+                      placeholder="12345678, -1001234567890">{{ request.POST.custom_admin_chat_ids|default:custom_admin_chat_ids }}</textarea>
+            <div class="form-text">Только числа.</div>
+          </div>
+          {% else %}
+          <div class="mb-4">
+            <label class="form-label fw-semibold">ID группы / сообщества</label>
+            <input type="text" name="group_id" class="form-control font-monospace"
+                   value="{{ request.POST.group_id|default:bot.group_id }}"
+                   placeholder="123456789">
+            <div class="form-text">Только числа без минуса.</div>
+          </div>
+          {% endif %}
+
+          <hr class="my-4">
+          <h6 class="fw-bold mb-3">Сообщения бота</h6>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_welcome_message">Приветственное сообщение</label>
+            <textarea name="welcome_message" id="id_welcome_message" rows="2"
+                      class="form-control">{{ request.POST.welcome_message|default:bot.welcome_message }}</textarea>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_success_message">После получения предложения</label>
+            <textarea name="success_message" id="id_success_message" rows="2"
+                      class="form-control">{{ request.POST.success_message|default:bot.success_message }}</textarea>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_approved_message">При одобрении</label>
+            <textarea name="approved_message" id="id_approved_message" rows="2"
+                      class="form-control">{{ request.POST.approved_message|default:bot.approved_message }}</textarea>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold" for="id_rejected_message">При отклонении</label>
+            <textarea name="rejected_message" id="id_rejected_message" rows="2"
+                      class="form-control">{{ request.POST.rejected_message|default:bot.rejected_message }}</textarea>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-brand px-4 fw-semibold">
+              <i class="bi bi-check-lg me-1"></i> Сохранить
+            </button>
+            <a href="{% url 'bots:detail' bot.pk %}" class="btn btn-outline-secondary">Отмена</a>
+            <a href="{% url 'bots:delete' bot.pk %}" class="btn btn-outline-danger ms-auto">
+              <i class="bi bi-trash me-1"></i> Удалить
+            </a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+

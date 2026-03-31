@@ -16,6 +16,9 @@
       <span class="badge bg-light text-dark ms-1">{{ bot.pending_count }}</span>
       {% endif %}
     </a>
+    <a href="{% url 'bots:edit' bot.pk %}" class="btn btn-outline-secondary">
+      <i class="bi bi-gear me-1"></i> Настройки
+    </a>
   </div>
 </div>
 

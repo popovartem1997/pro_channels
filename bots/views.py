@@ -258,6 +258,98 @@ def bot_detail(request, bot_id):
 
 
 @login_required
+def bot_edit(request, bot_id: int):
+    from managers.models import TeamMember
+    import re
+
+    bot = get_object_or_404(SuggestionBot, pk=bot_id, owner=request.user)
+    team_members = TeamMember.objects.filter(owner=request.user, is_active=True, can_moderate=True).select_related('member')
+
+    selected_moderators = set()
+    if request.method == 'POST':
+        selected_moderators = set(request.POST.getlist('moderators'))
+    else:
+        selected_moderators = set(str(x) for x in bot.moderators.values_list('id', flat=True))
+
+    # textarea initial
+    custom_admin_chat_ids = '\n'.join(str(x) for x in (bot.custom_admin_chat_ids or []))
+
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        if not name:
+            messages.error(request, 'Название обязательно.')
+            return render(request, 'bots/edit.html', {
+                'bot': bot,
+                'team_members': team_members,
+                'selected_moderators': selected_moderators,
+                'custom_admin_chat_ids': request.POST.get('custom_admin_chat_ids', custom_admin_chat_ids),
+            })
+
+        bot.name = name
+
+        new_token = request.POST.get('bot_token', '').strip()
+        if new_token:
+            bot.set_token(new_token)
+
+        bot.welcome_message = request.POST.get('welcome_message', bot.welcome_message).strip() or bot.welcome_message
+        bot.success_message = request.POST.get('success_message', bot.success_message).strip() or bot.success_message
+        bot.approved_message = request.POST.get('approved_message', bot.approved_message).strip() or bot.approved_message
+        bot.rejected_message = request.POST.get('rejected_message', bot.rejected_message).strip() or bot.rejected_message
+
+        if bot.platform == SuggestionBot.PLATFORM_TELEGRAM:
+            bot.admin_chat_id = request.POST.get('admin_chat_id', '').strip()
+            bot.notify_owner = request.POST.get('notify_owner') == 'on'
+
+            raw_custom = (request.POST.get('custom_admin_chat_ids') or '').strip()
+            ids = []
+            for part in re.split(r'[\s,]+', raw_custom):
+                p = part.strip()
+                if not p:
+                    continue
+                if re.fullmatch(r'-?\d+', p):
+                    ids.append(p)
+            bot.custom_admin_chat_ids = ids
+        else:
+            gid = request.POST.get('group_id', '').strip()
+            gid = gid.replace('club', '').replace('public', '')
+            gid = gid.lstrip('-').strip()
+            bot.group_id = gid
+
+        bot.save()
+
+        # apply moderators set
+        moderator_ids = request.POST.getlist('moderators')
+        allowed_users = TeamMember.objects.filter(
+            owner=request.user,
+            is_active=True,
+            can_moderate=True,
+            member_id__in=moderator_ids,
+        ).values_list('member_id', flat=True)
+        bot.moderators.set(list(allowed_users))
+
+        messages.success(request, 'Бот обновлён.')
+        return redirect('bots:detail', bot_id=bot.pk)
+
+    return render(request, 'bots/edit.html', {
+        'bot': bot,
+        'team_members': team_members,
+        'selected_moderators': selected_moderators,
+        'custom_admin_chat_ids': custom_admin_chat_ids,
+    })
+
+
+@login_required
+def bot_delete(request, bot_id: int):
+    bot = get_object_or_404(SuggestionBot, pk=bot_id, owner=request.user)
+    if request.method == 'POST':
+        name = bot.name
+        bot.delete()
+        messages.success(request, f'Бот "{name}" удалён.')
+        return redirect('bots:list')
+    return render(request, 'bots/delete_confirm.html', {'bot': bot})
+
+
+@login_required
 def suggestions_list(request):
     from .models import Suggestion
     status_filter = request.GET.get('status', 'pending')

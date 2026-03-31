@@ -7,6 +7,8 @@ urlpatterns = [
     # Управление ботами
     path('', views.bot_list, name='list'),
     path('create/', views.bot_create, name='create'),
+    path('<int:bot_id>/edit/', views.bot_edit, name='edit'),
+    path('<int:bot_id>/delete/', views.bot_delete, name='delete'),
     path('<int:bot_id>/', views.bot_detail, name='detail'),
     path('suggestions/', views.suggestions_list, name='suggestions'),
     path('suggestions/<int:pk>/moderate/', views.suggestion_moderate, name='moderate'),

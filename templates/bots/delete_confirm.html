@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block title %}Удалить бота{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'bots:detail' bot.pk %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К боту
+  </a>
+  <h1>Удалить бота</h1>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-body p-4 p-md-5">
+        <p class="mb-2">
+          Вы уверены, что хотите удалить бота <b>{{ bot.name }}</b>?
+        </p>
+        <div class="text-muted small mb-4">
+          Все связанные предложения останутся в базе только если вы не удаляете их каскадно (в текущей модели удаление бота удалит и его предложения).
+        </div>
+
+        <form method="post">
+          {% csrf_token %}
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-danger">
+              <i class="bi bi-trash me-1"></i> Удалить
+            </button>
+            <a href="{% url 'bots:detail' bot.pk %}" class="btn btn-outline-secondary">Отмена</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
