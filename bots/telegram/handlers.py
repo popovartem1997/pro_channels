@@ -169,8 +169,13 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(confirm)
 
     # Пересылаем в чат модерации (если настроен)
-    admin_chat_id = bot_config.admin_chat_id
-    if admin_chat_id:
+    admin_chat_ids = []
+    try:
+        admin_chat_ids = bot_config.get_moderation_chat_ids()
+    except Exception:
+        admin_chat_ids = [bot_config.admin_chat_id] if bot_config.admin_chat_id else []
+
+    for admin_chat_id in admin_chat_ids:
         await _forward_to_admin(update, context, suggestion, admin_chat_id)
 
 

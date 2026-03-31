@@ -170,6 +170,8 @@ def bot_list(request):
 def bot_create(request):
     if request.method == 'POST':
         from .utils import encrypt_token
+        from managers.models import TeamMember
+        import re
         name = request.POST.get('name', '').strip()
         platform = request.POST.get('platform', '')
         token = request.POST.get('bot_token', '').strip()
@@ -195,14 +197,45 @@ def bot_create(request):
 
         if platform == SuggestionBot.PLATFORM_TELEGRAM:
             bot.admin_chat_id = request.POST.get('admin_chat_id', '').strip()
+            bot.notify_owner = request.POST.get('notify_owner') == 'on'
+
+            # Custom chat ids: numbers separated by comma/space/newline
+            raw_custom = (request.POST.get('custom_admin_chat_ids') or '').strip()
+            ids = []
+            for part in re.split(r'[\s,]+', raw_custom):
+                p = part.strip()
+                if not p:
+                    continue
+                # Allow only numeric (chat_id/user_id). @username is not reliable for Bot API sends.
+                if re.fullmatch(r'-?\d+', p):
+                    ids.append(p)
+            bot.custom_admin_chat_ids = ids
         else:
-            bot.group_id = request.POST.get('group_id', '').strip()
+            gid = request.POST.get('group_id', '').strip()
+            # VK/MAX group ids are typically provided without '-'. Normalize to digits.
+            gid = gid.replace('club', '').replace('public', '')
+            gid = gid.lstrip('-').strip()
+            bot.group_id = gid
 
         bot.save()
+
+        # Moderators: only owner team members with can_moderate
+        moderator_ids = request.POST.getlist('moderators')
+        if moderator_ids:
+            allowed_users = TeamMember.objects.filter(
+                owner=request.user,
+                is_active=True,
+                can_moderate=True,
+                member_id__in=moderator_ids,
+            ).values_list('member_id', flat=True)
+            bot.moderators.set(list(allowed_users))
+
         messages.success(request, f'Бот "{name}" создан.')
         return redirect('bots:list')
 
-    return render(request, 'bots/create.html', {'platforms': SuggestionBot.PLATFORM_CHOICES})
+    from managers.models import TeamMember
+    team_members = TeamMember.objects.filter(owner=request.user, is_active=True, can_moderate=True).select_related('member')
+    return render(request, 'bots/create.html', {'platforms': SuggestionBot.PLATFORM_CHOICES, 'team_members': team_members})
 
 
 @login_required

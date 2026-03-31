@@ -66,7 +66,7 @@ class SuggestionBotAdmin(admin.ModelAdmin):
             'fields': ('owner', 'name', 'platform', 'raw_token', 'bot_username', 'is_active')
         }),
         ('Настройки модерации', {
-            'fields': ('admin_chat_id', 'group_id'),
+            'fields': ('admin_chat_id', 'notify_owner', 'moderators', 'custom_admin_chat_ids', 'group_id'),
             'description': 'Telegram: ID чата для кнопок. VK/MAX: ID сообщества/беседы.'
         }),
         ('Сообщения бота', {

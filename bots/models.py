@@ -47,6 +47,24 @@ class SuggestionBot(models.Model):
         verbose_name='ID чата для модерации (Telegram)',
         help_text='Chat ID группы или канала, куда будут приходить заявки с кнопками'
     )
+    notify_owner = models.BooleanField(
+        default=True,
+        verbose_name='Уведомлять владельца (если привязан Telegram ID)',
+        help_text='Отправляет заявки владельцу в личку Telegram, если владелец привязал Telegram через импорт-бота.'
+    )
+    moderators = models.ManyToManyField(
+        User,
+        blank=True,
+        related_name='moderated_suggestion_bots',
+        verbose_name='Модераторы (сайт)',
+        help_text='Выбранные пользователи получат заявки в Telegram, если у них привязан Telegram ID.'
+    )
+    custom_admin_chat_ids = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name='Доп. chat_id для модерации (Telegram)',
+        help_text='Список числовых chat_id/user_id (например, 12345678 или -100123... для чатов).'
+    )
     # Для VK/MAX: ID группы
     group_id = models.CharField(
         max_length=100, blank=True,
@@ -95,6 +113,49 @@ class SuggestionBot(models.Model):
         """Получить расшифрованный токен."""
         from .utils import decrypt_token
         return decrypt_token(self.bot_token_encrypted)
+
+    def get_moderation_chat_ids(self) -> list[str]:
+        """
+        Список chat_id, куда пересылать предложения на модерацию.
+        Включает:
+        - admin_chat_id (если задан)
+        - custom_admin_chat_ids (если заданы)
+        - владельца и выбранных модераторов, если у них привязан Telegram user_id через импорт-бота
+        """
+        ids: list[str] = []
+
+        def _add(val):
+            if val is None:
+                return
+            s = str(val).strip()
+            if not s:
+                return
+            if s not in ids:
+                ids.append(s)
+
+        _add(self.admin_chat_id)
+
+        for x in (self.custom_admin_chat_ids or []):
+            _add(x)
+
+        # Linked Telegram IDs (content.TelegramImportLink)
+        try:
+            from content.models_imports import TelegramImportLink
+        except Exception:
+            TelegramImportLink = None
+
+        if TelegramImportLink is not None:
+            if self.notify_owner:
+                link = TelegramImportLink.objects.filter(user=self.owner).first()
+                if link and link.telegram_user_id:
+                    _add(link.telegram_user_id)
+
+            for u in self.moderators.all():
+                link = TelegramImportLink.objects.filter(user=u).first()
+                if link and link.telegram_user_id:
+                    _add(link.telegram_user_id)
+
+        return ids
 
 
 class Suggestion(models.Model):

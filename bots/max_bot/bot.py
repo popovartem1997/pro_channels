@@ -230,8 +230,15 @@ class MAXSuggestionBot:
         self.api.send_message(chat_id, confirm)
 
         # Переслать модераторам
-        if self.config.admin_chat_id:
-            self._forward_to_admin(suggestion, sender, text)
+        admin_chat_ids = []
+        try:
+            admin_chat_ids = self.config.get_moderation_chat_ids()
+        except Exception:
+            admin_chat_ids = [self.config.admin_chat_id] if self.config.admin_chat_id else []
+
+        for cid in admin_chat_ids:
+            if cid:
+                self._forward_to_admin(suggestion, sender, text, admin_chat_id=str(cid))
 
     def _detect_content(self, message: dict):
         """Определить тип контента из сообщения MAX."""
@@ -263,7 +270,7 @@ class MAXSuggestionBot:
 
         return content_type, media_ids
 
-    def _forward_to_admin(self, suggestion, sender: dict, text: str):
+    def _forward_to_admin(self, suggestion, sender: dict, text: str, admin_chat_id: str):
         """Переслать заявку в чат модерации с кнопками."""
         name = sender.get('name', 'Неизвестно')
         username = sender.get('username', '')
@@ -297,7 +304,7 @@ class MAXSuggestionBot:
             },
         ]]
 
-        self.api.send_message(self.config.admin_chat_id, caption, buttons=buttons)
+        self.api.send_message(admin_chat_id, caption, buttons=buttons)
 
     def _handle_callback(self, update: dict):
         """Обработать нажатие кнопки модератора."""

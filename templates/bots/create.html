@@ -46,11 +46,45 @@
 
           <!-- Telegram: admin_chat_id -->
           <div id="field-admin-chat" class="platform-bot-field d-none mb-3">
-            <label class="form-label fw-semibold">Admin Chat ID</label>
+            <label class="form-label fw-semibold">Куда слать модерацию (Telegram)</label>
             <input type="text" name="admin_chat_id" class="form-control font-monospace"
                    value="{{ request.POST.admin_chat_id|default:'' }}"
-                   placeholder="-1001234567890 или @admingroup">
-            <div class="form-text">Чат, куда будут приходить предложения для модерации</div>
+                   placeholder="-1001234567890">
+            <div class="form-text">
+              Основной <code>chat_id</code> чата/канала, куда будут приходить предложения с кнопками.
+              Если укажешь ID без минуса — это может быть личка (user_id). Для чатов/каналов Telegram часто нужен формат <code>-100...</code>.
+            </div>
+
+            <div class="form-check form-switch mt-3">
+              <input class="form-check-input" type="checkbox" role="switch"
+                     id="id_notify_owner" name="notify_owner"
+                     {% if request.POST.notify_owner %}checked{% endif %}>
+              <label class="form-check-label" for="id_notify_owner">
+                Уведомлять владельца в Telegram (если привязан Telegram ID)
+              </label>
+            </div>
+
+            <div class="mt-3">
+              <label class="form-label fw-semibold">Модераторы (сайт) — кому дублировать в Telegram</label>
+              <select name="moderators" class="form-select" multiple size="5">
+                {% for tm in team_members %}
+                  <option value="{{ tm.member_id }}"
+                    {% if tm.member_id|stringformat:"s" in request.POST.getlist("moderators") %}selected{% endif %}>
+                    {{ tm.member.get_full_name|default:tm.member.username }} ({{ tm.member.username }})
+                  </option>
+                {% endfor %}
+              </select>
+              <div class="form-text">
+                Пользователи получат заявки только если они привязали Telegram ID через импорт-бота (раздел постов → импорт Telegram).
+              </div>
+            </div>
+
+            <div class="mt-3">
+              <label class="form-label fw-semibold">Доп. chat_id/user_id (через запятую/пробел/перенос)</label>
+              <textarea name="custom_admin_chat_ids" class="form-control font-monospace" rows="2"
+                        placeholder="12345678, -1001234567890">{{ request.POST.custom_admin_chat_ids|default:'' }}</textarea>
+              <div class="form-text">Только числа. @username не используется для отправки (Telegram Bot API требует chat_id).</div>
+            </div>
           </div>
 
           <!-- VK/MAX: group_id -->
@@ -59,6 +93,10 @@
             <input type="text" name="group_id" class="form-control font-monospace"
                    value="{{ request.POST.group_id|default:'' }}"
                    placeholder="123456789">
+            <div class="form-text">
+              Указывай <b>только числа</b> без минуса и без <code>club</code>/<code>public</code>.
+              Если где-то нужен минус — мы добавим его сами.
+            </div>
           </div>
 
           <hr class="my-4">
