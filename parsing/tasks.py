@@ -169,7 +169,13 @@ def _parse_telegram(source, keywords, keyword_objects):
 
     async def _fetch():
         from telethon import TelegramClient
-        session_path = str(settings.BASE_DIR / 'media' / 'telethon_session')
+        # Session is per-owner, created via interactive web flow or management command.
+        session_dir = settings.BASE_DIR / 'media' / 'telethon_sessions'
+        try:
+            session_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        session_path = str(session_dir / f'user_{source.owner_id}')
         client = TelegramClient(session_path, int(api_id), api_hash)
         await client.connect()
         if not await client.is_user_authorized():

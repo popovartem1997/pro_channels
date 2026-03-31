@@ -6,6 +6,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from .models import ParseSource, ParseKeyword, ParsedItem, ParseTask, AIRewriteJob
 from django.http import JsonResponse
+from django.http import HttpResponse
 
 
 def _ensure_parse_scheduler_every_20m():
@@ -95,6 +96,104 @@ def sources_list(request):
         'selected_channel': selected_channel,
         'sources': sources,
         'keywords': keywords,
+    })
+
+
+@login_required
+def telethon_connect(request):
+    """
+    Интерактивное подключение Telegram user API (Telethon) для парсинга.
+    Шаг 1: телефон -> отправить код
+    Шаг 2: код (и опционально пароль 2FA) -> сохранить session
+    """
+    from django.conf import settings
+    from core.models import get_global_api_keys
+    import asyncio
+
+    keys = get_global_api_keys()
+    api_id = (keys.telegram_api_id or '').strip()
+    api_hash = (keys.get_telegram_api_hash() or '').strip()
+    if not api_id or not api_hash:
+        messages.error(request, 'Не заданы TELEGRAM_API_ID / TELEGRAM_API_HASH (Ключи API → Парсинг Telegram).')
+        return redirect('parsing:sources')
+
+    session_dir = settings.BASE_DIR / 'media' / 'telethon_sessions'
+    session_dir.mkdir(parents=True, exist_ok=True)
+    session_path = str(session_dir / f'user_{request.user.id}')
+
+    step = (request.GET.get('step') or '').strip()
+    if request.method == 'POST':
+        action = (request.POST.get('action') or '').strip()
+        if action == 'send_code':
+            phone = (request.POST.get('phone') or '').strip()
+            if not phone:
+                messages.error(request, 'Введите номер телефона.')
+                return redirect('parsing:telethon_connect')
+
+            async def _send():
+                from telethon import TelegramClient
+                client = TelegramClient(session_path, int(api_id), api_hash)
+                await client.connect()
+                res = await client.send_code_request(phone)
+                await client.disconnect()
+                return res.phone_code_hash
+
+            try:
+                phone_code_hash = asyncio.run(_send())
+            except Exception as e:
+                messages.error(request, f'Не удалось отправить код: {e}')
+                return redirect('parsing:telethon_connect')
+
+            request.session['telethon_phone'] = phone
+            request.session['telethon_phone_code_hash'] = phone_code_hash
+            messages.success(request, 'Код отправлен. Введите код из Telegram.')
+            return redirect('/parsing/telethon/connect/?step=code')
+
+        if action == 'confirm_code':
+            phone = (request.session.get('telethon_phone') or '').strip()
+            phone_code_hash = (request.session.get('telethon_phone_code_hash') or '').strip()
+            code = (request.POST.get('code') or '').strip()
+            password = (request.POST.get('password') or '').strip()
+            if not phone or not phone_code_hash:
+                messages.error(request, 'Сначала отправьте код.')
+                return redirect('parsing:telethon_connect')
+            if not code:
+                messages.error(request, 'Введите код.')
+                return redirect('/parsing/telethon/connect/?step=code')
+
+            async def _confirm():
+                from telethon import TelegramClient
+                from telethon.errors import SessionPasswordNeededError
+                client = TelegramClient(session_path, int(api_id), api_hash)
+                await client.connect()
+                try:
+                    await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
+                except SessionPasswordNeededError:
+                    if not password:
+                        raise SessionPasswordNeededError(request='2fa')
+                    await client.sign_in(password=password)
+                me = await client.get_me()
+                await client.disconnect()
+                return me
+
+            try:
+                me = asyncio.run(_confirm())
+            except Exception as e:
+                # If 2FA required and password empty
+                if 'SessionPasswordNeededError' in str(type(e)) or '2fa' in str(e).lower():
+                    messages.error(request, 'Нужен пароль 2FA. Введите пароль Telegram и повторите.')
+                    return redirect('/parsing/telethon/connect/?step=code')
+                messages.error(request, f'Не удалось подтвердить код: {e}')
+                return redirect('/parsing/telethon/connect/?step=code')
+
+            # cleanup
+            request.session.pop('telethon_phone', None)
+            request.session.pop('telethon_phone_code_hash', None)
+            messages.success(request, f'Telegram подключён для парсинга: {getattr(me, "username", None) or getattr(me, "id", "")}')
+            return redirect('parsing:sources')
+
+    return render(request, 'parsing/telethon_connect.html', {
+        'step': step or 'phone',
     })
 
 

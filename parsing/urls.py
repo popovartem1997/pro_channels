@@ -5,6 +5,7 @@ app_name = 'parsing'
 
 urlpatterns = [
     path('', views.sources_list, name='sources'),
+    path('telethon/connect/', views.telethon_connect, name='telethon_connect'),
     path('source/add/', views.source_create, name='source_create'),
     path('source/<int:pk>/delete/', views.source_delete, name='source_delete'),
     path('keyword/add/', views.keyword_create, name='keyword_create'),

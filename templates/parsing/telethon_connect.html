@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block title %}Подключить Telegram для парсинга{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'parsing:sources' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К парсингу
+  </a>
+  <h1>Подключить Telegram для парсинга</h1>
+  <p class="text-muted small mb-0">Нужно один раз подтвердить номер телефона, чтобы парсинг мог читать последние 20 постов.</p>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-6">
+    <div class="card">
+      <div class="card-body p-4 p-md-5">
+        {% if step == 'code' %}
+          <form method="post" novalidate>
+            {% csrf_token %}
+            <input type="hidden" name="action" value="confirm_code">
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_code">Код из Telegram</label>
+              <input class="form-control" id="id_code" name="code" required placeholder="12345">
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_password">Пароль 2FA (если включён)</label>
+              <input class="form-control" id="id_password" name="password" type="password" placeholder="Необязательно">
+            </div>
+            <button class="btn btn-brand w-100 fw-semibold" type="submit">
+              Подтвердить
+            </button>
+          </form>
+        {% else %}
+          <form method="post" novalidate>
+            {% csrf_token %}
+            <input type="hidden" name="action" value="send_code">
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_phone">Телефон</label>
+              <input class="form-control" id="id_phone" name="phone" required placeholder="+79990000000">
+              <div class="form-text">Номер нужен только для авторизации Telegram user API (Telethon).</div>
+            </div>
+            <button class="btn btn-brand w-100 fw-semibold" type="submit">
+              Отправить код
+            </button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
