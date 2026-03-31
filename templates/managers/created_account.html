@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block title %}Аккаунт создан{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'managers:list' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К команде
+  </a>
+  <h1>Аккаунт создан</h1>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-body p-4 p-md-5">
+        <div class="alert alert-warning">
+          Пароль показывается <b>только один раз</b>. Скопируйте и передайте сотруднику.
+        </div>
+
+        <div class="mb-2"><b>Логин:</b> <code>{{ created_user.username }}</code></div>
+        <div class="mb-3"><b>Пароль:</b> <code>{{ created_password }}</code></div>
+        {% if created_user.email %}
+          <div class="mb-3"><b>Email:</b> {{ created_user.email }}</div>
+        {% endif %}
+
+        <div class="d-flex gap-2">
+          <a href="{% url 'login' %}" class="btn btn-outline-secondary">Страница входа</a>
+          <a href="{% url 'managers:list' %}" class="btn btn-brand">Готово</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+

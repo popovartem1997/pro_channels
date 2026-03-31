@@ -1,6 +1,7 @@
 """
 Управление командой: менеджеры, роли, права.
 """
+import secrets
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -36,6 +37,57 @@ def team_invite(request):
         messages.success(request, f'Приглашение отправлено на {email}.')
         return redirect('managers:list')
     return render(request, 'managers/invite.html', {'roles': TeamInvite.ROLE_CHOICES})
+
+
+@login_required
+def team_create_account(request):
+    """
+    Создать аккаунт менеджера/помощника сразу (логин+пароль готовые),
+    без email-инвайта.
+    """
+    if request.method != 'POST':
+        return redirect('managers:list')
+
+    from accounts.models import User
+
+    email = request.POST.get('email', '').strip().lower()
+    username = request.POST.get('username', '').strip()
+    role = request.POST.get('role', TeamInvite.ROLE_MANAGER)
+
+    if not username:
+        messages.error(request, 'Введите логин (username).')
+        return redirect('managers:list')
+
+    if User.objects.filter(username=username).exists():
+        messages.error(request, 'Такой логин уже занят.')
+        return redirect('managers:list')
+
+    if email and User.objects.filter(email=email).exists():
+        messages.error(request, 'Такой email уже зарегистрирован.')
+        return redirect('managers:list')
+
+    password = secrets.token_urlsafe(12)
+
+    user = User.objects.create_user(
+        username=username,
+        email=email or '',
+        password=password,
+        role=role,
+        invited_by=request.user,
+        is_email_verified=bool(email),
+    )
+
+    TeamMember.objects.get_or_create(
+        owner=request.user,
+        member=user,
+        defaults={'role': role},
+    )
+
+    # Показываем пароль один раз
+    return render(request, 'managers/created_account.html', {
+        'created_user': user,
+        'created_password': password,
+    })
 
 
 def _send_invite_email(invite, request):

@@ -7,9 +7,54 @@
     <h1><i class="bi bi-people me-2" style="color:var(--brand)"></i>Команда</h1>
     <p class="text-muted small mb-0">Управляйте доступом участников</p>
   </div>
-  <a href="{% url 'managers:invite' %}" class="btn btn-brand">
-    <i class="bi bi-person-plus me-1"></i> Пригласить
-  </a>
+  <div class="d-flex gap-2">
+    <a href="{% url 'managers:invite' %}" class="btn btn-outline-secondary">
+      <i class="bi bi-envelope-plus me-1"></i> Пригласить по email
+    </a>
+    <button class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#createAccountModal">
+      <i class="bi bi-person-plus me-1"></i> Создать аккаунт
+    </button>
+  </div>
+</div>
+
+<!-- Create account modal -->
+<div class="modal fade" id="createAccountModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Создать аккаунт менеджера</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="post" action="{% url 'managers:create_account' %}">
+        {% csrf_token %}
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Логин (username)</label>
+            <input type="text" name="username" class="form-control" placeholder="например: manager1" required>
+            <div class="form-text">Менеджер сможет войти по логину или email (если задан).</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Email (опционально)</label>
+            <input type="email" name="email" class="form-control" placeholder="manager@example.com">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Роль</label>
+            <select name="role" class="form-select">
+              <option value="manager">Менеджер</option>
+              <option value="assistant_admin">Помощник-администратор</option>
+            </select>
+          </div>
+          <div class="text-muted small">
+            Пароль будет сгенерирован автоматически и показан один раз после создания.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-brand">Создать</button>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 
 <!-- Members -->

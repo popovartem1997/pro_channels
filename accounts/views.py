@@ -5,6 +5,8 @@ from django.contrib import messages
 from django.core.mail import send_mail
 from django.conf import settings
 from django.utils import timezone
+from django.contrib.auth.forms import PasswordChangeForm
+from django.contrib.auth import update_session_auth_hash
 from .models import User, EmailVerification, PasswordResetToken
 from .forms import RegisterForm, LoginForm, ProfileForm
 
@@ -153,6 +155,18 @@ def dashboard(request):
     from content.models import Post
 
     user = request.user
+    if user.role in ('manager', 'assistant_admin'):
+        from managers.models import TeamMember
+        memberships = TeamMember.objects.filter(member=user, is_active=True).select_related('owner').prefetch_related('channels')
+        assigned_channels = Channel.objects.filter(
+            pk__in=TeamMember.objects.filter(member=user, is_active=True).values_list('channels__pk', flat=True)
+        ).distinct()
+        recent_posts = Post.objects.filter(channels__in=assigned_channels).distinct().order_by('-created_at')[:10]
+        return render(request, 'accounts/dashboard_manager.html', {
+            'memberships': memberships,
+            'assigned_channels': assigned_channels,
+            'recent_posts': recent_posts,
+        })
     bots = SuggestionBot.objects.filter(owner=user)
     channels = Channel.objects.filter(owner=user)
     pending_count = Suggestion.objects.filter(bot__owner=user, status='pending').count()
@@ -176,3 +190,20 @@ def dashboard(request):
         'bots_count': bots.count(),
         'posts_today': posts_today,
     })
+
+
+@login_required
+def change_password(request):
+    if request.method == 'POST':
+        form = PasswordChangeForm(user=request.user, data=request.POST)
+        if form.is_valid():
+            user = form.save()
+            update_session_auth_hash(request, user)
+            messages.success(request, 'Пароль изменён.')
+            return redirect('profile')
+        messages.error(request, 'Проверьте поля формы.')
+    else:
+        form = PasswordChangeForm(user=request.user)
+    for f in form.fields.values():
+        f.widget.attrs['class'] = 'form-control'
+    return render(request, 'accounts/change_password.html', {'form': form})

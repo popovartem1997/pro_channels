@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+{% load platform_icons %}
+{% block title %}Главная{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Кабинет менеджера</h1>
+  <div class="text-muted small mt-1">
+    Здесь показаны каналы, к которым вам выдал доступ владелец.
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-5">
+    <div class="card">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3">Команды</h6>
+        {% if memberships %}
+          {% for m in memberships %}
+            <div class="d-flex align-items-center justify-content-between py-1">
+              <div class="small">
+                Владелец: <b>{{ m.owner.get_full_name|default:m.owner.username }}</b>
+              </div>
+              <span class="badge bg-secondary-subtle text-secondary">{{ m.get_role_display }}</span>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="text-muted small">Пока нет доступов. Попросите владельца добавить вас в команду и выдать каналы.</div>
+        {% endif %}
+
+        <hr>
+
+        <h6 class="fw-bold mb-3">Каналы (доступ)</h6>
+        {% if assigned_channels %}
+          {% for ch in assigned_channels %}
+            <div class="d-flex align-items-center justify-content-between py-1">
+              <div class="d-flex align-items-center gap-2">
+                {% platform_badge ch.platform %}
+                <span class="small">{{ ch.name }}</span>
+              </div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="text-muted small">Каналы не назначены.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h6 class="fw-bold mb-0">Последние посты по доступным каналам</h6>
+          <a href="{% url 'content:list' %}" class="small text-decoration-none" style="color:var(--brand)">Посты →</a>
+        </div>
+        {% if recent_posts %}
+          <ul class="list-group list-group-flush">
+            {% for post in recent_posts %}
+              <li class="list-group-item px-0 py-2">
+                <div class="d-flex align-items-center gap-2">
+                  <span class="status-dot {{ post.status }}"></span>
+                  <span class="flex-grow-1 text-truncate small">{{ post.text|truncatechars:90 }}</span>
+                  <span class="text-muted" style="font-size:.7rem;white-space:nowrap;">{{ post.created_at|date:"d.m H:i" }}</span>
+                  <a href="{% url 'content:detail' post.pk %}" class="btn btn-outline-secondary btn-sm py-0 px-2">
+                    <i class="bi bi-eye" style="font-size:.75rem;"></i>
+                  </a>
+                </div>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <div class="text-muted small">Постов пока нет.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+

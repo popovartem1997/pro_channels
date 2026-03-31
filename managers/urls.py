@@ -6,6 +6,7 @@ app_name = 'managers'
 urlpatterns = [
     path('', views.team_list, name='list'),
     path('invite/', views.team_invite, name='invite'),
+    path('create-account/', views.team_create_account, name='create_account'),
     path('accept/<uuid:token>/', views.accept_invite, name='accept_invite'),
     path('<int:pk>/remove/', views.member_remove, name='remove'),
     path('invite/<int:pk>/cancel/', views.invite_cancel, name='cancel_invite'),
