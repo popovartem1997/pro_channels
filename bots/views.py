@@ -168,9 +168,11 @@ def bot_list(request):
 
 @login_required
 def bot_create(request):
+    from managers.models import TeamMember
+    team_members = TeamMember.objects.filter(owner=request.user, is_active=True, can_moderate=True).select_related('member')
+    selected_moderators = set(request.POST.getlist('moderators')) if request.method == 'POST' else set()
+
     if request.method == 'POST':
-        from .utils import encrypt_token
-        from managers.models import TeamMember
         import re
         name = request.POST.get('name', '').strip()
         platform = request.POST.get('platform', '')
@@ -182,7 +184,11 @@ def bot_create(request):
 
         if not all([name, platform, token]):
             messages.error(request, 'Заполните все обязательные поля.')
-            return render(request, 'bots/create.html', {'platforms': SuggestionBot.PLATFORM_CHOICES})
+            return render(request, 'bots/create.html', {
+                'platforms': SuggestionBot.PLATFORM_CHOICES,
+                'team_members': team_members,
+                'selected_moderators': selected_moderators,
+            })
 
         bot = SuggestionBot(
             owner=request.user,
@@ -233,9 +239,11 @@ def bot_create(request):
         messages.success(request, f'Бот "{name}" создан.')
         return redirect('bots:list')
 
-    from managers.models import TeamMember
-    team_members = TeamMember.objects.filter(owner=request.user, is_active=True, can_moderate=True).select_related('member')
-    return render(request, 'bots/create.html', {'platforms': SuggestionBot.PLATFORM_CHOICES, 'team_members': team_members})
+    return render(request, 'bots/create.html', {
+        'platforms': SuggestionBot.PLATFORM_CHOICES,
+        'team_members': team_members,
+        'selected_moderators': selected_moderators,
+    })
 
 
 @login_required

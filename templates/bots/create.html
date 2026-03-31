@@ -69,7 +69,7 @@
               <select name="moderators" class="form-select" multiple size="5">
                 {% for tm in team_members %}
                   <option value="{{ tm.member_id }}"
-                    {% if tm.member_id|stringformat:"s" in request.POST.getlist("moderators") %}selected{% endif %}>
+                    {% if tm.member_id|stringformat:"s" in selected_moderators %}selected{% endif %}>
                     {{ tm.member.get_full_name|default:tm.member.username }} ({{ tm.member.username }})
                   </option>
                 {% endfor %}
