@@ -12,6 +12,16 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-dev-key-change-me')
 DEBUG = config('DEBUG', default=True, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='*', cast=Csv())
 
+# ─── HTTPS behind reverse proxy (Nginx) ───────────────────────────────────────
+# When running behind Nginx (TLS termination) Django must trust the forwarded
+# scheme and origins, otherwise admin login may fail CSRF validation.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+CSRF_TRUSTED_ORIGINS = [
+    'https://prochannels.ru',
+    'https://www.prochannels.ru',
+]
+
 # ─── Приложения ───────────────────────────────────────────────────────────────
 INSTALLED_APPS = [
     'django.contrib.admin',
