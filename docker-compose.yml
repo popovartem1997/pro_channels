@@ -65,6 +65,7 @@ services:
 
   nginx:
     image: nginx:1.27-alpine
+    profiles: ["docker-nginx"]
     depends_on:
       web:
         condition: service_started
