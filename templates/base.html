@@ -107,6 +107,7 @@
 <body>
 
 {% if user.is_authenticated %}
+{% with is_manager=user.role == 'manager' or user.role == 'assistant_admin' %}
 
 <!-- Мобильный топбар (виден только на телефоне/планшете) -->
 <div class="mobile-topbar">
@@ -145,60 +146,78 @@
       {% endif %}
     </ul>
 
-    <span class="nav-section">Публикация</span>
-    <ul class="nav flex-column">
-      <li><a class="nav-link {% if 'channels' in request.path %}active{% endif %}" href="{% url 'channels:list' %}">
-        <i class="bi bi-broadcast"></i> Каналы
-      </a></li>
-      <li><a class="nav-link {% if '/posts/' in request.path %}active{% endif %}" href="{% url 'content:list' %}">
-        <i class="bi bi-pencil-square"></i> Посты
-      </a></li>
-      <li><a class="nav-link {% if '/bots/' in request.path %}active{% endif %}" href="{% url 'bots:list' %}">
-        <i class="bi bi-robot"></i> Боты предложки
-        {% if global_pending_count %}<span class="ms-auto badge rounded-pill bg-danger">{{ global_pending_count }}</span>{% endif %}
-      </a></li>
-    </ul>
+    {% if not is_manager %}
+      <span class="nav-section">Публикация</span>
+      <ul class="nav flex-column">
+        <li><a class="nav-link {% if 'channels' in request.path %}active{% endif %}" href="{% url 'channels:list' %}">
+          <i class="bi bi-broadcast"></i> Каналы
+        </a></li>
+        <li><a class="nav-link {% if '/posts/' in request.path %}active{% endif %}" href="{% url 'content:list' %}">
+          <i class="bi bi-pencil-square"></i> Посты
+        </a></li>
+        <li><a class="nav-link {% if '/bots/' in request.path %}active{% endif %}" href="{% url 'bots:list' %}">
+          <i class="bi bi-robot"></i> Боты предложки
+          {% if global_pending_count %}<span class="ms-auto badge rounded-pill bg-danger">{{ global_pending_count }}</span>{% endif %}
+        </a></li>
+      </ul>
+    {% else %}
+      <span class="nav-section">Работа</span>
+      <ul class="nav flex-column">
+        <li><a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}">
+          <i class="bi bi-house-door"></i> Главная
+        </a></li>
+        <li><a class="nav-link {% if '/posts/' in request.path %}active{% endif %}" href="{% url 'content:list' %}">
+          <i class="bi bi-pencil-square"></i> Посты
+        </a></li>
+      </ul>
+    {% endif %}
 
-    <span class="nav-section">Контент</span>
-    <ul class="nav flex-column">
-      <li><a class="nav-link {% if '/parsing/' in request.path %}active{% endif %}" href="{% url 'parsing:sources' %}">
-        <i class="bi bi-search"></i> Парсинг
-      </a></li>
-    </ul>
+    {% if not is_manager %}
+      <span class="nav-section">Контент</span>
+      <ul class="nav flex-column">
+        <li><a class="nav-link {% if '/parsing/' in request.path %}active{% endif %}" href="{% url 'parsing:sources' %}">
+          <i class="bi bi-search"></i> Парсинг
+        </a></li>
+      </ul>
+    {% endif %}
 
-    <span class="nav-section">Аналитика</span>
-    <ul class="nav flex-column">
-      <li><a class="nav-link {% if '/stats/' in request.path %}active{% endif %}" href="{% url 'stats:dashboard' %}">
-        <i class="bi bi-bar-chart-line"></i> Статистика
-      </a></li>
-    </ul>
+    {% if not is_manager %}
+      <span class="nav-section">Аналитика</span>
+      <ul class="nav flex-column">
+        <li><a class="nav-link {% if '/stats/' in request.path %}active{% endif %}" href="{% url 'stats:dashboard' %}">
+          <i class="bi bi-bar-chart-line"></i> Статистика
+        </a></li>
+      </ul>
+    {% endif %}
 
-    <span class="nav-section">Монетизация</span>
-    <ul class="nav flex-column">
-      <li><a class="nav-link {% if '/advertisers/' in request.path and '/advertisers/manage/' not in request.path %}active{% endif %}"
-             href="{% if user.is_staff or user.role == 'owner' %}{% url 'advertisers:catalog' %}{% else %}{% url 'advertisers:dashboard' %}{% endif %}">
-        <i class="bi bi-megaphone"></i> Реклама
-      </a></li>
-      {% if user.is_staff or user.role == 'owner' %}
-      <li><a class="nav-link {% if '/advertisers/manage/' in request.path %}active{% endif %}" href="{% url 'advertisers:owner_orders' %}">
-        <i class="bi bi-clipboard-check"></i> Заявки на рекламу
-        {% if adv_pending_count %}<span class="ms-auto badge rounded-pill bg-warning text-dark">{{ adv_pending_count }}</span>{% endif %}
-      </a></li>
-      {% endif %}
-      <li><a class="nav-link {% if '/ord/' in request.path %}active{% endif %}" href="{% url 'ord_marking:list' %}">
-        <i class="bi bi-shield-check"></i> ВК ОРД
-      </a></li>
-      <li><a class="nav-link {% if '/billing/' in request.path %}active{% endif %}" href="{% url 'billing:invoices' %}">
-        <i class="bi bi-credit-card"></i> Счета
-      </a></li>
-    </ul>
+    {% if not is_manager %}
+      <span class="nav-section">Монетизация</span>
+      <ul class="nav flex-column">
+        <li><a class="nav-link {% if '/advertisers/' in request.path and '/advertisers/manage/' not in request.path %}active{% endif %}"
+               href="{% if user.is_staff or user.role == 'owner' %}{% url 'advertisers:catalog' %}{% else %}{% url 'advertisers:dashboard' %}{% endif %}">
+          <i class="bi bi-megaphone"></i> Реклама
+        </a></li>
+        {% if user.is_staff or user.role == 'owner' %}
+        <li><a class="nav-link {% if '/advertisers/manage/' in request.path %}active{% endif %}" href="{% url 'advertisers:owner_orders' %}">
+          <i class="bi bi-clipboard-check"></i> Заявки на рекламу
+          {% if adv_pending_count %}<span class="ms-auto badge rounded-pill bg-warning text-dark">{{ adv_pending_count }}</span>{% endif %}
+        </a></li>
+        {% endif %}
+        <li><a class="nav-link {% if '/ord/' in request.path %}active{% endif %}" href="{% url 'ord_marking:list' %}">
+          <i class="bi bi-shield-check"></i> ВК ОРД
+        </a></li>
+        <li><a class="nav-link {% if '/billing/' in request.path %}active{% endif %}" href="{% url 'billing:invoices' %}">
+          <i class="bi bi-credit-card"></i> Счета
+        </a></li>
+      </ul>
 
-    <span class="nav-section">Команда</span>
-    <ul class="nav flex-column">
-      <li><a class="nav-link {% if '/managers/' in request.path %}active{% endif %}" href="{% url 'managers:list' %}">
-        <i class="bi bi-people"></i> Менеджеры
-      </a></li>
-    </ul>
+      <span class="nav-section">Команда</span>
+      <ul class="nav flex-column">
+        <li><a class="nav-link {% if '/managers/' in request.path %}active{% endif %}" href="{% url 'managers:list' %}">
+          <i class="bi bi-people"></i> Менеджеры
+        </a></li>
+      </ul>
+    {% endif %}
 
     <div class="mt-auto pt-2">
       <hr class="text-muted my-2">
@@ -217,6 +236,7 @@
       </a>
     </div>
   </nav>
+{% endwith %}
 
   <div class="flex-grow-1 d-flex flex-column" style="min-width:0;">
     {% if messages %}

@@ -9,8 +9,19 @@ from django.utils import timezone
 from .models import TeamInvite, TeamMember
 
 
+def _require_owner(request):
+    # Владелец или staff может управлять командой
+    if not (request.user.is_staff or getattr(request.user, 'role', '') == 'owner'):
+        from django.http import HttpResponse
+        return HttpResponse(status=403)
+    return None
+
+
 @login_required
 def team_list(request):
+    resp = _require_owner(request)
+    if resp:
+        return resp
     members = TeamMember.objects.filter(owner=request.user, is_active=True).select_related('member')
     invites = TeamInvite.objects.filter(owner=request.user, status=TeamInvite.STATUS_PENDING)
     return render(request, 'managers/list.html', {
@@ -21,6 +32,9 @@ def team_list(request):
 
 @login_required
 def team_invite(request):
+    resp = _require_owner(request)
+    if resp:
+        return resp
     if request.method == 'POST':
         email = request.POST.get('email', '').strip().lower()
         role = request.POST.get('role', TeamInvite.ROLE_MANAGER)
@@ -45,6 +59,9 @@ def team_create_account(request):
     Создать аккаунт менеджера/помощника сразу (логин+пароль готовые),
     без email-инвайта.
     """
+    resp = _require_owner(request)
+    if resp:
+        return resp
     if request.method != 'POST':
         return redirect('managers:list')
 
@@ -144,6 +161,9 @@ def accept_invite(request, token):
 
 @login_required
 def member_remove(request, pk):
+    resp = _require_owner(request)
+    if resp:
+        return resp
     member = get_object_or_404(TeamMember, pk=pk, owner=request.user)
     if request.method == 'POST':
         member.is_active = False
@@ -154,6 +174,9 @@ def member_remove(request, pk):
 
 @login_required
 def invite_cancel(request, pk):
+    resp = _require_owner(request)
+    if resp:
+        return resp
     invite = get_object_or_404(TeamInvite, pk=pk, owner=request.user, status=TeamInvite.STATUS_PENDING)
     if request.method == 'POST':
         invite.status = TeamInvite.STATUS_DECLINED
