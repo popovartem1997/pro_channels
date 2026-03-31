@@ -66,7 +66,12 @@
             <div class="small text-muted">{{ a.created_at|date:"d.m H:i:s" }}</div>
             <div class="fw-semibold">{{ a.action }}</div>
             <div class="text-muted small">
-              Кто: {{ a.actor.get_full_name|default:a.actor.username|default:"—" }}
+              Кто:
+              {% if a.actor %}
+                {{ a.actor.get_full_name|default:a.actor.username|default:"—" }}
+              {% else %}
+                —
+              {% endif %}
               · Владелец: {% if a.owner %}{{ a.owner.username|default:"—" }}{% else %}—{% endif %}
               · {{ a.object_type }}#{{ a.object_id }}
             </div>
