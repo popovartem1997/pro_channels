@@ -832,12 +832,42 @@ def suggestion_media(request, pk: int, idx: int):
         return HttpResponse(status=403)
 
     bot = suggestion.bot
-    if not bot or bot.platform != SuggestionBot.PLATFORM_TELEGRAM:
+    if not bot:
         return HttpResponse(status=404)
 
     media_ids = suggestion.media_file_ids or []
     if idx < 0 or idx >= len(media_ids):
         return HttpResponse(status=404)
+
+    # ─── MAX: media_file_ids — token из Bot API, качаем через platform-api / CDN
+    if bot.platform == SuggestionBot.PLATFORM_MAX:
+        from .max_bot.bot import MaxBotAPI
+        from .max_media_preview import attachment_entries_from_raw, fetch_max_preview_bytes
+
+        token = media_ids[idx]
+        if not token:
+            return HttpResponse(status=404)
+        entries = attachment_entries_from_raw(suggestion.raw_data)
+        att_type = ''
+        att_dict: dict = {}
+        if idx < len(entries) and str(entries[idx].get('token')) == str(token):
+            att_type = entries[idx].get('type') or ''
+            att_dict = entries[idx].get('att') if isinstance(entries[idx].get('att'), dict) else {}
+        elif idx < len(entries):
+            att_type = entries[idx].get('type') or ''
+            att_dict = entries[idx].get('att') if isinstance(entries[idx].get('att'), dict) else {}
+            token = str(entries[idx].get('token') or token)
+
+        api = MaxBotAPI(bot.get_token())
+        out = fetch_max_preview_bytes(api, bot.get_token(), str(token), att_type, att_dict)
+        if not out:
+            return HttpResponse(status=404)
+        data, ct = out
+        return HttpResponse(data, content_type=ct)
+
+    if bot.platform != SuggestionBot.PLATFORM_TELEGRAM:
+        return HttpResponse(status=404)
+
     file_id = media_ids[idx]
     if not file_id:
         return HttpResponse(status=404)
