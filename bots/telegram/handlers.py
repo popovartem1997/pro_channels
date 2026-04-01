@@ -326,6 +326,49 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if send_mode:
             context.user_data['send_mode'] = False
 
+        # --- Media group (albums): collect and process once ---
+        # Telegram sends albums (e.g. text+2 photos) as multiple messages with same media_group_id.
+        # If we process each message independently, moderators receive multiple cards.
+        mgid = getattr(message, 'media_group_id', None)
+        if mgid and (message.photo or message.video or message.document):
+            try:
+                mg_key = f'mg:{int(update.effective_chat.id)}:{str(mgid)}'
+            except Exception:
+                mg_key = f'mg:0:{str(mgid)}'
+
+            buf = context.application.bot_data.get(mg_key)
+            if not isinstance(buf, dict):
+                buf = {'messages': [], 'created_at': timezone.now()}
+                context.application.bot_data[mg_key] = buf
+
+            # Append current message snapshot (we'll extract file_ids later)
+            try:
+                buf['messages'].append(message.to_dict())
+            except Exception:
+                pass
+
+            # Schedule a flush job only once
+            job_key = mg_key + ':job'
+            if not context.application.bot_data.get(job_key):
+                context.application.bot_data[job_key] = True
+                try:
+                    context.application.job_queue.run_once(
+                        _flush_media_group_job,
+                        when=2.0,
+                        data={
+                            'mg_key': mg_key,
+                            'chat_id': int(update.effective_chat.id) if update.effective_chat else 0,
+                            'user_id': int(user.id) if user else 0,
+                            'send_mode': bool(send_mode),
+                        },
+                        name=job_key,
+                    )
+                except Exception:
+                    # If no job queue, fallback to normal per-message handling
+                    context.application.bot_data.pop(job_key, None)
+            # Do not process this message further (wait for flush)
+            return
+
         # Определяем тип контента и собираем медиа-ID
         from bots.models import Suggestion
 
@@ -574,39 +617,244 @@ async def _forward_to_admin(update, context, suggestion, admin_chat_id: str):
     ]])
 
     try:
-        if message.photo:
-            await context.bot.send_photo(
-                chat_id=admin_chat_id, photo=message.photo[-1].file_id,
-                caption=caption, reply_markup=keyboard, parse_mode='HTML',
+        # Prefer using saved suggestion media ids (for albums and merged messages).
+        media_ids = list(getattr(suggestion, 'media_file_ids', None) or [])
+        if media_ids:
+            # Send first media with caption + buttons, remaining media as separate messages (no buttons).
+            first = media_ids[0]
+            sent = await context.bot.send_photo(
+                chat_id=admin_chat_id,
+                photo=first,
+                caption=caption,
+                reply_markup=keyboard,
+                parse_mode='HTML',
             )
-        elif message.video:
-            await context.bot.send_video(
-                chat_id=admin_chat_id, video=message.video.file_id,
-                caption=caption, reply_markup=keyboard, parse_mode='HTML',
-            )
-        elif message.document:
-            await context.bot.send_document(
-                chat_id=admin_chat_id, document=message.document.file_id,
-                caption=caption, reply_markup=keyboard, parse_mode='HTML',
-            )
-        elif message.audio:
-            await context.bot.send_audio(
-                chat_id=admin_chat_id, audio=message.audio.file_id,
-                caption=caption, reply_markup=keyboard, parse_mode='HTML',
-            )
-        elif message.voice:
-            await context.bot.send_voice(
-                chat_id=admin_chat_id, voice=message.voice.file_id,
-                caption=caption, reply_markup=keyboard, parse_mode='HTML',
-            )
+            for fid in media_ids[1:10]:
+                try:
+                    await context.bot.send_photo(chat_id=admin_chat_id, photo=fid, reply_to_message_id=sent.message_id)
+                except Exception:
+                    try:
+                        await context.bot.send_photo(chat_id=admin_chat_id, photo=fid)
+                    except Exception:
+                        pass
         else:
-            await context.bot.send_message(
-                chat_id=admin_chat_id, text=caption,
-                reply_markup=keyboard, parse_mode='HTML',
-            )
+            # Fallback: use the actual incoming message payload
+            if message.photo:
+                await context.bot.send_photo(
+                    chat_id=admin_chat_id, photo=message.photo[-1].file_id,
+                    caption=caption, reply_markup=keyboard, parse_mode='HTML',
+                )
+            elif message.video:
+                await context.bot.send_video(
+                    chat_id=admin_chat_id, video=message.video.file_id,
+                    caption=caption, reply_markup=keyboard, parse_mode='HTML',
+                )
+            elif message.document:
+                await context.bot.send_document(
+                    chat_id=admin_chat_id, document=message.document.file_id,
+                    caption=caption, reply_markup=keyboard, parse_mode='HTML',
+                )
+            elif message.audio:
+                await context.bot.send_audio(
+                    chat_id=admin_chat_id, audio=message.audio.file_id,
+                    caption=caption, reply_markup=keyboard, parse_mode='HTML',
+                )
+            elif message.voice:
+                await context.bot.send_voice(
+                    chat_id=admin_chat_id, voice=message.voice.file_id,
+                    caption=caption, reply_markup=keyboard, parse_mode='HTML',
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=admin_chat_id, text=caption,
+                    reply_markup=keyboard, parse_mode='HTML',
+                )
     except Exception as e:
         logger.error('Ошибка при пересылке в чат модерации %s: %s', admin_chat_id, e)
 
+
+async def _flush_media_group_job(context: ContextTypes.DEFAULT_TYPE):
+    """
+    JobQueue callback: flush collected album messages into ONE Suggestion + ONE moderation card.
+    """
+    try:
+        data = getattr(context, 'job', None).data if getattr(context, 'job', None) else {}
+    except Exception:
+        data = {}
+    mg_key = (data.get('mg_key') or '').strip()
+    if not mg_key:
+        return
+    buf = context.application.bot_data.get(mg_key) or {}
+    msgs = buf.get('messages') if isinstance(buf, dict) else None
+    if not isinstance(msgs, list) or not msgs:
+        context.application.bot_data.pop(mg_key, None)
+        context.application.bot_data.pop(mg_key + ':job', None)
+        return
+
+    bot_config = context.application.bot_data.get('bot_config')
+    if not bot_config:
+        return
+
+    chat_id = int(data.get('chat_id') or 0)
+    user_id = int(data.get('user_id') or 0)
+    send_mode = bool(data.get('send_mode'))
+
+    # Extract media file_ids and caption/text from album messages
+    media_ids: list[str] = []
+    text = ''
+    for m in msgs:
+        if not isinstance(m, dict):
+            continue
+        if not text:
+            text = (m.get('caption') or m.get('text') or '') or ''
+        # photo sizes array -> take last file_id
+        ph = m.get('photo') or []
+        if isinstance(ph, list) and ph:
+            fid = ph[-1].get('file_id') if isinstance(ph[-1], dict) else None
+            if fid:
+                media_ids.append(fid)
+        vid = m.get('video') or {}
+        if isinstance(vid, dict) and vid.get('file_id'):
+            media_ids.append(str(vid.get('file_id')))
+
+    # De-dup while preserving order
+    seen = set()
+    media_ids2 = []
+    for fid in media_ids:
+        if fid and fid not in seen:
+            seen.add(fid)
+            media_ids2.append(fid)
+    media_ids = media_ids2[:10]
+
+    from bots.models import Suggestion
+
+    @sync_to_async
+    def save_album_suggestion():
+        from bots.models import SuggestionUserStats
+        from django.utils import timezone as tz
+        from datetime import timedelta
+
+        merge_window = tz.now() - timedelta(minutes=2)
+        recent = (
+            Suggestion.objects.filter(
+                bot=bot_config,
+                platform_user_id=str(user_id),
+                status=Suggestion.STATUS_PENDING,
+                submitted_at__gte=merge_window,
+            )
+            .order_by('-submitted_at')
+            .first()
+        )
+        if recent:
+            merged_text = (recent.text or '').strip()
+            new_text = (text or '').strip()
+            if new_text:
+                recent.text = (merged_text + '\n\n' + new_text).strip() if merged_text else new_text
+            existing_ids = list(recent.media_file_ids or [])
+            for fid in (media_ids or []):
+                if fid and fid not in existing_ids:
+                    existing_ids.append(fid)
+            recent.media_file_ids = existing_ids
+            if existing_ids and (recent.text or ''):
+                recent.content_type = Suggestion.CONTENT_MIXED
+            prev_msgs = []
+            if isinstance(recent.raw_data, dict):
+                prev = recent.raw_data.get('messages')
+                if isinstance(prev, list):
+                    prev_msgs = prev
+            recent.raw_data = {'messages': prev_msgs + msgs}
+            recent.save(update_fields=['text', 'media_file_ids', 'content_type', 'raw_data'])
+            suggestion = recent
+            created_new = False
+        else:
+            suggestion = Suggestion.objects.create(
+                bot=bot_config,
+                platform_user_id=str(user_id),
+                content_type=Suggestion.CONTENT_MIXED if media_ids and text else (Suggestion.CONTENT_PHOTO if media_ids else Suggestion.CONTENT_TEXT),
+                text=text or '',
+                media_file_ids=media_ids,
+                raw_data={'messages': msgs},
+            )
+            created_new = True
+
+        stats, created = SuggestionUserStats.objects.get_or_create(
+            bot=bot_config,
+            platform_user_id=str(user_id),
+            defaults={'display_name': str(user_id)},
+        )
+        if created_new:
+            stats.total += 1
+            stats.pending += 1
+        stats.last_submission = tz.now()
+        stats.save()
+        return suggestion
+
+    try:
+        suggestion = await save_album_suggestion()
+    except Exception as e:
+        logger.exception('[TG] album save failed: %s', e)
+        return
+
+    # Confirm to user once
+    try:
+        confirm = bot_config.success_message.replace('{tracking_id}', suggestion.short_tracking_id)
+        tracking_tag = f'#{suggestion.short_tracking_id}'
+        if tracking_tag not in confirm:
+            confirm = f'{tracking_tag}\n' + confirm
+        if send_mode:
+            confirm = '✅ Новость получена!\n\n' + confirm
+        if chat_id:
+            await context.bot.send_message(chat_id=chat_id, text=confirm)
+    except Exception:
+        pass
+
+    # Forward to moderation chats once
+    admin_chat_ids = []
+    try:
+        admin_chat_ids = list(bot_config.get_moderation_chat_ids())
+    except Exception:
+        admin_chat_ids = [bot_config.admin_chat_id] if bot_config.admin_chat_id else []
+    for cid in admin_chat_ids:
+        try:
+            # Fake an Update-like minimal object is hard; reuse send logic directly
+            # by sending based on suggestion.media_file_ids with caption+buttons.
+            uuid_str = str(suggestion.tracking_id)
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton('✅ Одобрить', callback_data=f'approve|{uuid_str}'),
+                InlineKeyboardButton('❌ Отклонить', callback_data=f'reject|{uuid_str}'),
+            ]])
+            # Build caption (no name/username here)
+            cap = (
+                '📬 Новое предложение '
+                f'<code>#{html.escape(suggestion.short_tracking_id, quote=False)}</code>\n\n'
+                f'🆔 <code>{html.escape(str(user_id), quote=False)}</code>\n'
+                f'📎 Тип: {_h(suggestion.get_content_type_display())}'
+            )
+            if suggestion.text:
+                preview = suggestion.text[:300] + ('…' if len(suggestion.text) > 300 else '')
+                cap += f'\n\n📝 {html.escape(preview, quote=False)}'
+            mids = list(suggestion.media_file_ids or [])
+            if mids:
+                sent = await context.bot.send_photo(
+                    chat_id=str(cid),
+                    photo=mids[0],
+                    caption=cap,
+                    reply_markup=keyboard,
+                    parse_mode='HTML',
+                )
+                for fid in mids[1:10]:
+                    try:
+                        await context.bot.send_photo(chat_id=str(cid), photo=fid, reply_to_message_id=sent.message_id)
+                    except Exception:
+                        await context.bot.send_photo(chat_id=str(cid), photo=fid)
+            else:
+                await context.bot.send_message(chat_id=str(cid), text=cap, reply_markup=keyboard, parse_mode='HTML')
+        except Exception:
+            pass
+
+    # Cleanup
+    context.application.bot_data.pop(mg_key, None)
+    context.application.bot_data.pop(mg_key + ':job', None)
 
 # ─── Callback-обработчик кнопок модерации ─────────────────────────────────────
 

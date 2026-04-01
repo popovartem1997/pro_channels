@@ -601,6 +601,8 @@ def _publish_telegram(post, channel):
     kwargs = {
         'chat_id': chat_id,
         'disable_notification': post.disable_notification,
+        # По запросу: отключаем превью ссылок (web page preview) в Telegram
+        'disable_web_page_preview': True,
     }
 
     # TG Premium Emoji: если есть entities — отправляем их вместо parse_mode
