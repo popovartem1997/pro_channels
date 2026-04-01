@@ -254,7 +254,17 @@ def post_create_from_suggestion(request, tracking_id):
         status=Post.STATUS_DRAFT,
         suggestion=suggestion,
     )
-    post.channels.set([bot.channel_id])
+    # Если канал бота входит в группу — по запросу выделяем все каналы этой группы
+    # (один паблик может публиковаться в нескольких соцсетях).
+    try:
+        ch = bot.channel
+        group = getattr(ch, 'channel_group', None)
+        if group:
+            post.channels.set(list(group.channels.filter(is_active=True).values_list('pk', flat=True)))
+        else:
+            post.channels.set([bot.channel_id])
+    except Exception:
+        post.channels.set([bot.channel_id])
     post_pk = post.pk
 
     def _enqueue_import():
@@ -280,7 +290,16 @@ def post_create_from_suggestion(request, tracking_id):
         except Exception:
             pass
 
-    transaction.on_commit(_enqueue_import)
+    # Импортируем медиа сразу, чтобы при нажатии "Опубликовать сейчас" в редакторе
+    # пост отправлялся с вложениями. Celery остаётся запасным вариантом.
+    try:
+        _enqueue_import()
+    except Exception:
+        try:
+            from .tasks import import_media_from_suggestion_task
+            import_media_from_suggestion_task.delay(post_pk)
+        except Exception:
+            pass
 
     messages.success(request, f'Создан черновик поста из предложки #{suggestion.short_tracking_id}.')
     return redirect('content:edit', pk=post.pk)
