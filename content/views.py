@@ -143,6 +143,17 @@ def post_create(request):
             from django.utils.dateparse import parse_datetime
             scheduled_at = parse_datetime(scheduled_at_str)
             if scheduled_at:
+                if timezone.is_naive(scheduled_at):
+                    try:
+                        scheduled_at = timezone.make_aware(scheduled_at, timezone.get_current_timezone())
+                    except Exception:
+                        pass
+                if scheduled_at <= timezone.now():
+                    messages.error(request, 'Время публикации уже прошло. Выберите время в будущем или нажмите «Опубликовать сейчас».')
+                    return render(request, 'content/create.html', {
+                        'user_channels': user_channels,
+                        'preselected': preselected,
+                    })
                 post.scheduled_at = scheduled_at
                 post.status = Post.STATUS_SCHEDULED
             else:
@@ -374,8 +385,25 @@ def post_edit(request, pk):
             from django.utils.dateparse import parse_datetime
             scheduled_at = parse_datetime(scheduled_at_str)
             if scheduled_at:
+                if timezone.is_naive(scheduled_at):
+                    try:
+                        scheduled_at = timezone.make_aware(scheduled_at, timezone.get_current_timezone())
+                    except Exception:
+                        pass
+                if scheduled_at <= timezone.now():
+                    messages.error(request, 'Время публикации уже прошло. Выберите время в будущем или очистите поле планирования.')
+                    return render(request, 'content/edit.html', {
+                        'post': post,
+                        'user_channels': user_channels,
+                        'selected_channels': [int(x) for x in channel_ids if str(x).isdigit()],
+                    })
                 post.scheduled_at = scheduled_at
                 post.status = Post.STATUS_SCHEDULED
+        else:
+            # Если пользователь очистил планирование — снимаем scheduled (но не трогаем published).
+            if post.status == Post.STATUS_SCHEDULED:
+                post.scheduled_at = None
+                post.status = Post.STATUS_DRAFT
         if not post.text:
             messages.error(request, 'Введите текст поста.')
             return render(request, 'content/edit.html', {
@@ -630,7 +658,11 @@ def post_publish_now(request, pk):
     from .tasks import publish_post_task
     try:
         post.published_by = request.user
-        post.save(update_fields=['published_by'])
+        # Если пост был запланирован (в т.ч. на прошедшее время) — снимаем планирование,
+        # чтобы в UI сразу было видно, что это немедленная публикация.
+        post.scheduled_at = None
+        post.status = Post.STATUS_PUBLISHING
+        post.save(update_fields=['published_by', 'scheduled_at', 'status'])
     except Exception:
         pass
     publish_post_task.delay(post.pk, force=force)
