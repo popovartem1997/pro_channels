@@ -281,6 +281,8 @@ class MAXSuggestionBot:
         from datetime import timedelta
 
         message = update.get('message', {})
+        if not isinstance(message, dict):
+            return
         sender = message.get('sender', {})
         recipient = message.get('recipient', {}) if isinstance(message, dict) else {}
         if not isinstance(recipient, dict):
@@ -289,9 +291,22 @@ class MAXSuggestionBot:
         recipient_user_id = recipient.get('user_id', '')
         user_id = str(sender.get('user_id', ''))
         text = message.get('body', {}).get('text', '')
+        mid = str(message.get('mid', '') or '').strip()
 
         if not user_id:
             return
+
+        # Защита от дублей: MAX может присылать один и тот же update повторно.
+        # Если сообщение с таким mid уже обработано — просто выходим (без второго "Спасибо").
+        if mid:
+            try:
+                if Suggestion.objects.filter(bot=self.config, raw_data__mid=mid).exists():
+                    return
+                if Suggestion.objects.filter(bot=self.config, raw_data__last_message__mid=mid).exists():
+                    return
+            except Exception:
+                # Best-effort: если JSON lookup недоступен/падает — продолжаем без дедупликации.
+                pass
 
         # Команды
         if text.lower() in ('/start', 'start', 'начать'):
@@ -369,7 +384,7 @@ class MAXSuggestionBot:
                 content_type=content_type,
                 text=text,
                 media_file_ids=media_ids,
-                raw_data=message,
+                raw_data=message,  # содержит mid, используем для дедупликации повторных update
             )
             try:
                 from bots.max_suggestion_storage import persist_max_suggestion_attachments
