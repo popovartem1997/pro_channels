@@ -46,11 +46,11 @@
           {% if post.media_files.all %}
             {% if post.media_files.count %}
             <div class="mb-3">
-              <div class="small text-muted mb-2">Текущие медиа (можно удалить):</div>
+              <div class="small text-muted mb-2">Текущие медиа (по умолчанию все будут опубликованы — снимите галочку, чтобы исключить файл):</div>
               <div class="list-group">
                 {% for m in post.media_files.all %}
                 <div class="list-group-item d-flex flex-wrap align-items-center gap-3 py-3">
-                  <input class="form-check-input mt-0 flex-shrink-0" type="checkbox" name="delete_media" value="{{ m.pk }}" title="Удалить">
+                  <input class="form-check-input mt-0 flex-shrink-0" type="checkbox" name="keep_media" value="{{ m.pk }}" checked title="Публиковать этот файл">
                   {% if m.media_type == 'photo' and m.file %}
                   <a href="{{ m.file.url }}" target="_blank" rel="noopener" class="flex-shrink-0">
                     <img src="{{ m.file.url }}" alt="" class="media-preview-thumb">
@@ -74,7 +74,7 @@
                 </div>
                 {% endfor %}
               </div>
-              <div class="form-text">Отметь чекбоксы и нажми “Сохранить” — файлы удалятся.</div>
+              <div class="form-text">Снимите галочку у файла и нажмите “Сохранить”/“Опубликовать сейчас” — он будет исключён.</div>
             </div>
             {% endif %}
           {% endif %}

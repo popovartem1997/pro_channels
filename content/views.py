@@ -348,13 +348,11 @@ def post_edit(request, pk):
 
     if request.method == 'POST':
         original_status = post.status
-        # Delete selected existing media
-        delete_media_ids = request.POST.getlist('delete_media')
-        if delete_media_ids:
-            to_delete = PostMedia.objects.filter(
-                post=post,
-                pk__in=[int(x) for x in delete_media_ids if str(x).isdigit()],
-            )
+        # Media selection: keep_media[] is checked by default.
+        keep_media_ids = request.POST.getlist('keep_media')
+        if keep_media_ids:
+            keep_set = {int(x) for x in keep_media_ids if str(x).isdigit()}
+            to_delete = PostMedia.objects.filter(post=post).exclude(pk__in=keep_set)
             for m in to_delete:
                 try:
                     m.file.delete(save=False)
@@ -457,6 +455,15 @@ def post_edit(request, pk):
         post.channels.set(selected_ids)
         # Publish now from edit page (same behavior as on detail page)
         if request.POST.get('publish_now'):
+            # Если пост создан из предложки и медиа ещё не успели импортироваться — подгружаем перед публикацией.
+            try:
+                if getattr(post, 'suggestion_id', None) and not PostMedia.objects.filter(post=post).exists():
+                    from .tasks import _import_suggestion_media_into_post
+                    _imported, warnings = _import_suggestion_media_into_post(post.pk)
+                    for w in (warnings or [])[:10]:
+                        messages.warning(request, w)
+            except Exception:
+                pass
             from .tasks import publish_post_task
             force = bool(original_status == Post.STATUS_PUBLISHED)
             try:
@@ -703,6 +710,15 @@ def post_publish_now(request, pk):
         messages.error(request, 'Нельзя опубликовать пост в текущем статусе.')
         return redirect('content:detail', pk=pk)
     from .tasks import publish_post_task
+    # Если пост создан из предложки и медиа ещё не успели импортироваться — подгружаем перед публикацией.
+    try:
+        if getattr(post, 'suggestion_id', None) and not PostMedia.objects.filter(post=post).exists():
+            from .tasks import _import_suggestion_media_into_post
+            _imported, warnings = _import_suggestion_media_into_post(post.pk)
+            for w in (warnings or [])[:10]:
+                messages.warning(request, w)
+    except Exception:
+        pass
     try:
         post.published_by = request.user
         # Если пост был запланирован (в т.ч. на прошедшее время) — снимаем планирование,

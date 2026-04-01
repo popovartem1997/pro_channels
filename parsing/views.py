@@ -242,17 +242,40 @@ def _telethon_session_exists_for_user(user_id: int) -> bool:
 @login_required
 def sources_list(request):
     scope = _get_parse_scope(request)
-    sources = (
+    from django.core.paginator import Paginator
+
+    sources_qs = (
         _parse_sources_qs(request.user, scope)
         .annotate(keyword_count=Count('keywords', distinct=True))
+        .order_by('name', 'pk')
     )
-    keywords = (
+    keywords_qs = (
         _parse_keywords_qs(request.user, scope)
         .annotate(source_count=Count('sources', distinct=True))
+        .order_by('keyword', 'pk')
     )
+
+    try:
+        per_page = int((request.GET.get('per_page') or '').strip() or 25)
+    except Exception:
+        per_page = 25
+    per_page = max(10, min(per_page, 100))
+
+    src_page = (request.GET.get('src_page') or '').strip()
+    kw_page = (request.GET.get('kw_page') or '').strip()
+
+    src_p = Paginator(sources_qs, per_page)
+    kw_p = Paginator(keywords_qs, per_page)
+    sources = src_p.get_page(src_page)
+    keywords = kw_p.get_page(kw_page)
     ctx = {
         'sources': sources,
         'keywords': keywords,
+        'src_paginator': src_p,
+        'kw_paginator': kw_p,
+        'src_page_obj': sources,
+        'kw_page_obj': keywords,
+        'per_page': per_page,
         'telethon_state': _telethon_session_state_for_user(request.user.id),
         'telethon_connected': _telethon_session_exists_for_user(request.user.id),
     }

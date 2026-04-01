@@ -95,6 +95,27 @@
           </li>
           {% endfor %}
         </ul>
+        {% if src_page_obj and src_page_obj.paginator and src_page_obj.paginator.num_pages > 1 %}
+        <div class="p-3 border-top d-flex gap-2 justify-content-between align-items-center flex-wrap">
+          <div class="small text-muted">
+            Источники: страница {{ src_page_obj.number }} из {{ src_page_obj.paginator.num_pages }}
+          </div>
+          <div class="btn-group btn-group-sm">
+            {% if src_page_obj.has_previous %}
+              <a class="btn btn-outline-secondary"
+                 href="?{% if parse_scope.chgroup_param != 'all' %}chgroup={{ parse_scope.chgroup_param }}&{% endif %}src_page={{ src_page_obj.previous_page_number }}&kw_page={{ kw_page_obj.number }}&per_page={{ per_page }}">Назад</a>
+            {% else %}
+              <button class="btn btn-outline-secondary" disabled>Назад</button>
+            {% endif %}
+            {% if src_page_obj.has_next %}
+              <a class="btn btn-outline-secondary"
+                 href="?{% if parse_scope.chgroup_param != 'all' %}chgroup={{ parse_scope.chgroup_param }}&{% endif %}src_page={{ src_page_obj.next_page_number }}&kw_page={{ kw_page_obj.number }}&per_page={{ per_page }}">Вперёд</a>
+            {% else %}
+              <button class="btn btn-outline-secondary" disabled>Вперёд</button>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
         {% else %}
         <div class="text-center py-4 text-muted">
           <i class="bi bi-link-45deg fs-3 d-block mb-2"></i>
@@ -142,6 +163,27 @@
           </li>
           {% endfor %}
         </ul>
+        {% if kw_page_obj and kw_page_obj.paginator and kw_page_obj.paginator.num_pages > 1 %}
+        <div class="p-3 border-top d-flex gap-2 justify-content-between align-items-center flex-wrap">
+          <div class="small text-muted">
+            Ключевые слова: страница {{ kw_page_obj.number }} из {{ kw_page_obj.paginator.num_pages }}
+          </div>
+          <div class="btn-group btn-group-sm">
+            {% if kw_page_obj.has_previous %}
+              <a class="btn btn-outline-secondary"
+                 href="?{% if parse_scope.chgroup_param != 'all' %}chgroup={{ parse_scope.chgroup_param }}&{% endif %}src_page={{ src_page_obj.number }}&kw_page={{ kw_page_obj.previous_page_number }}&per_page={{ per_page }}">Назад</a>
+            {% else %}
+              <button class="btn btn-outline-secondary" disabled>Назад</button>
+            {% endif %}
+            {% if kw_page_obj.has_next %}
+              <a class="btn btn-outline-secondary"
+                 href="?{% if parse_scope.chgroup_param != 'all' %}chgroup={{ parse_scope.chgroup_param }}&{% endif %}src_page={{ src_page_obj.number }}&kw_page={{ kw_page_obj.next_page_number }}&per_page={{ per_page }}">Вперёд</a>
+            {% else %}
+              <button class="btn btn-outline-secondary" disabled>Вперёд</button>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
         {% else %}
         <div class="text-center py-4 text-muted">
           <i class="bi bi-tag fs-3 d-block mb-2"></i>
