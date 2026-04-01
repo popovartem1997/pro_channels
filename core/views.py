@@ -389,9 +389,9 @@ def feed(request):
 
     # Pagination
     try:
-        per_page = int((request.GET.get('per_page') or '').strip() or 50)
+        per_page = int((request.GET.get('per_page') or '').strip() or 10)
     except Exception:
-        per_page = 50
+        per_page = 10
     per_page = max(10, min(per_page, 200))
 
     page_number = (request.GET.get('page') or '').strip()
