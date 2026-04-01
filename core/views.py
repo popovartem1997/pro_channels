@@ -13,6 +13,8 @@ from django.core.paginator import Paginator
 def home(request):
     # Если пользователь уже вошёл — показываем кабинет, а не лендинг
     if getattr(request, "user", None) and request.user.is_authenticated:
+        if getattr(request.user, "role", "") == "advertiser":
+            return redirect("advertisers:dashboard")
         return redirect("dashboard")
     return render(request, "home.html")
 

@@ -123,6 +123,12 @@ class Channel(models.Model):
         default=0,
         help_text='Используется в кабинете рекламодателя для расчёта бюджета'
     )
+    ord_pad_external_id = models.CharField(
+        'ОРД VK: внешний ID площадки',
+        max_length=220,
+        blank=True,
+        help_text='Площадка в кабинете ОРД для передачи статистики по этому каналу.',
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+{% block title %}ВК ОРД — маркировка{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+  <div>
+    <h1><i class="bi bi-shield-check me-2" style="color:var(--brand)"></i>ВК ОРД — маркировка</h1>
+    <p class="text-muted small mb-0">
+      Ключ API берётся в <a href="https://ord.vk.com/" target="_blank" rel="noopener">кабинете ОРД VK</a> (Bearer).
+      Креатив создаётся через <code>api.ord.vk.com</code> — в ответ приходит <b>erid</b> для строки <code>erid:…</code> в посте.
+      {% if sandbox %}<span class="badge bg-warning text-dark ms-1">Песочница</span>{% endif %}
+    </p>
+  </div>
+  <a href="{% url 'ord_marking:create' %}" class="btn btn-brand">
+    <i class="bi bi-plus-lg me-1"></i> Новая регистрация
+  </a>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-12 col-md-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <h6 class="fw-bold mb-2">Статус интеграции</h6>
+        {% if token_set %}
+        <p class="small text-success mb-2"><i class="bi bi-check-circle me-1"></i> Ключ API задан (в «Ключи API»).</p>
+        {% else %}
+        <p class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i> Задайте ключ в «Ключи API» → блок «VK ОРД».</p>
+        {% endif %}
+        {% if contract_hint %}
+        <p class="small text-muted mb-1">Договор по умолчанию: <code>{{ contract_hint }}</code></p>
+        {% endif %}
+        {% if pad_hint %}
+        <p class="small text-muted mb-0">Площадка по умолчанию: <code>{{ pad_hint }}</code></p>
+        {% endif %}
+        <p class="small text-muted mt-2 mb-0">
+          У рекламодателя можно указать <b>внешний ID контрагента</b> в ОРД при регистрации или вручную в форме.
+          У канала — <b>ID площадки</b> для отправки статистики показов.
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6">
+    <div class="card h-100 border-info">
+      <div class="card-body">
+        <h6 class="fw-bold mb-2">Автоотправка статистики</h6>
+        <p class="small text-muted mb-0">
+          Задача Celery <code>ord_marking.tasks.submit_previous_month_ord_statistics</code> отправляет показы за <b>предыдущий месяц</b>
+          (сумма из PostStat по посту+каналу). Добавьте периодическое расписание в <b>django-celery-beat</b> (например, 1-е число, 04:15 МСК),
+          если используете БД-планировщик.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header bg-transparent border-bottom py-3 d-flex justify-content-between align-items-center">
+    <h6 class="fw-bold mb-0">Регистрации</h6>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-4">Пост / канал</th>
+          <th>Рекламодатель</th>
+          <th>ERID</th>
+          <th>Статус</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in registrations %}
+        <tr>
+          <td class="ps-4 small">
+            <div class="fw-semibold">#{{ r.post.pk }}</div>
+            <div class="text-muted text-truncate" style="max-width:220px;">{{ r.post.text|truncatechars:48 }}</div>
+            <div class="text-muted">{{ r.channel.name }} — {{ r.channel.get_platform_display }}</div>
+          </td>
+          <td class="small">
+            {% if r.advertiser %}{{ r.advertiser.company_name }}{% else %}—{% endif %}
+          </td>
+          <td class="font-monospace small">
+            {% if r.erid or r.ord_token %}
+              <span class="user-select-all">{{ r.erid|default:r.ord_token }}</span>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            <span class="badge {% if r.status == 'registered' %}bg-success-subtle text-success{% elif r.status == 'error' %}bg-danger-subtle text-danger{% else %}bg-secondary-subtle text-secondary{% endif %}">
+              {{ r.get_status_display }}
+            </span>
+          </td>
+          <td class="text-end pe-4">
+            <a href="{% url 'ord_marking:detail' r.pk %}" class="btn btn-sm btn-outline-primary">Открыть</a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="5" class="text-center text-muted py-5">Пока нет регистраций</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

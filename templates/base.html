@@ -110,7 +110,7 @@
 
 <!-- Мобильный топбар (виден только на телефоне/планшете) -->
 <div class="mobile-topbar">
-  <a class="brand" href="{% url 'dashboard' %}">
+  <a class="brand" href="{% if user.role == 'advertiser' %}{% url 'advertisers:dashboard' %}{% else %}{% url 'dashboard' %}{% endif %}">
     <i class="bi bi-broadcast-pin" style="color:var(--brand)"></i> Pro<span>Channels</span>
   </a>
   <button class="btn btn-sm btn-outline-secondary" id="sidebar-toggle" aria-label="Меню">
@@ -124,7 +124,7 @@
 <div class="d-flex" style="min-height:100vh;">
   <nav class="sidebar d-flex flex-column p-3" id="sidebar">
     <div class="d-flex align-items-center justify-content-between mb-3">
-      <a class="brand" href="{% url 'dashboard' %}">
+      <a class="brand" href="{% if user.role == 'advertiser' %}{% url 'advertisers:dashboard' %}{% else %}{% url 'dashboard' %}{% endif %}">
         <i class="bi bi-broadcast-pin" style="color:var(--brand)"></i> Pro<span>Channels</span>
       </a>
       <!-- Закрыть (только мобильный) -->
@@ -133,9 +133,20 @@
       </button>
     </div>
 
+    {% if user.role == 'advertiser' %}
+    <span class="nav-section">Реклама</span>
+    <ul class="nav flex-column">
+      <li><a class="nav-link {% if request.resolver_match.namespace == 'advertisers' %}{% if request.resolver_match.url_name == 'dashboard' or request.resolver_match.url_name == 'order_create' or request.resolver_match.url_name == 'order_detail' %}active{% endif %}{% endif %}" href="{% url 'advertisers:dashboard' %}">
+        <i class="bi bi-clipboard-check"></i> Заказы
+      </a></li>
+      <li><a class="nav-link {% if request.resolver_match.url_name == 'catalog' %}active{% endif %}" href="{% url 'advertisers:catalog' %}">
+        <i class="bi bi-grid-3x2-gap"></i> Каталог каналов
+      </a></li>
+    </ul>
+    {% else %}
     <span class="nav-section">Основное</span>
     <ul class="nav flex-column">
-      <li><a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}">
+      <li><a class="nav-link {% if request.resolver_match.url_name == 'dashboard' and not request.resolver_match.namespace %}active{% endif %}" href="{% url 'dashboard' %}">
         <i class="bi bi-house-door"></i> Главная
       </a></li>
       <li><a class="nav-link {% if '/feed/' in request.path %}active{% endif %}" href="{% url 'core:feed' %}">
@@ -190,11 +201,11 @@
     {% endif %}
 
     {% if user.role != 'manager' and user.role != 'assistant_admin' %}
-      <span class="nav-section">Монетизация</span>
+      <span class="nav-section">Реклама</span>
       <ul class="nav flex-column">
-        <li><a class="nav-link {% if '/advertisers/' in request.path and '/advertisers/manage/' not in request.path %}active{% endif %}"
+        <li><a class="nav-link {% if '/advertisers/' in request.path and '/advertisers/manage/' not in request.path and request.resolver_match.url_name != 'register' %}active{% endif %}"
                href="{% if user.is_staff or user.role == 'owner' %}{% url 'advertisers:catalog' %}{% else %}{% url 'advertisers:dashboard' %}{% endif %}">
-          <i class="bi bi-megaphone"></i> Реклама
+          <i class="bi bi-megaphone"></i> Заказы
         </a></li>
         {% if user.is_staff or user.role == 'owner' %}
         <li><a class="nav-link {% if '/advertisers/manage/' in request.path %}active{% endif %}" href="{% url 'advertisers:owner_orders' %}">
@@ -202,7 +213,7 @@
           {% if adv_pending_count %}<span class="ms-auto badge rounded-pill bg-warning text-dark">{{ adv_pending_count }}</span>{% endif %}
         </a></li>
         {% endif %}
-        <li><a class="nav-link {% if '/ord/' in request.path %}active{% endif %}" href="{% url 'ord_marking:list' %}">
+        <li><a class="nav-link {% if '/ord/' in request.path %}active{% endif %}" href="{% url 'ord_marking:dashboard' %}">
           <i class="bi bi-shield-check"></i> ВК ОРД
         </a></li>
         <li><a class="nav-link {% if '/billing/' in request.path %}active{% endif %}" href="{% url 'billing:invoices' %}">
@@ -216,6 +227,7 @@
           <i class="bi bi-people"></i> Менеджеры
         </a></li>
       </ul>
+    {% endif %}
     {% endif %}
 
     <div class="mt-auto pt-2">

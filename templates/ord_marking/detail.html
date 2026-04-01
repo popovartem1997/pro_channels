@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+{% block title %}ОРД #{{ reg.pk }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'ord_marking:dashboard' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К маркировке
+  </a>
+  <h1>Маркировка · пост #{{ reg.post.pk }}</h1>
+  <p class="text-muted small mb-0">{{ reg.channel.name }} · {{ reg.channel.get_platform_display }}</p>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-7">
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3">ERID для публикации</h6>
+        {% if reg.erid or reg.ord_token %}
+        <div class="p-3 rounded border bg-light font-monospace mb-3 user-select-all" id="erid-box">
+          erid:{{ reg.erid|default:reg.ord_token }}
+        </div>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-copy-erid">
+          <i class="bi bi-clipboard me-1"></i> Скопировать строку для поста
+        </button>
+        <a href="{% url 'ord_marking:snippet' reg.pk %}" class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener">Скачать .txt</a>
+        {% else %}
+        <p class="text-muted small">ERID появится после успешной регистрации креатива в ОРД.</p>
+        {% endif %}
+
+        <hr class="my-4">
+        <h6 class="fw-bold mb-2">Технические идентификаторы</h6>
+        <dl class="row small mb-0">
+          <dt class="col-sm-4 text-muted">Внешний ID креатива</dt>
+          <dd class="col-sm-8 font-monospace">{{ creative_external_id }}</dd>
+          <dt class="col-sm-4 text-muted">Метка в посте</dt>
+          <dd class="col-sm-8">{{ reg.label_text }}</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3">Ответ API (последний)</h6>
+        <pre class="small bg-light border rounded p-3 mb-0" style="max-height:240px;overflow:auto;">{{ reg.raw_response|default:"{}" }}</pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-5">
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3">Действия</h6>
+        {% if token_set %}
+        <form method="post" action="{% url 'ord_marking:retry' reg.pk %}" class="mb-2">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-brand w-100">Повторить регистрацию в ОРД</button>
+        </form>
+        <form method="post" action="{% url 'ord_marking:refresh_erid' reg.pk %}" class="mb-3">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-outline-secondary w-100">Подтянуть ERID из списка ОРД</button>
+        </form>
+        {% endif %}
+
+        <h6 class="fw-bold mb-2 small text-muted text-uppercase">Статистика показов</h6>
+        {% if reg.stats_submitted_at %}
+        <p class="small text-success mb-2">Последняя отправка: {{ reg.stats_submitted_at|date:"d.m.Y H:i" }}</p>
+        {% endif %}
+        {% if reg.stats_error_message %}
+        <p class="small text-danger mb-2">{{ reg.stats_error_message|truncatechars:200 }}</p>
+        {% endif %}
+        <form method="post" action="{% url 'ord_marking:submit_stats' reg.pk %}" class="row g-2 align-items-end">
+          {% csrf_token %}
+          <div class="col-5">
+            <label class="form-label small text-muted mb-0">Год</label>
+            <input type="number" name="year" class="form-control form-control-sm" value="{% now 'Y' %}" min="2024" max="2035">
+          </div>
+          <div class="col-4">
+            <label class="form-label small text-muted mb-0">Месяц</label>
+            <input type="number" name="month" class="form-control form-control-sm" value="{% now 'n' %}" min="1" max="12">
+          </div>
+          <div class="col-12">
+            <button type="submit" class="btn btn-outline-primary btn-sm w-100">Отправить в ОРД</button>
+          </div>
+        </form>
+        <p class="form-text small mt-2 mb-0">Берётся сумма просмотров из статистики поста за выбранный календарный месяц. Нужен <b>pad_external_id</b> (канал или ключи API).</p>
+      </div>
+    </div>
+
+    {% if reg.status == 'error' and reg.error_message %}
+    <div class="alert alert-danger small">{{ reg.error_message }}</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var btn = document.getElementById('btn-copy-erid');
+  var box = document.getElementById('erid-box');
+  if (!btn || !box) return;
+  btn.addEventListener('click', function () {
+    var t = box.textContent.trim();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(t).then(function () {
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Скопировано';
+        setTimeout(function () { btn.innerHTML = '<i class="bi bi-clipboard me-1"></i> Скопировать строку для поста'; }, 2000);
+      });
+    }
+  });
+})();
+</script>
+{% endblock %}

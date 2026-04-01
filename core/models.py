@@ -20,9 +20,31 @@ class GlobalApiKeys(models.Model):
     tbank_terminal_key_enc = models.TextField(blank=True, verbose_name='TBANK_TERMINAL_KEY (enc)')
     tbank_secret_key_enc = models.TextField(blank=True, verbose_name='TBANK_SECRET_KEY (enc)')
 
-    # VK ORD
+    # VK ОРД (api.ord.vk.com, Bearer из кабинета ord.vk.com)
     vk_ord_access_token_enc = models.TextField(blank=True, verbose_name='VK_ORD_ACCESS_TOKEN (enc)')
-    vk_ord_cabinet_id = models.CharField(max_length=100, blank=True, verbose_name='VK_ORD_CABINET_ID')
+    vk_ord_cabinet_id = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name='VK ОРД: ID кабинета (справочно)',
+        help_text='Не используется в REST API; для заметок.',
+    )
+    vk_ord_contract_external_id = models.CharField(
+        max_length=220,
+        blank=True,
+        verbose_name='ОРД: внешний ID договора',
+        help_text='Из кабинета ОРД VK — если креатив привязывается к договору (не самореклама).',
+    )
+    vk_ord_pad_external_id = models.CharField(
+        max_length=220,
+        blank=True,
+        verbose_name='ОРД: внешний ID площадки по умолчанию',
+        help_text='Для передачи статистики показов, если не задан у канала.',
+    )
+    vk_ord_use_sandbox = models.BooleanField(
+        default=False,
+        verbose_name='ОРД: песочница (sandbox)',
+        help_text='Запросы на api-sandbox.ord.vk.com вместо боя.',
+    )
 
     # Telegram parsing (Telethon user API)
     telegram_api_id = models.CharField(max_length=50, blank=True, verbose_name='TELEGRAM_API_ID')

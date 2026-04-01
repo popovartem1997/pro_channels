@@ -1,6 +1,9 @@
 """
 Управление каналами и пабликами.
 """
+from decimal import Decimal, InvalidOperation
+from typing import Optional
+
 import requests as http_requests
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
@@ -16,6 +19,19 @@ def _team_channel_editor_user(user) -> bool:
     return getattr(user, 'role', '') in ('manager', 'assistant_admin') and not (
         user.is_staff or user.is_superuser
     )
+
+
+def _parse_ad_price(raw) -> Optional[Decimal]:
+    """Парсит цену из POST (запятая/точка, пробелы). None — не менять поле."""
+    if raw is None:
+        return None
+    s = str(raw).strip().replace(' ', '').replace(',', '.')
+    if not s:
+        return Decimal('0')
+    try:
+        return Decimal(s)
+    except InvalidOperation:
+        return None
 
 
 def _team_member_channel_ids(user) -> list[int]:
@@ -250,10 +266,10 @@ def channel_edit(request, pk):
         channel.name = request.POST.get('name', channel.name).strip()
         channel.description = request.POST.get('description', '').strip()
         channel.ad_enabled = request.POST.get('ad_enabled') == 'on'
-        try:
-            channel.ad_price = request.POST.get('ad_price', channel.ad_price) or 0
-        except Exception:
-            pass
+        parsed_price = _parse_ad_price(request.POST.get('ad_price'))
+        if parsed_price is not None:
+            channel.ad_price = parsed_price
+        channel.ord_pad_external_id = (request.POST.get('ord_pad_external_id') or '').strip()
 
         if channel.platform == Channel.PLATFORM_TELEGRAM:
             new_token = request.POST.get('tg_bot_token', '').strip()

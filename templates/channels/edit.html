@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load l10n %}
 {% block title %}Редактировать — {{ channel.name }}{% endblock %}
 
 {% block extra_css %}
@@ -109,10 +110,20 @@
             </div>
             <div class="col-12 col-md-6">
               <label class="form-label fw-semibold" for="id_ad_price">Цена за 1 размещение (₽)</label>
-              <input type="number" step="0.01" min="0"
-                     class="form-control"
+              {% localize off %}
+              <input type="text" inputmode="decimal" autocomplete="off"
+                     class="form-control font-monospace"
                      id="id_ad_price" name="ad_price"
                      value="{{ channel.ad_price }}">
+              {% endlocalize %}
+              <div class="form-text">Можно с точкой или запятой (например 1500 или 1500,50).</div>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold" for="id_ord_pad_external_id">ВК ОРД: внешний ID площадки (pad)</label>
+              <input type="text" class="form-control font-monospace" id="id_ord_pad_external_id"
+                     name="ord_pad_external_id"
+                     value="{{ channel.ord_pad_external_id|default:'' }}"
+                     placeholder="Если задан — используется при передаче статистики по этому каналу">
             </div>
           </div>
 

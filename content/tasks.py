@@ -484,21 +484,24 @@ def publish_post_task(self, post_id: int, force: bool = False):
 
 
 def _auto_register_ord(post):
-    """Автоматически создаёт ORD-регистрации для поста с меткой."""
-    from django.conf import settings
+    """Автоматически создаёт ORD-регистрации для поста с меткой (API ОРД VK, erid)."""
+    from core.models import get_global_api_keys
     from ord_marking.models import ORDRegistration
-    from django.utils import timezone as tz
+    from ord_marking.services import register_creative_for_registration
 
-    access_token = getattr(settings, 'VK_ORD_ACCESS_TOKEN', '')
+    keys = get_global_api_keys()
+    if not (keys.get_vk_ord_access_token() or '').strip():
+        return
+
     advertiser = None
     try:
-        # Если пост создан из рекламного заказа — прикрепим рекламодателя к регистрации.
         advertiser = post.advertising_order.advertiser
     except Exception:
         advertiser = None
 
+    use_sandbox = bool(getattr(keys, 'vk_ord_use_sandbox', False))
+
     for channel in post.channels.filter(platform='vk'):
-        # Не создаём дубли
         if ORDRegistration.objects.filter(post=post, channel=channel).exists():
             continue
 
@@ -509,33 +512,7 @@ def _auto_register_ord(post):
             label_text=post.ord_label or 'Реклама',
             status=ORDRegistration.STATUS_PENDING,
         )
-
-        if not access_token:
-            continue
-
-        try:
-            import requests as req
-            response = req.post(
-                'https://api.vk.com/method/ads.createAdLabel',
-                data={'access_token': access_token, 'v': '5.131', 'name': reg.label_text},
-                timeout=10,
-            )
-            data = response.json()
-            reg.raw_response = data
-            resp = data.get('response')
-            if resp:
-                reg.ord_id = str(resp.get('id', ''))
-                reg.ord_token = resp.get('token', '')
-                reg.status = ORDRegistration.STATUS_REGISTERED
-                reg.registered_at = tz.now()
-            else:
-                reg.status = ORDRegistration.STATUS_ERROR
-                reg.error_message = str(data.get('error', ''))
-            reg.save()
-        except Exception as e:
-            reg.status = ORDRegistration.STATUS_ERROR
-            reg.error_message = str(e)
-            reg.save()
+        register_creative_for_registration(reg, use_sandbox=use_sandbox)
 
 
 def _publish_to_channel(post, channel):

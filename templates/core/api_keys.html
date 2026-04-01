@@ -65,7 +65,8 @@
           <!-- VK ORD -->
           <h6 class="fw-bold mb-2">VK ОРД (маркировка рекламы)</h6>
           <div class="text-muted small mb-3">
-            Где взять: кабинет VK Реклама / ОРД → токен доступа (access_token) и ID кабинета.
+            API: <code>https://api.ord.vk.com</code>. В кабинете <a href="https://ord.vk.com" target="_blank" rel="noopener">ord.vk.com</a> создайте токен и вставьте сюда — в запросах он передаётся как <code>Authorization: Bearer …</code>.
+            Внешние ID договора и площадки берутся из того же кабинета (для креативов и статистики).
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">{{ form.vk_ord_access_token.label }}</label>
@@ -74,10 +75,25 @@
               <div class="form-text"><i class="bi bi-check-circle-fill text-success me-1"></i>Токен задан (не отображается).</div>
             {% endif %}
           </div>
-          <div class="mb-4">
+          <div class="mb-3">
             <label class="form-label fw-semibold">{{ form.vk_ord_cabinet_id.label }}</label>
             {{ form.vk_ord_cabinet_id }}
             {% if form.vk_ord_cabinet_id.help_text %}<div class="form-text">{{ form.vk_ord_cabinet_id.help_text }}</div>{% endif %}
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">{{ form.vk_ord_contract_external_id.label }}</label>
+            {{ form.vk_ord_contract_external_id }}
+            {% if form.vk_ord_contract_external_id.help_text %}<div class="form-text">{{ form.vk_ord_contract_external_id.help_text }}</div>{% endif %}
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">{{ form.vk_ord_pad_external_id.label }}</label>
+            {{ form.vk_ord_pad_external_id }}
+            {% if form.vk_ord_pad_external_id.help_text %}<div class="form-text">{{ form.vk_ord_pad_external_id.help_text }}</div>{% endif %}
+          </div>
+          <div class="form-check form-switch mb-4">
+            {{ form.vk_ord_use_sandbox }}
+            <label class="form-check-label fw-semibold" for="{{ form.vk_ord_use_sandbox.id_for_label }}">{{ form.vk_ord_use_sandbox.label }}</label>
+            {% if form.vk_ord_use_sandbox.help_text %}<div class="form-text">{{ form.vk_ord_use_sandbox.help_text }}</div>{% endif %}
           </div>
 
           <hr class="my-4">

@@ -27,6 +27,12 @@ class Advertiser(models.Model):
     contract_file = models.FileField('Файл договора', upload_to='contracts/', blank=True)
     contract_date = models.DateField('Дата договора', null=True, blank=True)
     contract_number = models.CharField('Номер договора', max_length=50, blank=True)
+    ord_person_external_id = models.CharField(
+        'Внешний ID в ОРД VK (контрагент)',
+        max_length=220,
+        blank=True,
+        help_text='Из кабинета ord.vk.com — для креативов с привязкой к рекламодателю (person).',
+    )
     created_at = models.DateTimeField('Создан', auto_now_add=True)
 
     class Meta:

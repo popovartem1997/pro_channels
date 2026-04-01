@@ -12,7 +12,11 @@ class GlobalApiKeysForm(forms.ModelForm):
     )
     tbank_terminal_key = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='TBANK_TERMINAL_KEY')
     tbank_secret_key = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='TBANK_SECRET_KEY')
-    vk_ord_access_token = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='VK_ORD_ACCESS_TOKEN')
+    vk_ord_access_token = forms.CharField(
+        required=False,
+        widget=forms.PasswordInput(render_value=True),
+        label='Bearer-токен ОРД VK',
+    )
     telegram_api_hash = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='TELEGRAM_API_HASH')
     vk_parse_access_token = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='VK_PARSE_ACCESS_TOKEN')
     tg_import_bot_token = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='TG_IMPORT_BOT_TOKEN')
@@ -22,6 +26,9 @@ class GlobalApiKeysForm(forms.ModelForm):
         fields = [
             'ai_rewrite_enabled',
             'vk_ord_cabinet_id',
+            'vk_ord_contract_external_id',
+            'vk_ord_pad_external_id',
+            'vk_ord_use_sandbox',
             'telegram_api_id',
         ]
 
