@@ -790,6 +790,25 @@ async def _process_approve(query, bot_config, uuid_str: str):
 
     await do_approve()
 
+    # Обновляем исходную карточку модерации: убираем кнопки и помечаем статус,
+    # чтобы модератор видел результат сразу (и не мог "повторно нажать").
+    try:
+        moderator = query.from_user.first_name or 'Модератор'
+        note = f'✅ Одобрено · {moderator}'
+        # Если это текст — редактируем текст, если медиа — caption.
+        if getattr(query.message, 'text', None):
+            new_text = (query.message.text or '').rstrip() + f'\n\n{note}'
+            await query.edit_message_text(new_text, reply_markup=None)
+        else:
+            new_caption = (getattr(query.message, 'caption', '') or '').rstrip() + f'\n\n{note}'
+            await query.edit_message_caption(new_caption, reply_markup=None, parse_mode='HTML')
+    except BadRequest as e:
+        # Не падаем на "message is not modified" или если редактирование запрещено.
+        if 'Message is not modified' not in str(e):
+            pass
+    except Exception:
+        pass
+
     # Уведомление пользователю
     from bots.services import format_approved_subscriber_message
 
@@ -813,7 +832,6 @@ async def _process_approve(query, bot_config, uuid_str: str):
     except Exception:
         pass
 
-    moderator = query.from_user.first_name or 'Модератор'
     await query.message.reply_text(
         (
             f'✅ Заявка `#{suggestion.short_tracking_id}` одобрена.\n'
@@ -852,6 +870,22 @@ async def _process_reject(query, bot_config, uuid_str: str, reason_idx: int):
         suggestion.reject(reason=reason)
 
     await do_reject()
+
+    # Обновляем исходную карточку модерации: убираем кнопки и помечаем статус/причину.
+    try:
+        moderator = query.from_user.first_name or 'Модератор'
+        note = f'❌ Отклонено · {moderator}\nПричина: {reason}'
+        if getattr(query.message, 'text', None):
+            new_text = (query.message.text or '').rstrip() + f'\n\n{note}'
+            await query.edit_message_text(new_text, reply_markup=None)
+        else:
+            new_caption = (getattr(query.message, 'caption', '') or '').rstrip() + f'\n\n{html.escape(note, quote=False)}'
+            await query.edit_message_caption(new_caption, reply_markup=None, parse_mode='HTML')
+    except BadRequest as e:
+        if 'Message is not modified' not in str(e):
+            pass
+    except Exception:
+        pass
 
     from bots.services import format_rejected_subscriber_message
 
