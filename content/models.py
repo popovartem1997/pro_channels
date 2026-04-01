@@ -186,6 +186,15 @@ class PostMedia(models.Model):
         return f'{self.get_media_type_display()} для поста #{self.post.pk}'
 
 
+def normalize_post_media_orders(post):
+    """Порядок медиа подряд: 1, 2, 3 … (сортировка по текущему order, затем pk)."""
+    rows = list(PostMedia.objects.filter(post=post).order_by('order', 'pk'))
+    for i, m in enumerate(rows, start=1):
+        m.order = i
+    if rows:
+        PostMedia.objects.bulk_update(rows, ['order'])
+
+
 class PublishResult(models.Model):
     STATUS_OK = 'ok'
     STATUS_FAIL = 'fail'

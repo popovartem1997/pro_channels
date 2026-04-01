@@ -7,7 +7,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 import json
 from django.utils import timezone
-from .models import Post, PostMedia, PublishResult
+from .models import Post, PostMedia, PublishResult, normalize_post_media_orders
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse
 import secrets
@@ -174,6 +174,8 @@ def post_create(request):
             elif not f.content_type.startswith('image'):
                 media_type = PostMedia.TYPE_DOCUMENT
             PostMedia.objects.create(post=post, file=f, media_type=media_type, order=base_order + idx + 1)
+
+        normalize_post_media_orders(post)
 
         if request.POST.get('publish_now'):
             from .tasks import publish_post_task
@@ -343,6 +345,8 @@ def post_edit(request, pk):
             elif not f.content_type.startswith('image'):
                 media_type = PostMedia.TYPE_DOCUMENT
             PostMedia.objects.create(post=post, file=f, media_type=media_type, order=base_order + idx + 1)
+
+        normalize_post_media_orders(post)
 
         channel_ids = request.POST.getlist('channels')
         post.text = request.POST.get('text', post.text).strip()

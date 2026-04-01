@@ -6,6 +6,7 @@
   .channel-check-item { border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; cursor: pointer; transition: all .15s; }
   .channel-check-item:has(input:checked) { border-color: var(--brand); background: var(--brand-light); }
   #repeat-interval-wrap { display: none; }
+  #media-files-order-list .media-order-num { min-width: 1.75rem; text-align: center; }
 </style>
 {% endblock %}
 
@@ -46,7 +47,8 @@
           </label>
           <input type="file" name="media_files" id="id_media_files"
                  class="form-control" multiple accept="image/*,video/*">
-          <div class="form-text">Изображения и видео (несколько файлов)</div>
+          <div class="form-text">Изображения и видео (несколько файлов). Порядок в публикации — как в списке ниже (1, 2, 3…).</div>
+          <ul id="media-files-order-list" class="list-unstyled small mt-2 mb-0"></ul>
         </div>
       </div>
 
@@ -195,5 +197,26 @@ function toggleRepeat(checked) {
 function toggleInterval(val) {
   document.getElementById('repeat-interval-wrap').style.display = val === 'interval' ? 'block' : 'none';
 }
+(function () {
+  var input = document.getElementById('id_media_files');
+  var list = document.getElementById('media-files-order-list');
+  if (!input || !list) return;
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+  input.addEventListener('change', function () {
+    list.innerHTML = '';
+    var files = input.files;
+    if (!files || !files.length) return;
+    for (var i = 0; i < files.length; i++) {
+      var li = document.createElement('li');
+      li.className = 'd-flex align-items-baseline gap-2 py-1 border-bottom border-light';
+      li.innerHTML = '<span class="badge bg-secondary media-order-num">' + (i + 1) + '</span><span class="text-break">' + esc(files[i].name) + '</span>';
+      list.appendChild(li);
+    }
+  });
+})();
 </script>
 {% endblock %}

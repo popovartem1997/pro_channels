@@ -36,7 +36,7 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
 
     Возвращает (imported_count, warnings).
     """
-    from .models import Post, PostMedia
+    from .models import Post, PostMedia, normalize_post_media_orders
     from django.core.files.base import ContentFile
     import requests
 
@@ -304,6 +304,9 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
                     warnings.append(f'MAX: failed url={url}: {e}')
         except Exception as e:
             warnings.append(f'MAX: import failed: {e}')
+
+    if imported:
+        normalize_post_media_orders(post)
 
     return imported, warnings
 
