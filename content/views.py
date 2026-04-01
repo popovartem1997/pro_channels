@@ -490,6 +490,13 @@ def post_edit(request, pk):
     })
 
 
+def _tg_import_webhook_action_redirect(request):
+    """После setWebhook/deleteWebhook: вернуть на страницу ключей или на импорт."""
+    if (request.POST.get('next') or '').strip() == 'api_keys':
+        return redirect('core:api_keys')
+    return redirect('content:tg_import_link')
+
+
 @login_required
 def tg_import_link(request):
     """Страница с кодом привязки для служебного Telegram-бота импорта."""
@@ -553,12 +560,12 @@ def tg_import_webhook_setup(request):
     token = (get_global_api_keys().get_tg_import_bot_token() or '').strip()
     if not token:
         messages.error(request, 'TG_IMPORT_BOT_TOKEN не задан в Ключах API.')
-        return redirect('content:tg_import_link')
+        return _tg_import_webhook_action_redirect(request)
 
     site_url = (getattr(settings, 'SITE_URL', '') or '').rstrip('/')
     if not site_url or not site_url.startswith('https://'):
         messages.error(request, 'SITE_URL должен быть задан и начинаться с https:// (Telegram требует HTTPS для webhook).')
-        return redirect('content:tg_import_link')
+        return _tg_import_webhook_action_redirect(request)
 
     url = site_url + reverse('content:tg_import_webhook')
     try:
@@ -572,10 +579,10 @@ def tg_import_webhook_setup(request):
             raise ValueError(data.get('description', 'Telegram error'))
     except Exception as e:
         messages.error(request, f'Не удалось подключить webhook: {e}')
-        return redirect('content:tg_import_link')
+        return _tg_import_webhook_action_redirect(request)
 
     messages.success(request, 'Webhook для импорт-бота подключён.')
-    return redirect('content:tg_import_link')
+    return _tg_import_webhook_action_redirect(request)
 
 
 @login_required
@@ -589,7 +596,7 @@ def tg_import_webhook_disable(request):
     token = (get_global_api_keys().get_tg_import_bot_token() or '').strip()
     if not token:
         messages.error(request, 'TG_IMPORT_BOT_TOKEN не задан в Ключах API.')
-        return redirect('content:tg_import_link')
+        return _tg_import_webhook_action_redirect(request)
     try:
         resp = requests.post(
             f'https://api.telegram.org/bot{token}/deleteWebhook',
@@ -601,9 +608,9 @@ def tg_import_webhook_disable(request):
             raise ValueError(data.get('description', 'Telegram error'))
     except Exception as e:
         messages.error(request, f'Не удалось отключить webhook: {e}')
-        return redirect('content:tg_import_link')
+        return _tg_import_webhook_action_redirect(request)
     messages.success(request, 'Webhook для импорт-бота отключён.')
-    return redirect('content:tg_import_link')
+    return _tg_import_webhook_action_redirect(request)
 
 
 @csrf_exempt
