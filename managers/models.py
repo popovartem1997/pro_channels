@@ -86,6 +86,8 @@ class TeamMember(models.Model):
     can_moderate = models.BooleanField('Может модерировать предложки', default=True)
     can_view_stats = models.BooleanField('Видит статистику', default=True)
     can_manage_bots = models.BooleanField('Управляет ботами', default=False)
+    telegram_user_id = models.BigIntegerField('Telegram ID менеджера', null=True, blank=True)
+    max_user_id = models.CharField('MAX ID менеджера', max_length=100, blank=True, default='')
     joined_at = models.DateTimeField('Вступил', auto_now_add=True)
     is_active = models.BooleanField('Активен', default=True)
 

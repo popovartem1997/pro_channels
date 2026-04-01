@@ -207,7 +207,11 @@ def member_access(request, pk: int):
         member.can_moderate = request.POST.get('can_moderate') == 'on'
         member.can_view_stats = request.POST.get('can_view_stats') == 'on'
         member.can_manage_bots = request.POST.get('can_manage_bots') == 'on'
-        member.save(update_fields=['can_publish', 'can_moderate', 'can_view_stats', 'can_manage_bots'])
+        # Platform IDs for bots
+        tg_raw = (request.POST.get('telegram_user_id') or '').strip()
+        member.telegram_user_id = int(tg_raw) if tg_raw.lstrip('-').isdigit() else None
+        member.max_user_id = (request.POST.get('max_user_id') or '').strip()
+        member.save(update_fields=['can_publish', 'can_moderate', 'can_view_stats', 'can_manage_bots', 'telegram_user_id', 'max_user_id'])
 
         messages.success(request, 'Доступы обновлены.')
         return redirect('managers:list')
