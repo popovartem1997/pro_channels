@@ -433,6 +433,8 @@ def keyword_create(request):
         keyword = request.POST.get('keyword', '').strip()
         source_ids = request.POST.getlist('sources')
         target_gid = (request.POST.get('channel_group_id') or '').strip()
+        apply_all_group = request.POST.get('apply_all_group') == 'on'
+        target_cid = (request.POST.get('channel_id') or '').strip()
         if not keyword:
             messages.error(request, 'Введите ключевое слово.')
         else:
@@ -463,24 +465,44 @@ def keyword_create(request):
             allowed_src = set(_parse_sources_qs(request.user, scope).values_list('pk', flat=True))
             safe = [int(x) for x in source_ids if str(x).isdigit() and int(x) in allowed_src]
 
-            created = 0
-            for cid in group_channels:
-                ch = Channel.objects.get(pk=cid)
+            if apply_all_group:
+                created = 0
+                for cid in group_channels:
+                    ch = Channel.objects.get(pk=cid)
+                    data_owner = _parsing_data_owner(request.user, ch)
+                    kw = ParseKeyword.objects.create(
+                        owner=data_owner,
+                        channel_id=cid,
+                        channel_group=group,
+                        keyword=keyword,
+                    )
+                    if safe:
+                        kw.sources.set(safe)
+                    created += 1
+                    try:
+                        _ensure_auto_parse_task(data_owner, kw.channel)
+                    except Exception:
+                        pass
+                messages.success(request, f'Ключевое слово «{keyword}» добавлено для {created} канал(ов) группы.')
+            else:
+                if not target_cid.isdigit() or int(target_cid) not in set(group_channels):
+                    messages.error(request, 'Выберите конкретный канал из выбранной группы.')
+                    return redirect(_parse_url('parsing:keyword_create', scope))
+                ch = Channel.objects.get(pk=int(target_cid))
                 data_owner = _parsing_data_owner(request.user, ch)
                 kw = ParseKeyword.objects.create(
                     owner=data_owner,
-                    channel_id=cid,
+                    channel=ch,
                     channel_group=group,
                     keyword=keyword,
                 )
                 if safe:
                     kw.sources.set(safe)
-                created += 1
                 try:
                     _ensure_auto_parse_task(data_owner, kw.channel)
                 except Exception:
                     pass
-            messages.success(request, f'Ключевое слово «{keyword}» добавлено для {created} канал(ов) группы.')
+                messages.success(request, f'Ключевое слово «{keyword}» добавлено.')
         return redirect(_parsing_sources_redirect(request, scope))
     sources = _parse_sources_qs(request.user, scope)
     ctx = {'sources': sources}
