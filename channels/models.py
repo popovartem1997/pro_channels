@@ -9,6 +9,26 @@ from bots.utils import encrypt_token, decrypt_token
 User = get_user_model()
 
 
+class ChannelGroup(models.Model):
+    """
+    Объединяет несколько записей Channel (разные соцсети) в один логический паблик.
+    Для парсинга и фильтров используется группа, а не отдельный канал.
+    """
+    owner = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='channel_groups', verbose_name='Владелец'
+    )
+    name = models.CharField(max_length=255, verbose_name='Название группы')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Группа каналов'
+        verbose_name_plural = 'Группы каналов'
+        ordering = ['name', 'pk']
+
+    def __str__(self):
+        return self.name
+
+
 class Channel(models.Model):
     PLATFORM_TELEGRAM = 'telegram'
     PLATFORM_VK = 'vk'
@@ -22,6 +42,15 @@ class Channel(models.Model):
     ]
 
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='channels', verbose_name='Владелец')
+    channel_group = models.ForeignKey(
+        ChannelGroup,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='channels',
+        verbose_name='Группа каналов',
+        help_text='Один паблик в разных соцсетях: объедините TG, VK, MAX в одну группу для фильтра в парсинге.',
+    )
     name = models.CharField(max_length=255, verbose_name='Название канала')
     platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES, verbose_name='Платформа')
     description = models.TextField(blank=True, verbose_name='Описание')

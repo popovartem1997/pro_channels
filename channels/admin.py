@@ -1,5 +1,13 @@
 from django.contrib import admin
-from .models import Channel
+from .models import Channel, ChannelGroup
+
+
+@admin.register(ChannelGroup)
+class ChannelGroupAdmin(admin.ModelAdmin):
+    list_display = ['name', 'owner', 'created_at']
+    list_filter = ['owner']
+    search_fields = ['name', 'owner__email']
+
 
 @admin.register(Channel)
 class ChannelAdmin(admin.ModelAdmin):

@@ -8,7 +8,7 @@ from django.views.decorators.http import require_POST
 from django.contrib import messages
 from django.http import JsonResponse
 from django.db import IntegrityError
-from .models import Channel
+from .models import Channel, ChannelGroup
 
 
 def _team_channel_editor_user(user) -> bool:
@@ -51,10 +51,10 @@ def _channel_create_store_form(request, *, platform: str, name: str, data: dict)
 def channel_list(request):
     if _team_channel_editor_user(request.user):
         ids = _team_member_channel_ids(request.user)
-        channels = Channel.objects.filter(pk__in=ids, is_active=True).order_by('-created_at')
+        channels = Channel.objects.filter(pk__in=ids, is_active=True).select_related('channel_group').order_by('-created_at')
         team_channel_list = True
     else:
-        channels = Channel.objects.filter(owner=request.user).order_by('-created_at')
+        channels = Channel.objects.filter(owner=request.user).select_related('channel_group').order_by('-created_at')
         team_channel_list = False
     return render(request, 'channels/list.html', {
         'channels': channels,
@@ -124,6 +124,13 @@ def channel_create(request):
                     _channel_create_store_form(request, platform=platform, name=name, data=request.POST)
                     return redirect('channels:create')
 
+        cg_raw = (request.POST.get('channel_group_id') or '').strip()
+        if cg_raw.isdigit():
+            cg = ChannelGroup.objects.filter(pk=int(cg_raw), owner=request.user).first()
+            channel.channel_group = cg
+        else:
+            channel.channel_group = None
+
         try:
             channel.save()
         except IntegrityError as e:
@@ -150,8 +157,10 @@ def channel_create(request):
             return redirect(reverse('bots:create') + qs)
         return redirect('channels:list')
 
+    groups = ChannelGroup.objects.filter(owner=request.user).order_by('name', 'pk')
     return render(request, 'channels/create.html', {
         'platforms': Channel.PLATFORM_CHOICES,
+        'channel_groups': groups,
         'initial': request.session.pop('channel_create_initial', {}),
     })
 
@@ -160,10 +169,10 @@ def channel_create(request):
 def channel_detail(request, pk):
     if _team_channel_editor_user(request.user):
         allowed_ids = _team_member_channel_ids(request.user)
-        channel = get_object_or_404(Channel.objects.filter(pk__in=allowed_ids), pk=pk)
+        channel = get_object_or_404(Channel.objects.filter(pk__in=allowed_ids).select_related('channel_group'), pk=pk)
         channel_team_access = True
     else:
-        channel = get_object_or_404(Channel, pk=pk, owner=request.user)
+        channel = get_object_or_404(Channel.objects.select_related('channel_group'), pk=pk, owner=request.user)
         channel_team_access = False
     from content.models import Post
     from stats.models import ChannelStat
@@ -186,10 +195,10 @@ def channel_edit(request, pk):
     # Менеджер / помощник: только подписи (tg/max/vk), по каналам из команды.
     if _team_channel_editor_user(request.user):
         allowed_ids = _team_member_channel_ids(request.user)
-        channel = get_object_or_404(Channel.objects.filter(pk__in=allowed_ids), pk=pk)
+        channel = get_object_or_404(Channel.objects.filter(pk__in=allowed_ids).select_related('channel_group'), pk=pk)
         footer_only = True
     else:
-        channel = get_object_or_404(Channel, pk=pk, owner=request.user)
+        channel = get_object_or_404(Channel.objects.select_related('channel_group'), pk=pk, owner=request.user)
 
     if request.method == 'POST':
         if footer_only:
@@ -260,11 +269,23 @@ def channel_edit(request, pk):
         channel.admin_contact_vk = (request.POST.get('admin_contact_vk') or '').strip()
         channel.admin_contact_max_phone = (request.POST.get('admin_contact_max_phone') or '').strip()
 
+        cg_raw = (request.POST.get('channel_group_id') or '').strip()
+        if cg_raw.isdigit():
+            cg = ChannelGroup.objects.filter(pk=int(cg_raw), owner=request.user).first()
+            channel.channel_group = cg
+        else:
+            channel.channel_group = None
+
         channel.save()
         messages.success(request, 'Канал обновлён.')
         return redirect('channels:detail', pk=pk)
 
-    return render(request, 'channels/edit.html', {'channel': channel, 'footer_only': footer_only})
+    groups = ChannelGroup.objects.filter(owner=request.user).order_by('name', 'pk')
+    return render(request, 'channels/edit.html', {
+        'channel': channel,
+        'footer_only': footer_only,
+        'channel_groups': groups,
+    })
 
 
 @login_required
@@ -397,6 +418,29 @@ def channel_test(request, pk):
 
     except Exception as e:
         return JsonResponse({'ok': False, 'message': f'Ошибка соединения: {e}'})
+
+
+@login_required
+def channel_group_create(request):
+    """Создание группы каналов (один паблик в нескольких соцсетях)."""
+    if _team_channel_editor_user(request.user):
+        messages.error(request, 'Создавать группы может только владелец аккаунта.')
+        return redirect('channels:list')
+
+    next_url = (request.GET.get('next') or '').strip()
+    if request.method == 'POST':
+        name = (request.POST.get('name') or '').strip()
+        next_url = (request.POST.get('next') or next_url).strip()
+        if not name:
+            messages.error(request, 'Укажите название группы.')
+        else:
+            ChannelGroup.objects.create(owner=request.user, name=name)
+            messages.success(request, f'Группа «{name}» создана.')
+            if next_url.startswith('/') and not next_url.startswith('//'):
+                return redirect(next_url)
+            return redirect('channels:list')
+
+    return render(request, 'channels/group_create.html', {'next': next_url})
 
 
 @login_required

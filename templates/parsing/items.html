@@ -4,25 +4,28 @@
 {% block content %}
 <div class="page-header d-flex align-items-center justify-content-between">
   <div>
-    <a href="{% url 'parsing:sources' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <a href="{% url 'parsing:sources' %}{{ parsing_scope_query }}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
       <i class="bi bi-arrow-left me-1"></i> К источникам
     </a>
     <h1><i class="bi bi-collection me-2" style="color:var(--brand)"></i>Найденные материалы</h1>
   </div>
 </div>
 
+{% include 'parsing/includes/chgroup_filter.html' %}
+
 <!-- Status filter -->
 <div class="mb-4 d-flex gap-2 flex-wrap">
+  {% if parse_scope.chgroup_param == 'all' %}
   <a href="?" class="btn btn-sm {% if not status_filter %}btn-brand{% else %}btn-outline-secondary{% endif %}">Все</a>
-  <a href="?status=new" class="btn btn-sm {% if status_filter == 'new' %}btn-brand{% else %}btn-outline-secondary{% endif %}">
-    Новые
-  </a>
-  <a href="?status=used" class="btn btn-sm {% if status_filter == 'used' %}btn-brand{% else %}btn-outline-secondary{% endif %}">
-    Использованы
-  </a>
-  <a href="?status=ignored" class="btn btn-sm {% if status_filter == 'ignored' %}btn-brand{% else %}btn-outline-secondary{% endif %}">
-    Пропущены
-  </a>
+  <a href="?status=new" class="btn btn-sm {% if status_filter == 'new' %}btn-brand{% else %}btn-outline-secondary{% endif %}">Новые</a>
+  <a href="?status=used" class="btn btn-sm {% if status_filter == 'used' %}btn-brand{% else %}btn-outline-secondary{% endif %}">Использованы</a>
+  <a href="?status=ignored" class="btn btn-sm {% if status_filter == 'ignored' %}btn-brand{% else %}btn-outline-secondary{% endif %}">Пропущены</a>
+  {% else %}
+  <a href="?chgroup={{ parse_scope.chgroup_param }}" class="btn btn-sm {% if not status_filter %}btn-brand{% else %}btn-outline-secondary{% endif %}">Все</a>
+  <a href="?chgroup={{ parse_scope.chgroup_param }}&status=new" class="btn btn-sm {% if status_filter == 'new' %}btn-brand{% else %}btn-outline-secondary{% endif %}">Новые</a>
+  <a href="?chgroup={{ parse_scope.chgroup_param }}&status=used" class="btn btn-sm {% if status_filter == 'used' %}btn-brand{% else %}btn-outline-secondary{% endif %}">Использованы</a>
+  <a href="?chgroup={{ parse_scope.chgroup_param }}&status=ignored" class="btn btn-sm {% if status_filter == 'ignored' %}btn-brand{% else %}btn-outline-secondary{% endif %}">Пропущены</a>
+  {% endif %}
 </div>
 
 {% if items %}
@@ -73,7 +76,7 @@
     </div>
     <h5 class="fw-bold">Материалов нет</h5>
     <p class="text-muted mb-4">Добавьте источники и ключевые слова для парсинга</p>
-    <a href="{% url 'parsing:sources' %}" class="btn btn-brand">
+    <a href="{% url 'parsing:sources' %}{{ parsing_scope_query }}" class="btn btn-brand">
       <i class="bi bi-arrow-left me-1"></i> К источникам
     </a>
   </div>

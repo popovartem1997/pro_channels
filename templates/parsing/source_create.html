@@ -3,11 +3,13 @@
 
 {% block content %}
 <div class="page-header">
-  <a href="{% url 'parsing:sources' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+  <a href="{% url 'parsing:sources' %}{{ parsing_scope_query }}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
     <i class="bi bi-arrow-left me-1"></i> К источникам
   </a>
   <h1>Добавить источник</h1>
 </div>
+
+{% include 'parsing/includes/chgroup_filter.html' %}
 
 <div class="row justify-content-center">
   <div class="col-12 col-lg-6">
@@ -15,9 +17,17 @@
       <div class="card-body p-4 p-md-5">
         <form method="post" novalidate>
           {% csrf_token %}
-          {% if selected_channel %}
-            <input type="hidden" name="channel_id" value="{{ selected_channel.pk }}">
-          {% endif %}
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_channel_id">Канал публикации</label>
+            <select name="channel_id" id="id_channel_id" class="form-select" required>
+              <option value="">— Выберите канал —</option>
+              {% for ch in channels_in_scope %}
+              <option value="{{ ch.pk }}">{{ ch.name }} ({{ ch.get_platform_display }})</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Источник привязывается к конкретному подключению (TG / VK / MAX и т.д.).</div>
+          </div>
 
           <div class="mb-3">
             <label class="form-label fw-semibold" for="id_name">Название</label>
@@ -48,7 +58,7 @@
             <button type="submit" class="btn btn-brand px-4 fw-semibold">
               <i class="bi bi-plus-lg me-1"></i> Добавить источник
             </button>
-            <a href="{% url 'parsing:sources' %}" class="btn btn-outline-secondary">Отмена</a>
+            <a href="{% url 'parsing:sources' %}{{ parsing_scope_query }}" class="btn btn-outline-secondary">Отмена</a>
           </div>
         </form>
       </div>

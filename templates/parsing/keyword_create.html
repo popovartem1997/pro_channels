@@ -3,21 +3,20 @@
 
 {% block content %}
 <div class="page-header">
-  <a href="{% url 'parsing:sources' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+  <a href="{% url 'parsing:sources' %}{{ parsing_scope_query }}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
     <i class="bi bi-arrow-left me-1"></i> К источникам
   </a>
   <h1>Добавить ключевое слово</h1>
 </div>
 
+{% include 'parsing/includes/chgroup_filter.html' %}
+
 <div class="row justify-content-center">
   <div class="col-12 col-lg-5">
     <div class="card">
       <div class="card-body p-4 p-md-5">
-        <form method="post" novalidate>
+        <form method="post" novalidate id="kw-create-form">
           {% csrf_token %}
-          {% if selected_channel %}
-            <input type="hidden" name="channel_id" value="{{ selected_channel.pk }}">
-          {% endif %}
           <div class="mb-4">
             <label class="form-label fw-semibold" for="id_word">Ключевое слово или фраза</label>
             <input type="text" name="keyword" id="id_word"
@@ -27,16 +26,26 @@
             <div class="form-text">Материалы, содержащие это слово, будут попадать в ленту</div>
           </div>
 
+          <div class="mb-4" id="single-channel-wrap">
+            <label class="form-label fw-semibold" for="id_channel_id_kw">Канал</label>
+            <select name="channel_id" id="id_channel_id_kw" class="form-select">
+              <option value="">— Выберите канал —</option>
+              {% for ch in channels_in_scope %}
+              <option value="{{ ch.pk }}">{{ ch.name }} ({{ ch.get_platform_display }})</option>
+              {% endfor %}
+            </select>
+          </div>
+
           <div class="mb-4">
             <div class="form-check">
               <input class="form-check-input" type="checkbox" id="id_all_channels" name="all_channels"
                      {% if request.POST.all_channels %}checked{% endif %}>
               <label class="form-check-label" for="id_all_channels">
-                Для всех каналов
+                Для всех каналов в текущем фильтре
               </label>
             </div>
             <div class="form-text">
-              Создаст ключевое слово для каждого вашего активного канала.
+              Создаст отдельное ключевое слово для каждого канала, попадающего в выбранную группу (или «Все каналы»).
             </div>
           </div>
 
@@ -47,7 +56,9 @@
               {% for source in sources %}
               <label class="d-flex align-items-center gap-2">
                 <input type="checkbox" class="form-check-input mt-0" name="sources" value="{{ source.pk }}">
-                <span class="small">{{ source.name }} <span class="text-muted">({{ source.source_id }})</span></span>
+                <span class="small">{{ source.name }} <span class="text-muted">({{ source.source_id }})</span>
+                  {% if source.channel %}<span class="text-muted">· {{ source.channel.get_platform_display }}</span>{% endif %}
+                </span>
               </label>
               {% empty %}
               <div class="text-muted small">Нет источников. Добавьте источник на странице «Парсинг».</div>
@@ -58,11 +69,30 @@
             <button type="submit" class="btn btn-brand px-4 fw-semibold">
               <i class="bi bi-plus-lg me-1"></i> Добавить
             </button>
-            <a href="{% url 'parsing:sources' %}" class="btn btn-outline-secondary">Отмена</a>
+            <a href="{% url 'parsing:sources' %}{{ parsing_scope_query }}" class="btn btn-outline-secondary">Отмена</a>
           </div>
         </form>
       </div>
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  var allCh = document.getElementById('id_all_channels');
+  var wrap = document.getElementById('single-channel-wrap');
+  var sel = document.getElementById('id_channel_id_kw');
+  function sync() {
+    if (!wrap || !sel) return;
+    var on = allCh && allCh.checked;
+    wrap.classList.toggle('opacity-50', on);
+    sel.disabled = on;
+    if (on) sel.removeAttribute('required'); else sel.setAttribute('required', 'required');
+  }
+  if (allCh) allCh.addEventListener('change', sync);
+  sync();
+});
+</script>
 {% endblock %}

@@ -1,0 +1,23 @@
+{# Требует в контексте: parse_scope, channel_groups, has_ungrouped_channels, has_any_parsing_channels #}
+{% if has_any_parsing_channels %}
+<div class="card mb-4">
+  <div class="card-body py-3">
+    <form method="get" class="d-flex align-items-center gap-2 flex-wrap">
+      <div class="text-muted small fw-semibold">Проект (группа каналов):</div>
+      <select name="chgroup" class="form-select form-select-sm" style="max-width:420px;" onchange="this.form.submit()">
+        <option value="all" {% if parse_scope.chgroup_param == 'all' %}selected{% endif %}>Все каналы</option>
+        {% for g in channel_groups %}
+        <option value="{{ g.pk }}" {% if parse_scope.group and parse_scope.group.pk == g.pk %}selected{% endif %}>{{ g.name }}</option>
+        {% endfor %}
+        {% if has_ungrouped_channels %}
+        <option value="none" {% if parse_scope.mode == 'ungrouped' %}selected{% endif %}>Без группы</option>
+        {% endif %}
+      </select>
+      <noscript><button type="submit" class="btn btn-outline-secondary btn-sm">Выбрать</button></noscript>
+    </form>
+    <div class="form-text small mt-2 mb-0">
+      Объедините TG, VK и MAX в одну группу в разделе <a href="{% url 'channels:list' %}">Каналы</a>, чтобы фильтровать парсинг по проекту целиком.
+    </div>
+  </div>
+</div>
+{% endif %}

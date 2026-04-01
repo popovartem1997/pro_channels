@@ -8,6 +8,9 @@
       <i class="bi bi-arrow-left me-1"></i> К списку каналов
     </a>
     <h1>{{ channel.name }}</h1>
+    {% if channel.channel_group %}
+    <p class="text-muted small mb-0"><i class="bi bi-diagram-3 me-1"></i>{{ channel.channel_group.name }}</p>
+    {% endif %}
   </div>
   <div class="d-flex gap-2 flex-wrap">
     {% if not channel_team_access %}

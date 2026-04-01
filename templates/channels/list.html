@@ -11,9 +11,14 @@
     </p>
   </div>
   {% if not team_channel_list %}
-  <a href="{% url 'channels:create' %}" class="btn btn-brand">
-    <i class="bi bi-plus-lg me-1"></i> Добавить канал
-  </a>
+  <div class="d-flex flex-wrap gap-2">
+    <a href="{% url 'channels:group_create' %}" class="btn btn-outline-secondary">
+      <i class="bi bi-diagram-3 me-1"></i> Группа
+    </a>
+    <a href="{% url 'channels:create' %}" class="btn btn-brand">
+      <i class="bi bi-plus-lg me-1"></i> Добавить канал
+    </a>
+  </div>
   {% endif %}
 </div>
 
@@ -34,6 +39,11 @@
         </div>
 
         <h5 class="fw-bold mb-1">{{ channel.name }}</h5>
+        {% if channel.channel_group %}
+        <p class="small text-muted mb-2 mb-md-1">
+          <i class="bi bi-diagram-3 me-1"></i>{{ channel.channel_group.name }}
+        </p>
+        {% endif %}
         <p class="text-muted small mb-3">
           <i class="bi bi-people me-1"></i>
           {{ channel.subscribers_count|default:"—" }}

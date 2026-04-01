@@ -46,25 +46,92 @@ def _parsing_data_owner(request_user, channel):
     return request_user
 
 
-def _parse_sources_qs(user, selected_channel=None):
+def _parsing_groups_qs(user):
+    from channels.models import ChannelGroup
+
+    if user.role in ('manager', 'assistant_admin'):
+        ids = _manager_team_channel_ids(user)
+        if not ids:
+            return ChannelGroup.objects.none()
+        return ChannelGroup.objects.filter(channels__pk__in=ids).distinct().order_by('name', 'pk')
+    return ChannelGroup.objects.filter(owner=user).order_by('name', 'pk')
+
+
+def _parsing_has_ungrouped_channels(user):
+    from channels.models import Channel
+
+    ids = list(_parsing_channels_qs(user).values_list('pk', flat=True))
+    if not ids:
+        return False
+    return Channel.objects.filter(pk__in=ids, channel_group__isnull=True).exists()
+
+
+def _get_parse_scope(request):
+    """
+    Фильтр парсинга по группе каналов (один паблик в разных соцсетях).
+    chgroup=all | none | <id группы>
+    """
+    from channels.models import Channel
+
+    acc_ids = set(_parsing_channels_qs(request.user).values_list('pk', flat=True))
+    raw = (request.GET.get('chgroup') or '').strip()
+    if raw == '':
+        raw = (request.session.get('parsing_chgroup') or 'all').strip() or 'all'
+
+    if raw in ('all',):
+        request.session['parsing_chgroup'] = 'all'
+        return {'mode': 'all', 'group': None, 'channel_ids': None, 'chgroup_param': 'all'}
+
+    if raw in ('none', 'ungrouped'):
+        request.session['parsing_chgroup'] = 'none'
+        uids = list(Channel.objects.filter(pk__in=acc_ids, channel_group__isnull=True).values_list('pk', flat=True))
+        return {'mode': 'ungrouped', 'group': None, 'channel_ids': uids, 'chgroup_param': 'none'}
+
+    try:
+        gid = int(raw)
+    except ValueError:
+        request.session['parsing_chgroup'] = 'all'
+        return {'mode': 'all', 'group': None, 'channel_ids': None, 'chgroup_param': 'all'}
+
+    try:
+        g = _parsing_groups_qs(request.user).get(pk=gid)
+    except Exception:
+        request.session['parsing_chgroup'] = 'all'
+        return {'mode': 'all', 'group': None, 'channel_ids': None, 'chgroup_param': 'all'}
+
+    cids = list(g.channels.filter(pk__in=acc_ids).values_list('pk', flat=True))
+    request.session['parsing_chgroup'] = str(gid)
+    return {'mode': 'group', 'group': g, 'channel_ids': cids, 'chgroup_param': str(gid)}
+
+
+def _channels_in_scope(user, scope):
+    """Каналы, доступные в текущем фильтре (для форм «на какой канал вешать источник»)."""
+    base = _parsing_channels_qs(user).order_by('platform', 'name')
+    cids = scope.get('channel_ids')
+    if cids is None:
+        return base
+    return base.filter(pk__in=cids)
+
+
+def _parse_sources_qs(user, scope=None):
     if user.role in ('manager', 'assistant_admin'):
         ch_ids = list(_parsing_channels_qs(user).values_list('pk', flat=True))
         qs = ParseSource.objects.filter(channel_id__in=ch_ids)
     else:
         qs = ParseSource.objects.filter(owner=user)
-    if selected_channel is not None:
-        qs = qs.filter(channel=selected_channel)
+    if scope and scope.get('channel_ids') is not None:
+        qs = qs.filter(channel_id__in=scope['channel_ids'])
     return qs
 
 
-def _parse_keywords_qs(user, selected_channel=None):
+def _parse_keywords_qs(user, scope=None):
     if user.role in ('manager', 'assistant_admin'):
         ch_ids = list(_parsing_channels_qs(user).values_list('pk', flat=True))
         qs = ParseKeyword.objects.filter(channel_id__in=ch_ids)
     else:
         qs = ParseKeyword.objects.filter(owner=user)
-    if selected_channel is not None:
-        qs = qs.filter(channel=selected_channel)
+    if scope and scope.get('channel_ids') is not None:
+        qs = qs.filter(channel_id__in=scope['channel_ids'])
     return qs
 
 
@@ -88,71 +155,50 @@ def _ai_rewrite_jobs_qs(user):
     return AIRewriteJob.objects.filter(owner=user).order_by('-created_at')
 
 
-def _ensure_parse_scheduler_every_20m():
-    """
-    Убедиться, что Celery Beat запускает parsing.tasks.check_parse_tasks каждые 20 минут.
-    Best-effort: если django_celery_beat не установлен/не настроен — тихо пропускаем.
-    """
-    try:
-        from django_celery_beat.models import IntervalSchedule, PeriodicTask
-        every_20m, _ = IntervalSchedule.objects.get_or_create(
-            every=20, period=IntervalSchedule.MINUTES
-        )
-        PeriodicTask.objects.update_or_create(
-            name='parsing: check parse tasks (every 20m)',
-            defaults={
-                'interval': every_20m,
-                'task': 'parsing.tasks.check_parse_tasks',
-                'enabled': True,
-            }
-        )
-    except Exception:
-        return
-
-
 def _ensure_auto_parse_task(owner, channel):
-    """
-    Автоматически создать/обновить задачу парсинга для канала владельца.
-    Задача каждые 20 минут по всем активным источникам и ключевикам выбранного канала.
-    """
+    """Обновить авто-задачу Celery (группа каналов или один канал)."""
     if not owner or not channel:
         return None
-    _ensure_parse_scheduler_every_20m()
-    task, _ = ParseTask.objects.get_or_create(
-        owner=owner,
-        name=f'Auto parsing (channel {channel.pk})',
-        defaults={'schedule_cron': '*/20 * * * *', 'is_active': True},
-    )
-    # Keep schedule fixed
-    if task.schedule_cron != '*/20 * * * *':
-        task.schedule_cron = '*/20 * * * *'
-        task.is_active = True
-        task.save(update_fields=['schedule_cron', 'is_active'])
+    from .schedule_sync import sync_auto_parse_tasks_for_channel
 
-    sources = list(ParseSource.objects.filter(owner=owner, channel=channel, is_active=True).values_list('pk', flat=True))
-    keywords = list(ParseKeyword.objects.filter(owner=owner, channel=channel, is_active=True).values_list('pk', flat=True))
-    if sources:
-        task.sources.set(sources)
-    if keywords:
-        task.keywords.set(keywords)
-    return task
+    sync_auto_parse_tasks_for_channel(channel)
+    return None
 
 
-def _get_selected_channel(request):
-    channels_qs = _parsing_channels_qs(request.user)
-    cid = request.GET.get('channel') or request.POST.get('channel_id')
-    if cid:
-        try:
-            return channels_qs.get(pk=int(cid))
-        except Exception:
-            return None
-    sid = request.session.get('parsing_channel_id')
-    if sid:
-        try:
-            return channels_qs.get(pk=int(sid))
-        except Exception:
-            pass
-    return channels_qs.order_by('created_at').first()
+def _parsing_template_extra(request, scope):
+    """Общий контекст для шаблонов парсинга (фильтр по группе)."""
+    p = scope.get('chgroup_param') or 'all'
+    qprefix = '' if p == 'all' else f'chgroup={p}&'
+    scope_q = '' if p == 'all' else f'?chgroup={p}'
+    return {
+        'channel_groups': _parsing_groups_qs(request.user),
+        'parse_scope': scope,
+        'channels_in_scope': _channels_in_scope(request.user, scope),
+        'has_ungrouped_channels': _parsing_has_ungrouped_channels(request.user),
+        'parse_chgroup_query_prefix': qprefix,
+        'parsing_scope_query': scope_q,
+        'has_any_parsing_channels': _parsing_channels_qs(request.user).exists(),
+    }
+
+
+def _parsing_sources_redirect(request, scope):
+    """URL списка источников с сохранением фильтра chgroup."""
+    base = reverse('parsing:sources')
+    p = scope.get('chgroup_param') or 'all'
+    if p and p != 'all':
+        return f'{base}?chgroup={p}'
+    return base
+
+
+def _parse_url(viewname, scope, *, kwargs=None):
+    """reverse + chgroup query для страниц парсинга."""
+    url = reverse(viewname, kwargs=kwargs or {})
+    p = scope.get('chgroup_param') or 'all'
+    if p != 'all':
+        sep = '&' if '?' in url else '?'
+        return f'{url}{sep}chgroup={p}'
+    return url
+
 
 def _telethon_session_exists_for_user(user_id: int) -> bool:
     """
@@ -170,28 +216,22 @@ def _telethon_session_exists_for_user(user_id: int) -> bool:
 
 @login_required
 def sources_list(request):
-    selected_channel = _get_selected_channel(request)
-    if selected_channel:
-        request.session['parsing_channel_id'] = selected_channel.pk
-        sources = (
-            _parse_sources_qs(request.user, selected_channel)
-            .annotate(keyword_count=Count('keywords', distinct=True))
-        )
-        keywords = (
-            _parse_keywords_qs(request.user, selected_channel)
-            .annotate(source_count=Count('sources', distinct=True))
-        )
-    else:
-        sources = _parse_sources_qs(request.user).annotate(keyword_count=Count('keywords', distinct=True))
-        keywords = _parse_keywords_qs(request.user).annotate(source_count=Count('sources', distinct=True))
-    channels = _parsing_channels_qs(request.user).order_by('-created_at')
-    return render(request, 'parsing/sources.html', {
-        'channels': channels,
-        'selected_channel': selected_channel,
+    scope = _get_parse_scope(request)
+    sources = (
+        _parse_sources_qs(request.user, scope)
+        .annotate(keyword_count=Count('keywords', distinct=True))
+    )
+    keywords = (
+        _parse_keywords_qs(request.user, scope)
+        .annotate(source_count=Count('sources', distinct=True))
+    )
+    ctx = {
         'sources': sources,
         'keywords': keywords,
         'telethon_connected': _telethon_session_exists_for_user(request.user.id),
-    })
+    }
+    ctx.update(_parsing_template_extra(request, scope))
+    return render(request, 'parsing/sources.html', ctx)
 
 
 @login_required
@@ -303,51 +343,68 @@ def telethon_connect(request):
 
 @login_required
 def source_create(request):
-    selected_channel = _get_selected_channel(request)
+    scope = _get_parse_scope(request)
+    channels_in_scope = _channels_in_scope(request.user, scope)
     if request.method == 'POST':
         name = request.POST.get('name', '').strip()
         platform = request.POST.get('platform', '')
         source_id = request.POST.get('source_id', '').strip()
+        target_cid = (request.POST.get('channel_id') or '').strip()
         if not all([name, platform, source_id]):
             messages.error(request, 'Заполните все поля.')
         else:
-            if not selected_channel:
-                messages.error(request, 'Сначала выберите канал для парсинга.')
+            allowed_ids = set(channels_in_scope.values_list('pk', flat=True))
+            if not allowed_ids:
+                messages.error(request, 'Нет доступных каналов в текущем фильтре.')
                 return redirect('parsing:sources')
-            data_owner = _parsing_data_owner(request.user, selected_channel)
+            if len(allowed_ids) == 1:
+                target_cid = str(next(iter(allowed_ids)))
+            if not target_cid.isdigit() or int(target_cid) not in allowed_ids:
+                messages.error(request, 'Выберите канал, к которому привязать источник.')
+                return redirect(_parse_url('parsing:source_create', scope))
+            from channels.models import Channel
+
+            target_channel = Channel.objects.get(pk=int(target_cid))
+            data_owner = _parsing_data_owner(request.user, target_channel)
             ParseSource.objects.create(
                 owner=data_owner,
-                channel=selected_channel,
+                channel=target_channel,
                 name=name,
                 platform=platform,
-                source_id=source_id
+                source_id=source_id,
             )
             try:
-                _ensure_auto_parse_task(data_owner, selected_channel)
+                _ensure_auto_parse_task(data_owner, target_channel)
             except Exception:
                 pass
             messages.success(request, f'Источник "{name}" добавлен.')
-        return redirect('parsing:sources')
-    channels = _parsing_channels_qs(request.user).order_by('-created_at')
-    return render(request, 'parsing/source_create.html', {
-        'platforms': ParseSource.PLATFORM_CHOICES,
-        'channels': channels,
-        'selected_channel': selected_channel,
-    })
+        return redirect(_parsing_sources_redirect(request, scope))
+    ctx = {'platforms': ParseSource.PLATFORM_CHOICES}
+    ctx.update(_parsing_template_extra(request, scope))
+    return render(request, 'parsing/source_create.html', ctx)
 
 
 @login_required
 def source_delete(request, pk):
-    source = get_object_or_404(_parse_sources_qs(request.user), pk=pk)
+    scope = _get_parse_scope(request)
+    source = get_object_or_404(_parse_sources_qs(request.user, scope), pk=pk)
     if request.method == 'POST':
+        ch = source.channel
         source.delete()
         messages.success(request, 'Источник удалён.')
-    return redirect('parsing:sources')
+        if ch:
+            try:
+                _ensure_auto_parse_task(ch.owner, ch)
+            except Exception:
+                pass
+    return redirect(_parsing_sources_redirect(request, scope))
 
 
 @login_required
 def keyword_create(request):
-    selected_channel = _get_selected_channel(request)
+    scope = _get_parse_scope(request)
+    channels_in_scope = _channels_in_scope(request.user, scope)
+    allowed_ch_ids = list(channels_in_scope.values_list('pk', flat=True))
     if request.method == 'POST':
         keyword = request.POST.get('keyword', '').strip()
         source_ids = request.POST.getlist('sources')
@@ -356,13 +413,14 @@ def keyword_create(request):
             messages.error(request, 'Введите ключевое слово.')
         else:
             from channels.models import Channel
+
+            if not allowed_ch_ids:
+                messages.error(request, 'Нет доступных каналов в текущем фильтре.')
+                return redirect(_parsing_sources_redirect(request, scope))
+
             if all_channels:
-                channel_ids = list(_parsing_channels_qs(request.user).values_list('pk', flat=True))
-                if not channel_ids:
-                    messages.error(request, 'Нет доступных каналов для парсинга.')
-                    return redirect('parsing:sources')
                 created = 0
-                for cid in channel_ids:
+                for cid in allowed_ch_ids:
                     ch = Channel.objects.get(pk=cid)
                     data_owner = _parsing_data_owner(request.user, ch)
                     kw = ParseKeyword.objects.create(owner=data_owner, channel_id=cid, keyword=keyword)
@@ -371,15 +429,19 @@ def keyword_create(request):
                         _ensure_auto_parse_task(data_owner, kw.channel)
                     except Exception:
                         pass
-                messages.success(request, f'Ключевое слово "{keyword}" добавлено для {created} канал(ов).')
+                messages.success(request, f'Ключевое слово «{keyword}» добавлено для {created} канал(ов).')
             else:
-                if not selected_channel:
-                    messages.error(request, 'Сначала выберите канал для парсинга.')
-                    return redirect('parsing:sources')
+                target_cid = (request.POST.get('channel_id') or '').strip()
+                if len(allowed_ch_ids) == 1:
+                    target_cid = str(allowed_ch_ids[0])
+                if not target_cid.isdigit() or int(target_cid) not in set(allowed_ch_ids):
+                    messages.error(request, 'Выберите канал для ключевого слова.')
+                    return redirect(_parse_url('parsing:keyword_create', scope))
+                selected_channel = Channel.objects.get(pk=int(target_cid))
                 data_owner = _parsing_data_owner(request.user, selected_channel)
                 kw = ParseKeyword.objects.create(owner=data_owner, channel=selected_channel, keyword=keyword)
                 if source_ids:
-                    allowed_src = set(_parse_sources_qs(request.user, selected_channel).values_list('pk', flat=True))
+                    allowed_src = set(_parse_sources_qs(request.user, scope).values_list('pk', flat=True))
                     safe = [int(x) for x in source_ids if str(x).isdigit() and int(x) in allowed_src]
                     if safe:
                         kw.sources.set(safe)
@@ -387,23 +449,23 @@ def keyword_create(request):
                     _ensure_auto_parse_task(data_owner, selected_channel)
                 except Exception:
                     pass
-                messages.success(request, f'Ключевое слово "{keyword}" добавлено.')
-        return redirect('parsing:sources')
-    sources = _parse_sources_qs(request.user, selected_channel) if selected_channel else _parse_sources_qs(request.user)
-    return render(request, 'parsing/keyword_create.html', {
-        'sources': sources,
-        'selected_channel': selected_channel,
-    })
+                messages.success(request, f'Ключевое слово «{keyword}» добавлено.')
+        return redirect(_parsing_sources_redirect(request, scope))
+    sources = _parse_sources_qs(request.user, scope)
+    ctx = {'sources': sources}
+    ctx.update(_parsing_template_extra(request, scope))
+    return render(request, 'parsing/keyword_create.html', ctx)
 
 
 @login_required
 def keyword_edit(request, pk):
+    scope = _get_parse_scope(request)
     kw = get_object_or_404(
-        _parse_keywords_qs(request.user).select_related('channel').prefetch_related('sources'),
+        _parse_keywords_qs(request.user, scope).select_related('channel').prefetch_related('sources'),
         pk=pk,
     )
     selected_channel = kw.channel
-    sources = _parse_sources_qs(request.user, selected_channel) if selected_channel else _parse_sources_qs(request.user)
+    sources = _parse_sources_qs(request.user, scope)
     selected_source_ids = set(kw.sources.values_list('pk', flat=True))
 
     if request.method == 'POST':
@@ -424,53 +486,62 @@ def keyword_edit(request, pk):
                 except Exception:
                     pass
             messages.success(request, 'Ключевое слово обновлено.')
-        if selected_channel:
-            return redirect(f"{reverse('parsing:sources')}?channel={selected_channel.pk}")
-        return redirect('parsing:sources')
+        return redirect(_parsing_sources_redirect(request, scope))
 
-    return render(request, 'parsing/keyword_edit.html', {
+    ctx = {
         'sources': sources,
         'keyword_obj': kw,
         'selected_channel': selected_channel,
         'selected_source_ids': selected_source_ids,
-    })
+    }
+    ctx.update(_parsing_template_extra(request, scope))
+    return render(request, 'parsing/keyword_edit.html', ctx)
 
 
 @login_required
 def keyword_delete(request, pk):
-    kw = get_object_or_404(_parse_keywords_qs(request.user), pk=pk)
+    scope = _get_parse_scope(request)
+    kw = get_object_or_404(_parse_keywords_qs(request.user, scope), pk=pk)
     if request.method == 'POST':
+        ch = kw.channel
         kw.delete()
         messages.success(request, 'Ключевое слово удалено.')
-    return redirect('parsing:sources')
+        if ch:
+            try:
+                _ensure_auto_parse_task(ch.owner, ch)
+            except Exception:
+                pass
+    return redirect(_parsing_sources_redirect(request, scope))
 
 
 @login_required
 def parsed_items(request):
-    selected_channel = _get_selected_channel(request)
+    scope = _get_parse_scope(request)
     items = _parsed_items_base_qs(request.user).select_related('source', 'keyword').order_by('-found_at')
-    if selected_channel:
-        items = items.filter(keyword__channel=selected_channel)
+    if scope.get('channel_ids') is not None:
+        items = items.filter(keyword__channel_id__in=scope['channel_ids'])
     status_filter = request.GET.get('status', '')
     if status_filter:
         items = items.filter(status=status_filter)
-    return render(request, 'parsing/items.html', {
+    ctx = {
         'items': items[:100],
         'status_filter': status_filter,
         'statuses': ParsedItem.STATUS_CHOICES,
-        'selected_channel': selected_channel,
-    })
+    }
+    ctx.update(_parsing_template_extra(request, scope))
+    return render(request, 'parsing/items.html', ctx)
 
 
 @login_required
 def item_skip(request, pk):
     """Отметить найденный материал как пропущенный/игнорируемый."""
     item = get_object_or_404(_parsed_items_base_qs(request.user), pk=pk)
+    scope = _get_parse_scope(request)
     if request.method == 'POST':
         item.status = ParsedItem.STATUS_IGNORED
         item.save(update_fields=['status'])
         messages.info(request, 'Материал помечен как пропущенный.')
-    return redirect('parsing:items')
+    return redirect(_parse_url('parsing:items', scope))
 
 
 @login_required
@@ -513,38 +584,51 @@ def item_to_post(request, pk):
 @login_required
 def parse_tasks_list(request):
     """Список задач парсинга пользователя."""
-    selected_channel = _get_selected_channel(request)
+    scope = _get_parse_scope(request)
     tasks = _parse_tasks_qs(request.user).prefetch_related('sources', 'keywords')
-    if selected_channel:
-        tasks = tasks.filter(sources__channel=selected_channel).distinct()
-    return render(request, 'parsing/tasks.html', {'tasks': tasks, 'selected_channel': selected_channel})
+    if scope.get('channel_ids') is not None:
+        tasks = tasks.filter(sources__channel_id__in=scope['channel_ids']).distinct()
+    ctx = {'tasks': tasks}
+    ctx.update(_parsing_template_extra(request, scope))
+    return render(request, 'parsing/tasks.html', ctx)
 
 
 @login_required
 def parse_task_create(request):
     """Создание новой задачи парсинга."""
-    selected_channel = _get_selected_channel(request)
+    scope = _get_parse_scope(request)
+    channels_in_scope = _channels_in_scope(request.user, scope)
+    allowed_ch_ids = set(channels_in_scope.values_list('pk', flat=True))
     if request.method == 'POST':
         name = request.POST.get('name', '').strip()
         source_ids = request.POST.getlist('sources')
         keyword_ids = request.POST.getlist('keywords')
         schedule = request.POST.get('schedule_cron', '0 */6 * * *').strip()
+        target_cid = (request.POST.get('channel_id') or '').strip()
 
         if not name:
             messages.error(request, 'Введите название задачи.')
-            return redirect('parsing:parse_tasks')
-        if not selected_channel:
-            messages.error(request, 'Сначала выберите канал для парсинга.')
-            return redirect('parsing:parse_tasks')
+            return redirect(_parse_url('parsing:parse_tasks', scope))
+        if not allowed_ch_ids:
+            messages.error(request, 'Нет каналов в текущем фильтре.')
+            return redirect(_parse_url('parsing:parse_tasks', scope))
+        if len(allowed_ch_ids) == 1:
+            target_cid = str(next(iter(allowed_ch_ids)))
+        if not target_cid.isdigit() or int(target_cid) not in allowed_ch_ids:
+            messages.error(request, 'Выберите канал-владелец задачи (для учётной записи владельца).')
+            return redirect(_parse_url('parsing:parse_task_create', scope))
 
-        data_owner = _parsing_data_owner(request.user, selected_channel)
+        from channels.models import Channel
+
+        anchor = Channel.objects.get(pk=int(target_cid))
+        data_owner = _parsing_data_owner(request.user, anchor)
         task = ParseTask.objects.create(
             owner=data_owner,
             name=name,
             schedule_cron=schedule,
         )
-        allowed_s = set(_parse_sources_qs(request.user, selected_channel).values_list('pk', flat=True))
-        allowed_k = set(_parse_keywords_qs(request.user, selected_channel).values_list('pk', flat=True))
+        allowed_s = set(_parse_sources_qs(request.user, scope).values_list('pk', flat=True))
+        allowed_k = set(_parse_keywords_qs(request.user, scope).values_list('pk', flat=True))
         if source_ids:
             safe_s = [int(x) for x in source_ids if str(x).isdigit() and int(x) in allowed_s]
             if safe_s:
@@ -553,40 +637,38 @@ def parse_task_create(request):
             safe_k = [int(x) for x in keyword_ids if str(x).isdigit() and int(x) in allowed_k]
             if safe_k:
                 task.keywords.set(safe_k)
-        messages.success(request, f'Задача "{name}" создана.')
-        return redirect('parsing:parse_tasks')
+        messages.success(request, f'Задача «{name}» создана.')
+        return redirect(_parse_url('parsing:parse_tasks', scope))
 
-    sources = _parse_sources_qs(request.user).filter(is_active=True)
-    keywords_qs = _parse_keywords_qs(request.user).filter(is_active=True)
-    if selected_channel:
-        sources = sources.filter(channel=selected_channel)
-        keywords_qs = keywords_qs.filter(channel=selected_channel)
-    return render(request, 'parsing/parse_task_create.html', {
-        'sources': sources,
-        'keywords': keywords_qs,
-        'selected_channel': selected_channel,
-    })
+    sources = _parse_sources_qs(request.user, scope).filter(is_active=True)
+    keywords_qs = _parse_keywords_qs(request.user, scope).filter(is_active=True)
+    ctx = {'sources': sources, 'keywords': keywords_qs}
+    ctx.update(_parsing_template_extra(request, scope))
+    return render(request, 'parsing/parse_task_create.html', ctx)
 
 
 @login_required
 def parse_task_run(request, pk):
     """Ручной запуск задачи парсинга."""
+    scope = _get_parse_scope(request)
     task = get_object_or_404(_parse_tasks_qs(request.user), pk=pk)
     if request.method == 'POST':
         from .tasks import execute_parse_task
+
         execute_parse_task.delay(task.pk)
-        messages.success(request, f'Задача "{task.name}" запущена.')
-    return redirect('parsing:parse_tasks')
+        messages.success(request, f'Задача «{task.name}» запущена.')
+    return redirect(_parse_url('parsing:parse_tasks', scope))
 
 
 @login_required
 def parse_task_delete(request, pk):
     """Удаление задачи парсинга."""
+    scope = _get_parse_scope(request)
     task = get_object_or_404(_parse_tasks_qs(request.user), pk=pk)
     if request.method == 'POST':
         task.delete()
         messages.success(request, 'Задача удалена.')
-    return redirect('parsing:parse_tasks')
+    return redirect(_parse_url('parsing:parse_tasks', scope))
 
 
 @login_required

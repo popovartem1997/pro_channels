@@ -26,6 +26,20 @@
                    required>
           </div>
 
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_channel_group_id">Группа каналов</label>
+            <select name="channel_group_id" id="id_channel_group_id" class="form-select">
+              <option value="">— Без группы —</option>
+              {% for g in channel_groups %}
+              <option value="{{ g.pk }}" {% if initial.channel_group_id == g.pk|stringformat:"d" %}selected{% endif %}>{{ g.name }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">
+              Один паблик в разных соцсетях — укажите одну группу для всех таких каналов (фильтр в парсинге и ленте).
+              <a href="{% url 'channels:group_create' %}?next={{ request.get_full_path|urlencode }}">Создать группу</a>
+            </div>
+          </div>
+
           <!-- Платформа -->
           <div class="mb-4">
             <label class="form-label fw-semibold" for="id_platform">Платформа</label>

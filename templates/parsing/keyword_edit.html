@@ -3,11 +3,13 @@
 
 {% block content %}
 <div class="page-header">
-  <a href="{% url 'parsing:sources' %}{% if selected_channel %}?channel={{ selected_channel.pk }}{% endif %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+  <a href="{% url 'parsing:sources' %}{{ parsing_scope_query }}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
     <i class="bi bi-arrow-left me-1"></i> К источникам
   </a>
   <h1>Редактировать ключевое слово</h1>
 </div>
+
+{% include 'parsing/includes/chgroup_filter.html' %}
 
 <div class="row justify-content-center">
   <div class="col-12 col-lg-5">
@@ -16,7 +18,7 @@
         <form method="post" novalidate>
           {% csrf_token %}
           {% if selected_channel %}
-            <input type="hidden" name="channel_id" value="{{ selected_channel.pk }}">
+            <p class="small text-muted mb-3">Канал: <strong>{{ selected_channel.name }}</strong> ({{ selected_channel.get_platform_display }})</p>
           {% endif %}
           <div class="mb-4">
             <label class="form-label fw-semibold" for="id_word">Ключевое слово или фраза</label>
@@ -45,7 +47,7 @@
             <button type="submit" class="btn btn-brand px-4 fw-semibold">
               <i class="bi bi-check-lg me-1"></i> Сохранить
             </button>
-            <a href="{% url 'parsing:sources' %}{% if selected_channel %}?channel={{ selected_channel.pk }}{% endif %}" class="btn btn-outline-secondary">Отмена</a>
+            <a href="{% url 'parsing:sources' %}{{ parsing_scope_query }}" class="btn btn-outline-secondary">Отмена</a>
           </div>
         </form>
       </div>

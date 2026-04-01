@@ -271,10 +271,34 @@ def feed(request):
 
     cid_int = int(channel_id) if (channel_id and str(channel_id).isdigit()) else None
 
+    # Группа каналов (как в парсинге): один паблик в нескольких соцсетях
+    chgroup_param = (request.GET.get('chgroup') or '').strip()
+    chgroup_applied = False
+    if chgroup_param.isdigit():
+        from channels.models import ChannelGroup
+
+        g = ChannelGroup.objects.filter(pk=int(chgroup_param)).first()
+        if g:
+            if request.user.is_staff or request.user.is_superuser:
+                feed_chgroup_cids = list(g.channels.filter(is_active=True).values_list('pk', flat=True))
+            else:
+                allowed_set = {c.pk for c in (allowed_channels or [])}
+                feed_chgroup_cids = [x for x in g.channels.values_list('pk', flat=True) if x in allowed_set]
+            post_qs = post_qs.filter(channels__pk__in=feed_chgroup_cids).distinct()
+            sug_qs = sug_qs.filter(bot__channel_id__in=feed_chgroup_cids).distinct()
+            parsed_qs = parsed_qs.filter(
+                Q(source__channel_id__in=feed_chgroup_cids) | Q(keyword__channel_id__in=feed_chgroup_cids)
+            ).distinct()
+            chgroup_applied = True
+
+    chgroup_int = int(chgroup_param) if chgroup_applied else None
+
     def _feed_qs(**params):
         q = {k: v for k, v in params.items() if v is not None and v != ''}
         if cid_int:
             q['channel'] = str(cid_int)
+        if chgroup_int:
+            q['chgroup'] = str(chgroup_int)
         return reverse('core:feed') + '?' + urlencode(q)
 
     feed_quick_links = []
@@ -368,5 +392,6 @@ def feed(request):
         'post_status_filter': post_status_filter,
         'channels': allowed_channels or [],
         'channel_id': cid_int or '',
+        'chgroup_id': chgroup_int or '',
         'feed_quick_links': feed_quick_links,
     })

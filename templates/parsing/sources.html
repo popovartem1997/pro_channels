@@ -14,28 +14,14 @@
         <i class="bi bi-telegram me-1"></i> Telegram подключён
       </button>
     {% else %}
-      <a href="{% url 'parsing:telethon_connect' %}" class="btn btn-outline-secondary btn-sm">
+      <a href="{% url 'parsing:telethon_connect' %}{{ parsing_scope_query }}" class="btn btn-outline-secondary btn-sm">
         <i class="bi bi-telegram me-1"></i> Подключить Telegram
       </a>
     {% endif %}
   </div>
 </div>
 
-{% if channels %}
-<div class="card mb-4">
-  <div class="card-body py-3">
-    <form method="get" class="d-flex align-items-center gap-2 flex-wrap">
-      <div class="text-muted small fw-semibold">Канал:</div>
-      <select name="channel" class="form-select form-select-sm" style="max-width:340px;">
-        {% for ch in channels %}
-          <option value="{{ ch.pk }}" {% if selected_channel and selected_channel.pk == ch.pk %}selected{% endif %}>{{ ch.name }}</option>
-        {% endfor %}
-      </select>
-      <button class="btn btn-outline-secondary btn-sm" type="submit">Выбрать</button>
-    </form>
-  </div>
-</div>
-{% endif %}
+{% include 'parsing/includes/chgroup_filter.html' %}
 
 <div class="row g-4">
 
@@ -44,7 +30,7 @@
     <div class="card h-100">
       <div class="card-header bg-transparent border-bottom d-flex align-items-center justify-content-between py-3">
         <h6 class="fw-bold mb-0"><i class="bi bi-link-45deg me-1"></i> Источники</h6>
-        <a href="{% url 'parsing:source_create' %}" class="btn btn-brand btn-sm">
+        <a href="{% url 'parsing:source_create' %}{{ parsing_scope_query }}" class="btn btn-brand btn-sm">
           <i class="bi bi-plus me-1"></i> Добавить
         </a>
       </div>
@@ -57,8 +43,14 @@
               <div class="fw-semibold small d-flex align-items-center gap-2 flex-wrap">
                 <span class="text-truncate">{{ source.name }}</span>
                 <span class="badge bg-secondary-subtle text-secondary rounded-pill flex-shrink-0">{{ source.keyword_count }}</span>
+                {% if source.channel %}
+                <span class="badge bg-light text-dark border flex-shrink-0">{{ source.channel.get_platform_display }}</span>
+                {% endif %}
               </div>
               <div class="text-muted" style="font-size:.75rem;">{{ source.source_id }}</div>
+              {% if source.channel %}
+              <div class="text-muted small mt-1">Канал: {{ source.channel.name }}</div>
+              {% endif %}
               <div class="text-muted mt-1" style="font-size:.7rem;">
                 {% if source.last_parsed_at %}
                   Последний парсинг: {{ source.last_parsed_at|date:"d.m.Y H:i" }}
@@ -84,7 +76,7 @@
         {% else %}
         <div class="text-center py-4 text-muted">
           <i class="bi bi-link-45deg fs-3 d-block mb-2"></i>
-          <span class="small">Источников нет. <a href="{% url 'parsing:source_create' %}">Добавить</a></span>
+          <span class="small">Источников нет. <a href="{% url 'parsing:source_create' %}{{ parsing_scope_query }}">Добавить</a></span>
         </div>
         {% endif %}
       </div>
@@ -96,7 +88,7 @@
     <div class="card h-100">
       <div class="card-header bg-transparent border-bottom d-flex align-items-center justify-content-between py-3">
         <h6 class="fw-bold mb-0"><i class="bi bi-tag me-1"></i> Ключевые слова</h6>
-        <a href="{% url 'parsing:keyword_create' %}" class="btn btn-brand btn-sm">
+        <a href="{% url 'parsing:keyword_create' %}{{ parsing_scope_query }}" class="btn btn-brand btn-sm">
           <i class="bi bi-plus me-1"></i> Добавить
         </a>
       </div>
@@ -111,11 +103,11 @@
                 <span class="badge bg-secondary-subtle text-secondary rounded-pill flex-shrink-0">{{ kw.source_count }}</span>
               </div>
               <div class="text-muted small mt-1">
-                {% if kw.channel %}{{ kw.channel.name }}{% else %}—{% endif %}
+                {% if kw.channel %}{{ kw.channel.name }} · {{ kw.channel.get_platform_display }}{% else %}—{% endif %}
               </div>
             </div>
             <div class="d-flex align-items-center gap-1 flex-shrink-0">
-              <a href="{% url 'parsing:keyword_edit' kw.pk %}{% if kw.channel %}?channel={{ kw.channel.pk }}{% endif %}" class="btn btn-outline-secondary btn-sm" title="Редактировать">
+              <a href="{% url 'parsing:keyword_edit' kw.pk %}{{ parsing_scope_query }}" class="btn btn-outline-secondary btn-sm" title="Редактировать">
                 <i class="bi bi-pencil"></i>
               </a>
               <form method="post" action="{% url 'parsing:keyword_delete' kw.pk %}" class="d-inline">
@@ -131,7 +123,7 @@
         {% else %}
         <div class="text-center py-4 text-muted">
           <i class="bi bi-tag fs-3 d-block mb-2"></i>
-          <span class="small">Ключевых слов нет. <a href="{% url 'parsing:keyword_create' %}">Добавить</a></span>
+          <span class="small">Ключевых слов нет. <a href="{% url 'parsing:keyword_create' %}{{ parsing_scope_query }}">Добавить</a></span>
         </div>
         {% endif %}
       </div>
@@ -141,11 +133,17 @@
 </div>
 
 <!-- Link to items -->
-<div class="mt-4">
-  <a href="{% url 'core:feed' %}?kind=parsing{% if selected_channel %}&channel={{ selected_channel.pk }}{% endif %}" class="btn btn-outline-primary">
+<div class="mt-4 d-flex flex-wrap gap-2">
+  <a href="{% url 'parsing:items' %}{{ parsing_scope_query }}" class="btn btn-outline-primary">
     <i class="bi bi-collection me-1"></i> Найденные материалы
   </a>
-  <a href="{% url 'parsing:ai_rewrite' %}" class="btn btn-outline-secondary ms-2">
+  <a href="{% url 'core:feed' %}?kind=parsing{% if parse_scope.chgroup_param != 'all' %}&chgroup={{ parse_scope.chgroup_param }}{% endif %}" class="btn btn-outline-primary">
+    <i class="bi bi-layout-text-window-reverse me-1"></i> В ленте (парсинг)
+  </a>
+  <a href="{% url 'parsing:parse_tasks' %}{{ parsing_scope_query }}" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-repeat me-1"></i> Задачи парсинга
+  </a>
+  <a href="{% url 'parsing:ai_rewrite' %}" class="btn btn-outline-secondary">
     <i class="bi bi-stars me-1"></i> AI рерайт
   </a>
 </div>

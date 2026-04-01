@@ -77,6 +77,20 @@
             <input type="hidden" name="platform" value="{{ channel.platform }}">
           </div>
 
+          <div class="mb-4">
+            <label class="form-label fw-semibold" for="id_channel_group_id">Группа каналов</label>
+            <select name="channel_group_id" id="id_channel_group_id" class="form-select">
+              <option value="">— Без группы —</option>
+              {% for g in channel_groups %}
+              <option value="{{ g.pk }}" {% if channel.channel_group_id == g.pk %}selected{% endif %}>{{ g.name }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">
+              Объединяет этот канал с другими площадками одного паблика.
+              <a href="{% url 'channels:group_create' %}?next={{ request.get_full_path|urlencode }}">Создать группу</a>
+            </div>
+          </div>
+
           <!-- Монетизация -->
           <h6 class="fw-bold mb-3 border-top pt-3 text-muted">
             <i class="bi bi-cash-coin me-1"></i> Реклама (витрина)
