@@ -138,9 +138,6 @@
 
 <!-- Link to items -->
 <div class="mt-4 d-flex flex-wrap gap-2">
-  <a href="{% url 'parsing:items' %}{{ parsing_scope_query }}" class="btn btn-outline-primary">
-    <i class="bi bi-collection me-1"></i> Найденные материалы
-  </a>
   <a href="{% url 'core:feed' %}?kind=parsing{% if parse_scope.chgroup_param != 'all' %}&chgroup={{ parse_scope.chgroup_param }}{% endif %}" class="btn btn-outline-primary">
     <i class="bi bi-layout-text-window-reverse me-1"></i> В ленте (парсинг)
   </a>

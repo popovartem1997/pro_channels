@@ -69,6 +69,14 @@ class ParseKeyword(models.Model):
         null=True, blank=True,
         related_name='parse_keywords', verbose_name='Канал (куда парсим)'
     )
+    channel_group = models.ForeignKey(
+        'channels.ChannelGroup',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='parse_keywords',
+        verbose_name='Группа каналов (проект)',
+    )
     keyword = models.CharField(max_length=255, verbose_name='Ключевое слово / фраза')
     sources = models.ManyToManyField(ParseSource, related_name='keywords', verbose_name='Источники')
     is_active = models.BooleanField(default=True, verbose_name='Активен')

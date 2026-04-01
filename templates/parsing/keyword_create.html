@@ -26,26 +26,18 @@
             <div class="form-text">Материалы, содержащие это слово, будут попадать в ленту</div>
           </div>
 
-          <div class="mb-4" id="single-channel-wrap">
-            <label class="form-label fw-semibold" for="id_channel_id_kw">Канал</label>
-            <select name="channel_id" id="id_channel_id_kw" class="form-select">
-              <option value="">— Выберите канал —</option>
-              {% for ch in channels_in_scope %}
-              <option value="{{ ch.pk }}">{{ ch.name }} ({{ ch.get_platform_display }})</option>
+          <div class="mb-4">
+            <label class="form-label fw-semibold" for="id_channel_group_id_kw">Проект (группа каналов)</label>
+            <select name="channel_group_id" id="id_channel_group_id_kw" class="form-select" required>
+              <option value="">— Выберите группу —</option>
+              {% for g in channel_groups_in_scope %}
+              <option value="{{ g.channel_group__pk }}" {% if request.POST.channel_group_id == g.channel_group__pk|stringformat:"d" %}selected{% endif %}>
+                {{ g.channel_group__name }}
+              </option>
               {% endfor %}
             </select>
-          </div>
-
-          <div class="mb-4">
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" id="id_all_channels" name="all_channels"
-                     {% if request.POST.all_channels %}checked{% endif %}>
-              <label class="form-check-label" for="id_all_channels">
-                Для всех каналов в текущем фильтре
-              </label>
-            </div>
             <div class="form-text">
-              Создаст отдельное ключевое слово для каждого канала, попадающего в выбранную группу (или «Все каналы»).
+              Ключевое слово будет создано для всех каналов внутри выбранной группы, чтобы пост из найденного материала сразу публиковался на весь паблик.
             </div>
           </div>
 
@@ -76,23 +68,4 @@
     </div>
   </div>
 </div>
-{% endblock %}
-
-{% block extra_js %}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-  var allCh = document.getElementById('id_all_channels');
-  var wrap = document.getElementById('single-channel-wrap');
-  var sel = document.getElementById('id_channel_id_kw');
-  function sync() {
-    if (!wrap || !sel) return;
-    var on = allCh && allCh.checked;
-    wrap.classList.toggle('opacity-50', on);
-    sel.disabled = on;
-    if (on) sel.removeAttribute('required'); else sel.setAttribute('required', 'required');
-  }
-  if (allCh) allCh.addEventListener('change', sync);
-  sync();
-});
-</script>
 {% endblock %}

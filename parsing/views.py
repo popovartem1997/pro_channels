@@ -3,6 +3,7 @@
 """
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
+from urllib.parse import urlencode
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Q, Count
@@ -431,48 +432,55 @@ def keyword_create(request):
     if request.method == 'POST':
         keyword = request.POST.get('keyword', '').strip()
         source_ids = request.POST.getlist('sources')
-        all_channels = request.POST.get('all_channels') == 'on'
+        target_gid = (request.POST.get('channel_group_id') or '').strip()
         if not keyword:
             messages.error(request, 'Введите ключевое слово.')
         else:
             from channels.models import Channel
+            from channels.models import ChannelGroup
 
             if not allowed_ch_ids:
                 messages.error(request, 'Нет доступных каналов в текущем фильтре.')
                 return redirect(_parsing_sources_redirect(request, scope))
 
-            if all_channels:
-                created = 0
-                for cid in allowed_ch_ids:
-                    ch = Channel.objects.get(pk=cid)
-                    data_owner = _parsing_data_owner(request.user, ch)
-                    kw = ParseKeyword.objects.create(owner=data_owner, channel_id=cid, keyword=keyword)
-                    created += 1
-                    try:
-                        _ensure_auto_parse_task(data_owner, kw.channel)
-                    except Exception:
-                        pass
-                messages.success(request, f'Ключевое слово «{keyword}» добавлено для {created} канал(ов).')
-            else:
-                target_cid = (request.POST.get('channel_id') or '').strip()
-                if len(allowed_ch_ids) == 1:
-                    target_cid = str(allowed_ch_ids[0])
-                if not target_cid.isdigit() or int(target_cid) not in set(allowed_ch_ids):
-                    messages.error(request, 'Выберите канал для ключевого слова.')
-                    return redirect(_parse_url('parsing:keyword_create', scope))
-                selected_channel = Channel.objects.get(pk=int(target_cid))
-                data_owner = _parsing_data_owner(request.user, selected_channel)
-                kw = ParseKeyword.objects.create(owner=data_owner, channel=selected_channel, keyword=keyword)
-                if source_ids:
-                    allowed_src = set(_parse_sources_qs(request.user, scope).values_list('pk', flat=True))
-                    safe = [int(x) for x in source_ids if str(x).isdigit() and int(x) in allowed_src]
-                    if safe:
-                        kw.sources.set(safe)
+            if not target_gid.isdigit():
+                messages.error(request, 'Выберите группу каналов (проект) для ключевого слова.')
+                return redirect(_parse_url('parsing:keyword_create', scope))
+            group = ChannelGroup.objects.filter(pk=int(target_gid)).first()
+            if not group:
+                messages.error(request, 'Группа не найдена.')
+                return redirect(_parse_url('parsing:keyword_create', scope))
+
+            group_channels = list(
+                channels_in_scope.select_related('channel_group')
+                .filter(channel_group=group)
+                .values_list('pk', flat=True)
+            )
+            if not group_channels:
+                messages.error(request, 'В выбранной группе нет доступных каналов.')
+                return redirect(_parse_url('parsing:keyword_create', scope))
+
+            allowed_src = set(_parse_sources_qs(request.user, scope).values_list('pk', flat=True))
+            safe = [int(x) for x in source_ids if str(x).isdigit() and int(x) in allowed_src]
+
+            created = 0
+            for cid in group_channels:
+                ch = Channel.objects.get(pk=cid)
+                data_owner = _parsing_data_owner(request.user, ch)
+                kw = ParseKeyword.objects.create(
+                    owner=data_owner,
+                    channel_id=cid,
+                    channel_group=group,
+                    keyword=keyword,
+                )
+                if safe:
+                    kw.sources.set(safe)
+                created += 1
                 try:
-                    _ensure_auto_parse_task(data_owner, selected_channel)
+                    _ensure_auto_parse_task(data_owner, kw.channel)
                 except Exception:
                     pass
-                messages.success(request, f'Ключевое слово «{keyword}» добавлено.')
+            messages.success(request, f'Ключевое слово «{keyword}» добавлено для {created} канал(ов) группы.')
         return redirect(_parsing_sources_redirect(request, scope))
     sources = _parse_sources_qs(request.user, scope)
     ctx = {'sources': sources}
@@ -539,20 +547,12 @@ def keyword_delete(request, pk):
 
 @login_required
 def parsed_items(request):
+    # Раздел "Найденные материалы" больше не используем — всё смотрим в ленте.
     scope = _get_parse_scope(request)
-    items = _parsed_items_base_qs(request.user).select_related('source', 'keyword').order_by('-found_at')
-    if scope.get('channel_ids') is not None:
-        items = items.filter(keyword__channel_id__in=scope['channel_ids'])
-    status_filter = request.GET.get('status', '')
-    if status_filter:
-        items = items.filter(status=status_filter)
-    ctx = {
-        'items': items[:100],
-        'status_filter': status_filter,
-        'statuses': ParsedItem.STATUS_CHOICES,
-    }
-    ctx.update(_parsing_template_extra(request, scope))
-    return render(request, 'parsing/items.html', ctx)
+    q = {'kind': 'parsing'}
+    if scope.get('chgroup_param') and scope.get('chgroup_param') != 'all':
+        q['chgroup'] = scope.get('chgroup_param')
+    return redirect(reverse('core:feed') + '?' + urlencode(q))
 
 
 @login_required
@@ -592,7 +592,23 @@ def item_to_post(request, pk):
     )
 
     if kw_channel:
-        post.channels.set([kw_channel.pk])
+        # Если канал в группе — создаём пост сразу на все каналы паблика (группы).
+        try:
+            g = getattr(kw_channel, "channel_group", None)
+            if g:
+                from channels.models import Channel
+                group_ids = list(
+                    Channel.objects.filter(owner_id=kw_channel.owner_id, channel_group=g, is_active=True)
+                    .values_list("pk", flat=True)
+                )
+                if group_ids:
+                    post.channels.set(group_ids)
+                else:
+                    post.channels.set([kw_channel.pk])
+            else:
+                post.channels.set([kw_channel.pk])
+        except Exception:
+            post.channels.set([kw_channel.pk])
     else:
         channel_ids = list(_parsing_channels_qs(request.user).values_list('pk', flat=True))
         if channel_ids:
