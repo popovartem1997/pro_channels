@@ -2,6 +2,7 @@
 Создание, редактирование и публикация постов.
 """
 from django.shortcuts import render, redirect, get_object_or_404
+from django.db import transaction
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 import json
@@ -11,6 +12,23 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse
 import secrets
 from django.core.files.base import ContentFile
+
+
+def _fix_mislabeled_post_media(post):
+    """JPEG/PNG, сохранённые как «документ», показываем как фото/видео."""
+    IMAGE_EXT = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic', '.tiff')
+    VIDEO_EXT = ('.mp4', '.mov', '.webm', '.mkv', '.m4v')
+    to_update = []
+    for m in PostMedia.objects.filter(post=post, media_type=PostMedia.TYPE_DOCUMENT):
+        name = (m.file.name or '').lower()
+        if any(name.endswith(e) for e in IMAGE_EXT):
+            m.media_type = PostMedia.TYPE_PHOTO
+            to_update.append(m)
+        elif any(name.endswith(e) for e in VIDEO_EXT):
+            m.media_type = PostMedia.TYPE_VIDEO
+            to_update.append(m)
+    if to_update:
+        PostMedia.objects.bulk_update(to_update, ['media_type'])
 
 
 @login_required
@@ -168,7 +186,6 @@ def post_create_from_suggestion(request, tracking_id):
     Текст и медиа подставляются автоматически, медиа можно удалить на странице редактирования.
     """
     from bots.models import Suggestion
-    import requests
 
     suggestion = get_object_or_404(
         Suggestion.objects.select_related('bot', 'bot__owner', 'bot__channel'),
@@ -213,289 +230,32 @@ def post_create_from_suggestion(request, tracking_id):
         suggestion=suggestion,
     )
     post.channels.set([bot.channel_id])
+    post_pk = post.pk
 
-    # Медиа: стараемся прикрепить сразу, если вложений немного.
-    # Если вложений много/скачивание медленное — докачиваем в фоне (Celery) как фоллбек.
-    media_ids = suggestion.media_file_ids or []
-    sync_limit = 4  # чтобы UI был быстрым и предсказуемым
-    do_sync_media_import = bool(media_ids) and len(media_ids) <= sync_limit
-    bg_enqueued = False
-    if media_ids and len(media_ids) > sync_limit:
-        do_sync_media_import = True  # прикрепим первые N сразу, остальное — в фоне
-    try:
-        from .tasks import import_media_from_suggestion_task
-        import_media_from_suggestion_task.delay(post.pk)
-        bg_enqueued = True
-    except Exception:
-        bg_enqueued = False
+    def _enqueue_import():
+        from .tasks import _import_suggestion_media_into_post, import_media_from_suggestion_task
 
-    # Telegram media import
-    sync_import_ok = False
-    if do_sync_media_import and bot.platform == bot.PLATFORM_TELEGRAM and media_ids:
-        token = bot.get_token()
-        api_base = f'https://api.telegram.org/bot{token}'
-        file_base = f'https://api.telegram.org/file/bot{token}'
-
-        media_type = PostMedia.TYPE_DOCUMENT
-        if suggestion.content_type == Suggestion.CONTENT_PHOTO:
-            media_type = PostMedia.TYPE_PHOTO
-        elif suggestion.content_type == Suggestion.CONTENT_VIDEO:
-            media_type = PostMedia.TYPE_VIDEO
-        elif suggestion.content_type == Suggestion.CONTENT_DOCUMENT:
-            media_type = PostMedia.TYPE_DOCUMENT
-
-        for idx, file_id in enumerate((media_ids or [])[:sync_limit]):
+        if bot.platform == bot.PLATFORM_MAX:
             try:
-                r = requests.get(f'{api_base}/getFile', params={'file_id': file_id}, timeout=12)
-                data = r.json()
-                if not data.get('ok'):
-                    raise ValueError(data.get('description') or 'getFile failed')
-                file_path = data['result']['file_path']
-                dl = requests.get(f'{file_base}/{file_path}', timeout=20)
-                dl.raise_for_status()
-                filename = (file_path.split('/')[-1] or f'media_{idx}')
-                PostMedia.objects.create(
-                    post=post,
-                    file=ContentFile(dl.content, name=filename),
-                    media_type=media_type,
-                    order=idx,
-                )
-                sync_import_ok = True
-            except Exception as e:
-                messages.warning(request, f'Не удалось загрузить медиа из Telegram (file_id={file_id}): {e}')
-
-    # MAX media import (best-effort)
-    if do_sync_media_import and bot.platform == bot.PLATFORM_MAX:
-        try:
-            raw = suggestion.raw_data or {}
-            # В MAX мы сохраняем raw_data как объект message (без update wrapper).
-            if isinstance(raw, dict) and isinstance(raw.get('message'), dict):
-                msg_obj = raw.get('message')
-            elif isinstance(raw, dict) and isinstance(raw.get('last_message'), dict):
-                msg_obj = raw.get('last_message')
-            elif isinstance(raw, dict) and isinstance(raw.get('messages'), list) and raw.get('messages'):
-                last = raw.get('messages')[-1]
-                msg_obj = last if isinstance(last, dict) else raw
-            else:
-                msg_obj = raw
-
-            # Собираем вложения со всех сообщений "склейки" (текст может прийти отдельно от фото)
-            messages_chain = []
-            if isinstance(raw, dict) and isinstance(raw.get('messages'), list) and raw.get('messages'):
-                messages_chain = [m for m in raw.get('messages') if isinstance(m, dict)]
-            elif isinstance(msg_obj, dict):
-                messages_chain = [msg_obj]
-
-            attachments: list[dict] = []
-            # 1) Попытка: получить полные сообщения через API по mid (часто там есть URL вложений)
-            try:
-                from bots.max_bot.bot import MaxBotAPI
-                api = MaxBotAPI(bot.get_token())
-                for m in messages_chain:
-                    mid = m.get('mid')
-                    if not mid:
-                        continue
-                    full_msg = api.get_message(mid)
-                    body_full = (full_msg.get('body') or {}) if isinstance(full_msg, dict) else {}
-                    atts = body_full.get('attachments') or []
-                    if isinstance(atts, list):
-                        attachments.extend([a for a in atts if isinstance(a, dict)])
+                import_media_from_suggestion_task.delay(post_pk)
             except Exception:
-                pass
-
-            # 2) Фоллбек: attachments из исходных payload-ов
-            if not attachments:
-                for m in messages_chain:
-                    body = (m.get('body') or {}) if isinstance(m, dict) else {}
-                    atts = body.get('attachments') or []
-                    if isinstance(atts, list):
-                        attachments.extend([a for a in atts if isinstance(a, dict)])
-
-            def _deep_http_urls(obj) -> list[str]:
-                """Достаёт все http(s) URL из вложенного dict/list."""
-                urls: list[str] = []
-                seen: set[str] = set()
-
-                def _walk(x):
-                    if x is None:
-                        return
-                    if isinstance(x, str):
-                        if x.startswith('http'):
-                            if x not in seen:
-                                seen.add(x)
-                                urls.append(x)
-                        return
-                    if isinstance(x, dict):
-                        for v in x.values():
-                            _walk(v)
-                        return
-                    if isinstance(x, list):
-                        for it in x:
-                            _walk(it)
-                        return
-
-                _walk(obj)
-                return urls
-
-            def _iter_attachment_urls(att: dict) -> list[str]:
-                urls: list[str] = []
-                if not isinstance(att, dict):
-                    return urls
-                payload = att.get('payload') or {}
-                if isinstance(payload, dict):
-                    for k in ('url', 'src', 'download_url', 'downloadUrl', 'file_url'):
-                        v = payload.get(k)
-                        if isinstance(v, str) and v.startswith('http'):
-                            urls.append(v)
-                    # Sometimes payload may contain list of sizes/variants
-                    for k in ('sizes', 'variants', 'images', 'files'):
-                        arr = payload.get(k)
-                        if isinstance(arr, list):
-                            for it in arr:
-                                if isinstance(it, dict):
-                                    u = it.get('url') or it.get('src')
-                                    if isinstance(u, str) and u.startswith('http'):
-                                        urls.append(u)
-                # Generic fallback: scan everything for http urls
-                if not urls:
-                    urls = _deep_http_urls(att)
-                return urls
-
-            order = 0
-            seen_urls = set()
-            for att in attachments[:10]:
-                if not isinstance(att, dict):
-                    continue
-                att_type = (att.get('type') or '').lower()
-                media_type = PostMedia.TYPE_DOCUMENT
-                if att_type in ('image', 'photo'):
-                    media_type = PostMedia.TYPE_PHOTO
-                elif att_type == 'video':
-                    media_type = PostMedia.TYPE_VIDEO
-                elif att_type == 'file':
-                    media_type = PostMedia.TYPE_DOCUMENT
-
-                urls = _iter_attachment_urls(att)
-                # If no direct URL in payload, try resolve by token via API (video is documented)
-                if not urls:
-                    try:
-                        payload = att.get('payload') or {}
-                        token = None
-                        if isinstance(payload, dict):
-                            token = payload.get('token') or payload.get('id')
-                        if token:
-                            from bots.max_bot.bot import MaxBotAPI
-                            api = MaxBotAPI(bot.get_token())
-                            if att_type == 'video':
-                                vinfo = api.get_video(token)
-                                urls = _deep_http_urls(vinfo)
-                            elif att_type in ('image', 'photo'):
-                                iinfo = api.get_image(token)
-                                urls = _deep_http_urls(iinfo)
-                                if not urls:
-                                    finfo = api.get_file(token)
-                                    urls = _deep_http_urls(finfo)
-                            elif att_type == 'file':
-                                finfo = api.get_file(token)
-                                urls = _deep_http_urls(finfo)
-                                if not urls:
-                                    iinfo = api.get_image(token)
-                                    urls = _deep_http_urls(iinfo)
-                    except Exception:
-                        urls = urls or []
-                if not urls:
-                    try:
-                        messages.warning(
-                            request,
-                            f'MAX: не нашли URL для вложения (type={att_type}, payload_keys={list((att.get("payload") or {}).keys()) if isinstance(att.get("payload"), dict) else "n/a"})'
-                        )
-                    except Exception:
-                        pass
-                    continue
-                url = urls[0]
-                if url in seen_urls:
-                    continue
-                seen_urls.add(url)
-
                 try:
-                    # Некоторые CDN-ссылки MAX не требуют Authorization; пробуем без него, а при ошибке — с ним.
-                    headers_common = {
-                        'User-Agent': 'Mozilla/5.0 (compatible; ProChannelsBot/1.0; +https://prochannels.ru)',
-                        'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-                        'Referer': 'https://prochannels.ru/',
-                    }
-                    dl = requests.get(url, timeout=20, stream=True, headers=headers_common)
-                    if dl.status_code >= 400:
-                        dl = requests.get(
-                            url,
-                            headers={**headers_common, 'Authorization': bot.get_token()},
-                            timeout=20,
-                            stream=True
-                        )
-                    dl.raise_for_status()
-                    ct = (dl.headers.get('Content-Type') or '').lower()
-                    # If we got HTML/JSON instead of binary — skip
-                    if ct.startswith('text/') or 'json' in ct:
-                        raise ValueError(f'Unexpected content-type: {ct}')
-                    data_bytes = dl.content or b''
-                    if not data_bytes or len(data_bytes) < 100:
-                        raise ValueError(f'Empty/too small response: {len(data_bytes)} bytes')
-                    if data_bytes[:20].lstrip().startswith(b'<!DOCTYPE'):
-                        raise ValueError('Unexpected HTML response')
-                    # Validate image bytes (and reject "white placeholder" images)
-                    if media_type == PostMedia.TYPE_PHOTO:
-                        try:
-                            from PIL import Image
-                            import io
-                            im = Image.open(io.BytesIO(data_bytes))
-                            im.load()
-                            w, h = im.size
-                            if w <= 8 or h <= 8:
-                                raise ValueError(f'Image too small: {w}x{h}')
-                            # Detect near-solid image (common placeholder): sample a few pixels
-                            rgb = im.convert('RGB')
-                            sample_points = [
-                                (0, 0),
-                                (w - 1, 0),
-                                (0, h - 1),
-                                (w - 1, h - 1),
-                                (w // 2, h // 2),
-                            ]
-                            pixels = [rgb.getpixel(p) for p in sample_points]
-                            if all(p[0] > 245 and p[1] > 245 and p[2] > 245 for p in pixels):
-                                raise ValueError('Looks like placeholder (all sampled pixels are white)')
-                        except Exception as e:
-                            raise ValueError(f'Invalid/placeholder image: {e}')
-                    ext = 'bin'
-                    if 'image/' in ct:
-                        ext = ct.split('image/', 1)[1].split(';', 1)[0] or 'jpg'
-                    elif 'video/' in ct:
-                        ext = ct.split('video/', 1)[1].split(';', 1)[0] or 'mp4'
-                    filename = f'max_{suggestion.short_tracking_id}_{order}.{ext}'
-                    PostMedia.objects.create(
-                        post=post,
-                        file=ContentFile(data_bytes, name=filename),
-                        media_type=media_type,
-                        order=order,
-                    )
-                    order += 1
-                    sync_import_ok = True
-                    if order >= sync_limit:
-                        break
-                except Exception as e:
-                    try:
-                        messages.warning(
-                            request,
-                            f'Не удалось загрузить медиа из MAX: {e} (url={url})'
-                        )
-                    except Exception:
-                        pass
+                    _imported, warnings = _import_suggestion_media_into_post(post_pk)
+                    for w in warnings[:10]:
+                        messages.warning(request, w)
+                except Exception:
+                    pass
+            return
+        try:
+            _imported, warnings = _import_suggestion_media_into_post(post_pk)
+            for w in warnings[:10]:
+                messages.warning(request, w)
         except Exception:
             pass
 
-    # Сообщение пользователю: если не смогли прикрепить сразу — медиа догрузятся фоном (если Celery есть).
-    if media_ids and not sync_import_ok and bg_enqueued:
-        messages.info(request, 'Медиа подгрузятся в черновик в фоне (обычно до 1–2 минут).')
+    transaction.on_commit(_enqueue_import)
+    if bot.platform == bot.PLATFORM_MAX:
+        messages.info(request, 'Медиа из MAX подгрузятся в черновик в фоне (обычно до 1–2 минут).')
 
     messages.success(request, f'Создан черновик поста из предложки #{suggestion.short_tracking_id}.')
     return redirect('content:edit', pk=post.pk)
@@ -544,6 +304,8 @@ def post_edit(request, pk):
     else:
         post = get_object_or_404(Post, pk=pk, author=request.user)
         user_channels = Channel.objects.filter(owner=request.user, is_active=True)
+
+    _fix_mislabeled_post_media(post)
 
     if request.method == 'POST':
         # Delete selected existing media

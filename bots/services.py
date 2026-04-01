@@ -37,8 +37,11 @@ def notify_suggestion_approved(suggestion):
     if not bot:
         return
 
-    text = (bot.approved_message or '').replace('{tracking_id}', suggestion.short_tracking_id)
-    if not text:
+    raw_approved = (bot.approved_message or '').strip()
+    if not raw_approved:
+        raw_approved = 'Ваша заявка #{tracking_id} одобрена и будет опубликована. Спасибо!'
+    text = raw_approved.replace('{tracking_id}', suggestion.short_tracking_id)
+    if not text.strip():
         return
 
     if bot.platform == bot.PLATFORM_TELEGRAM:
@@ -76,9 +79,11 @@ def notify_suggestion_rejected(suggestion, reason: str = ''):
     if not bot:
         return
 
-    text = (bot.rejected_message or '')
-    text = text.replace('{tracking_id}', suggestion.short_tracking_id).replace('{reason}', reason or '')
-    if not text:
+    raw_rej = (bot.rejected_message or '').strip()
+    if not raw_rej:
+        raw_rej = 'Ваша заявка #{tracking_id} не прошла модерацию.\nПричина: {reason}'
+    text = raw_rej.replace('{tracking_id}', suggestion.short_tracking_id).replace('{reason}', reason or '')
+    if not text.strip():
         return
 
     if bot.platform == bot.PLATFORM_TELEGRAM:

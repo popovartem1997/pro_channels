@@ -8,6 +8,27 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
+def _tg_postmedia_type_from_path(file_path: str, suggestion_content_type: str) -> str:
+    """Тип вложения по расширению пути Telegram file_path (document как «фото»)."""
+    from .models import PostMedia
+    from bots.models import Suggestion
+
+    fp = (file_path or '').lower()
+    for ext in ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic', '.tiff'):
+        if fp.endswith(ext):
+            return PostMedia.TYPE_PHOTO
+    for ext in ('.mp4', '.mov', '.webm', '.mkv', '.m4v'):
+        if fp.endswith(ext):
+            return PostMedia.TYPE_VIDEO
+    if suggestion_content_type == Suggestion.CONTENT_PHOTO:
+        return PostMedia.TYPE_PHOTO
+    if suggestion_content_type == Suggestion.CONTENT_VIDEO:
+        return PostMedia.TYPE_VIDEO
+    if suggestion_content_type == Suggestion.CONTENT_DOCUMENT:
+        return PostMedia.TYPE_DOCUMENT
+    return PostMedia.TYPE_DOCUMENT
+
+
 def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
     """
     Импортирует медиа из предложки в PostMedia.
@@ -53,14 +74,6 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
         api_base = f'https://api.telegram.org/bot{token}'
         file_base = f'https://api.telegram.org/file/bot{token}'
 
-        media_type = PostMedia.TYPE_DOCUMENT
-        if suggestion.content_type == suggestion.CONTENT_PHOTO:
-            media_type = PostMedia.TYPE_PHOTO
-        elif suggestion.content_type == suggestion.CONTENT_VIDEO:
-            media_type = PostMedia.TYPE_VIDEO
-        elif suggestion.content_type == suggestion.CONTENT_DOCUMENT:
-            media_type = PostMedia.TYPE_DOCUMENT
-
         for idx, file_id in enumerate(suggestion.media_file_ids or []):
             try:
                 r = requests.get(f'{api_base}/getFile', params={'file_id': file_id}, timeout=15)
@@ -71,6 +84,7 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
                 dl = requests.get(f'{file_base}/{file_path}', timeout=30)
                 dl.raise_for_status()
                 filename = (file_path.split('/')[-1] or f'media_{idx}')
+                media_type = _tg_postmedia_type_from_path(file_path, suggestion.content_type)
                 PostMedia.objects.create(
                     post=post,
                     file=ContentFile(dl.content, name=filename),
@@ -305,226 +319,12 @@ def import_media_from_suggestion_task(self, post_id: int):
     Импорт медиа из предложки в фоне, чтобы модерация/редиректы не зависали.
     Best-effort: ошибки логируем, но задачу не валим бесконечными ретраями.
     """
-    from .models import Post, PostMedia
-    from django.core.files.base import ContentFile
-    import requests
-    try:
-        post = Post.objects.select_related('suggestion', 'suggestion__bot').get(pk=post_id)
-    except Post.DoesNotExist:
-        return
-    suggestion = getattr(post, 'suggestion', None)
-    if not suggestion:
-        return
-    bot = getattr(suggestion, 'bot', None)
-    if not bot:
-        return
-
-    # Avoid duplicating import if media already present
-    if PostMedia.objects.filter(post=post).exists():
-        return
-
-    try:
-        current_max = int(PostMedia.objects.filter(post=post).order_by('-order').values_list('order', flat=True).first() or 0)
-    except Exception:
-        current_max = 0
-
-    # Telegram
-    if bot.platform == bot.PLATFORM_TELEGRAM and (suggestion.media_file_ids or []):
-        token = bot.get_token()
-        api_base = f'https://api.telegram.org/bot{token}'
-        file_base = f'https://api.telegram.org/file/bot{token}'
-        media_type = PostMedia.TYPE_DOCUMENT
-        if suggestion.content_type == suggestion.CONTENT_PHOTO:
-            media_type = PostMedia.TYPE_PHOTO
-        elif suggestion.content_type == suggestion.CONTENT_VIDEO:
-            media_type = PostMedia.TYPE_VIDEO
-        for idx, file_id in enumerate(suggestion.media_file_ids or []):
-            try:
-                r = requests.get(f'{api_base}/getFile', params={'file_id': file_id}, timeout=15)
-                data = r.json()
-                if not data.get('ok'):
-                    raise ValueError(data.get('description') or 'getFile failed')
-                file_path = data['result']['file_path']
-                dl = requests.get(f'{file_base}/{file_path}', timeout=30)
-                dl.raise_for_status()
-                filename = (file_path.split('/')[-1] or f'media_{idx}')
-                PostMedia.objects.create(
-                    post=post,
-                    file=ContentFile(dl.content, name=filename),
-                    media_type=media_type,
-                    order=current_max + idx + 1,
-                )
-            except Exception as e:
-                logger.warning('TG import from suggestion failed post=%s file_id=%s: %s', post_id, file_id, e)
-
-    # MAX
-    if bot.platform == bot.PLATFORM_MAX:
-        try:
-            raw = suggestion.raw_data or {}
-            # same logic as in content/views.py (trimmed)
-            if isinstance(raw, dict) and isinstance(raw.get('message'), dict):
-                msg_obj = raw.get('message')
-            elif isinstance(raw, dict) and isinstance(raw.get('last_message'), dict):
-                msg_obj = raw.get('last_message')
-            elif isinstance(raw, dict) and isinstance(raw.get('messages'), list) and raw.get('messages'):
-                last = raw.get('messages')[-1]
-                msg_obj = last if isinstance(last, dict) else raw
-            else:
-                msg_obj = raw
-
-            messages_chain = []
-            if isinstance(raw, dict) and isinstance(raw.get('messages'), list) and raw.get('messages'):
-                messages_chain = [m for m in raw.get('messages') if isinstance(m, dict)]
-            elif isinstance(msg_obj, dict):
-                messages_chain = [msg_obj]
-
-            attachments: list[dict] = []
-            try:
-                from bots.max_bot.bot import MaxBotAPI
-                api = MaxBotAPI(bot.get_token())
-                for m in messages_chain:
-                    mid = m.get('mid')
-                    if not mid:
-                        continue
-                    full_msg = api.get_message(mid)
-                    body_full = (full_msg.get('body') or {}) if isinstance(full_msg, dict) else {}
-                    atts = body_full.get('attachments') or []
-                    if isinstance(atts, list):
-                        attachments.extend([a for a in atts if isinstance(a, dict)])
-            except Exception:
-                pass
-            if not attachments:
-                for m in messages_chain:
-                    body = (m.get('body') or {}) if isinstance(m, dict) else {}
-                    atts = body.get('attachments') or []
-                    if isinstance(atts, list):
-                        attachments.extend([a for a in atts if isinstance(a, dict)])
-
-            def _deep_http_urls(obj) -> list[str]:
-                urls: list[str] = []
-                seen: set[str] = set()
-
-                def _walk(x):
-                    if x is None:
-                        return
-                    if isinstance(x, str):
-                        if x.startswith('http') and x not in seen:
-                            seen.add(x)
-                            urls.append(x)
-                        return
-                    if isinstance(x, dict):
-                        for v in x.values():
-                            _walk(v)
-                        return
-                    if isinstance(x, list):
-                        for it in x:
-                            _walk(it)
-                        return
-
-                _walk(obj)
-                return urls
-
-            def _iter_attachment_urls(att: dict) -> list[str]:
-                urls: list[str] = []
-                if not isinstance(att, dict):
-                    return urls
-                payload = att.get('payload') or {}
-                if isinstance(payload, dict):
-                    for k in ('url', 'src', 'download_url', 'downloadUrl', 'file_url'):
-                        v = payload.get(k)
-                        if isinstance(v, str) and v.startswith('http'):
-                            urls.append(v)
-                    for k in ('sizes', 'variants', 'images', 'files'):
-                        arr = payload.get(k)
-                        if isinstance(arr, list):
-                            for it in arr:
-                                if isinstance(it, dict):
-                                    u = it.get('url') or it.get('src')
-                                    if isinstance(u, str) and u.startswith('http'):
-                                        urls.append(u)
-                if not urls:
-                    urls = _deep_http_urls(att)
-                return urls
-
-            order = 0
-            seen_urls = set()
-            api_max = None
-            for att in attachments[:10]:
-                att_type = (att.get('type') or '').lower()
-                media_type = PostMedia.TYPE_DOCUMENT
-                if att_type in ('image', 'photo'):
-                    media_type = PostMedia.TYPE_PHOTO
-                elif att_type == 'video':
-                    media_type = PostMedia.TYPE_VIDEO
-                urls = _iter_attachment_urls(att)
-                if not urls:
-                    payload = att.get('payload') or {}
-                    token = None
-                    if isinstance(payload, dict):
-                        token = payload.get('token') or payload.get('id')
-                    if token:
-                        try:
-                            from bots.max_bot.bot import MaxBotAPI
-                            if api_max is None:
-                                api_max = MaxBotAPI(bot.get_token())
-                            if att_type == 'video':
-                                vinfo = api_max.get_video(token)
-                                urls = _deep_http_urls(vinfo)
-                            elif att_type in ('image', 'photo'):
-                                iinfo = api_max.get_image(token)
-                                urls = _deep_http_urls(iinfo)
-                                if not urls:
-                                    finfo = api_max.get_file(token)
-                                    urls = _deep_http_urls(finfo)
-                            elif att_type == 'file':
-                                finfo = api_max.get_file(token)
-                                urls = _deep_http_urls(finfo)
-                                if not urls:
-                                    iinfo = api_max.get_image(token)
-                                    urls = _deep_http_urls(iinfo)
-                            else:
-                                for fn_name in ('get_video', 'get_image', 'get_file'):
-                                    fn = getattr(api_max, fn_name, None)
-                                    if not callable(fn):
-                                        continue
-                                    info = fn(token) or {}
-                                    urls = _deep_http_urls(info)
-                                    if urls:
-                                        break
-                        except Exception:
-                            urls = []
-                if not urls:
-                    continue
-                url = urls[0]
-                if url in seen_urls:
-                    continue
-                seen_urls.add(url)
-                headers_common = {
-                    'User-Agent': 'Mozilla/5.0 (compatible; ProChannelsBot/1.0; +https://prochannels.ru)',
-                    'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-                    'Referer': 'https://prochannels.ru/',
-                }
-                try:
-                    dl = requests.get(url, timeout=30, stream=True, headers=headers_common)
-                    if dl.status_code >= 400:
-                        dl = requests.get(url, headers={**headers_common, 'Authorization': bot.get_token()}, timeout=30, stream=True)
-                    dl.raise_for_status()
-                    data_bytes = dl.content or b''
-                    if len(data_bytes) < 100:
-                        continue
-                    PostMedia.objects.create(
-                        post=post,
-                        file=ContentFile(data_bytes, name=f'max_{suggestion.short_tracking_id}_{order}.bin'),
-                        media_type=media_type,
-                        order=current_max + order + 1,
-                    )
-                    order += 1
-                except Exception as e:
-                    logger.warning('MAX import from suggestion failed post=%s url=%s: %s', post_id, url, e)
-        except Exception as e:
-            logger.warning('MAX import from suggestion failed post=%s: %s', post_id, e)
-
-    return post_id
+    imported, warnings = _import_suggestion_media_into_post(int(post_id))
+    for w in warnings[:20]:
+        logger.warning('Suggestion media import warning post=%s: %s', post_id, w)
+    if warnings and len(warnings) > 20:
+        logger.warning('Suggestion media import: +%s more warnings (post=%s)', len(warnings) - 20, post_id)
+    return imported
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)

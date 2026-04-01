@@ -325,8 +325,16 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
             media_ids = [message.video.file_id]
             text = message.caption or ''
         elif message.document:
-            content_type = Suggestion.CONTENT_DOCUMENT
-            media_ids = [message.document.file_id]
+            doc = message.document
+            mime = (doc.mime_type or '').lower()
+            fname = (doc.file_name or '').lower()
+            if mime.startswith('image/') or fname.endswith(
+                ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic', '.tiff')
+            ):
+                content_type = Suggestion.CONTENT_PHOTO
+            else:
+                content_type = Suggestion.CONTENT_DOCUMENT
+            media_ids = [doc.file_id]
             text = message.caption or ''
         elif message.audio:
             content_type = Suggestion.CONTENT_AUDIO
@@ -443,9 +451,35 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Пересылаем в чат модерации (если настроен)
         admin_chat_ids = []
         try:
-            admin_chat_ids = bot_config.get_moderation_chat_ids()
+            admin_chat_ids = list(bot_config.get_moderation_chat_ids())
         except Exception:
             admin_chat_ids = [bot_config.admin_chat_id] if bot_config.admin_chat_id else []
+
+        # Staff/superuser с привязкой Telegram (импорт-бот) — дублируем карточку модерации в их личку
+        @sync_to_async
+        def _staff_moderation_chat_ids(telegram_user_id: int) -> list[str]:
+            try:
+                from content.models_imports import TelegramImportLink
+            except Exception:
+                return []
+            link = (
+                TelegramImportLink.objects.filter(telegram_user_id=telegram_user_id)
+                .select_related('user')
+                .first()
+            )
+            if not link or not link.user_id:
+                return []
+            u = link.user
+            if u.is_superuser or u.is_staff:
+                return [str(telegram_user_id)]
+            return []
+
+        try:
+            for cid in await _staff_moderation_chat_ids(int(user.id)):
+                if cid and cid not in admin_chat_ids:
+                    admin_chat_ids.append(cid)
+        except Exception:
+            pass
 
         for admin_chat_id in admin_chat_ids:
             await _forward_to_admin(update, context, suggestion, admin_chat_id)

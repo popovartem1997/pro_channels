@@ -5,22 +5,25 @@
 <style>
   .channel-check-item { border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; cursor: pointer; transition: all .15s; }
   .channel-check-item:has(input:checked) { border-color: var(--brand); background: var(--brand-light); }
+  .post-edit-wrap { max-width: 1100px; margin-left: auto; margin-right: auto; }
+  .media-preview-thumb { width: 120px; height: 120px; object-fit: cover; border-radius: 10px; border: 1px solid #e2e8f0; flex-shrink: 0; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <a href="{% url 'content:detail' post.pk %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
-    <i class="bi bi-arrow-left me-1"></i> К посту
-  </a>
-  <h1>Редактировать пост</h1>
-</div>
+<div class="container-fluid px-3 px-lg-4 pb-5 post-edit-wrap">
+  <div class="page-header">
+    <a href="{% url 'content:detail' post.pk %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+      <i class="bi bi-arrow-left me-1"></i> К посту
+    </a>
+    <h1>Редактировать пост</h1>
+  </div>
 
 <form method="post" enctype="multipart/form-data" novalidate>
   {% csrf_token %}
-  <div class="row g-4">
+  <div class="row g-4 justify-content-center">
 
-    <div class="col-12 col-lg-8">
+    <div class="col-12 col-xl-8">
 
       <div class="card mb-4">
         <div class="card-body p-4">
@@ -46,20 +49,29 @@
               <div class="small text-muted mb-2">Текущие медиа (можно удалить):</div>
               <div class="list-group">
                 {% for m in post.media_files.all %}
-                <div class="list-group-item d-flex align-items-center gap-2">
-                  <input class="form-check-input mt-0" type="checkbox" name="delete_media" value="{{ m.pk }}" title="Удалить">
-                  <div class="flex-grow-1">
+                <div class="list-group-item d-flex flex-wrap align-items-center gap-3 py-3">
+                  <input class="form-check-input mt-0 flex-shrink-0" type="checkbox" name="delete_media" value="{{ m.pk }}" title="Удалить">
+                  {% if m.media_type == 'photo' and m.file %}
+                  <a href="{{ m.file.url }}" target="_blank" rel="noopener" class="flex-shrink-0">
+                    <img src="{{ m.file.url }}" alt="" class="media-preview-thumb">
+                  </a>
+                  {% elif m.media_type == 'video' and m.file %}
+                  <a href="{{ m.file.url }}" target="_blank" rel="noopener" class="d-flex align-items-center justify-content-center media-preview-thumb bg-dark text-white text-decoration-none">
+                    <i class="bi bi-play-circle fs-2"></i>
+                  </a>
+                  {% endif %}
+                  <div class="flex-grow-1 min-w-0">
                     <div class="fw-semibold small">{{ m.get_media_type_display }}</div>
-                    <a class="small text-muted" href="{{ m.file.url }}" target="_blank" rel="noopener">
+                    <a class="small text-muted text-break" href="{{ m.file.url }}" target="_blank" rel="noopener">
                       {{ m.file.name }}
                     </a>
                   </div>
-                  <div style="width:110px;">
+                  <div style="width:110px;" class="flex-shrink-0">
                     <label class="form-label small text-muted mb-1">Порядок</label>
                     <input type="number" class="form-control form-control-sm" name="media_order_{{ m.pk }}"
                            value="{{ m.order }}" min="0" step="1">
                   </div>
-                </label>
+                </div>
                 {% endfor %}
               </div>
               <div class="form-text">Отметь чекбоксы и нажми “Сохранить” — файлы удалятся.</div>
@@ -106,7 +118,7 @@
 
     </div>
 
-    <div class="col-12 col-lg-4">
+    <div class="col-12 col-xl-4">
 
       <div class="card mb-4">
         <div class="card-body p-4">
@@ -187,6 +199,7 @@
     </div>
   </div>
 </form>
+</div>
 {% endblock %}
 
 {% block extra_js %}

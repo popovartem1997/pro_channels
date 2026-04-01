@@ -22,7 +22,6 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.shortcuts import get_object_or_404
-from django.db import transaction
 
 from .models import SuggestionBot
 
@@ -280,6 +279,7 @@ def max_webhook(request, bot_id: int):
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.shortcuts import render, redirect
+from django.utils.http import url_has_allowed_host_and_scheme
 
 
 @login_required
@@ -796,38 +796,29 @@ def suggestion_moderate(request, pk):
         action = request.POST.get('action')
         if action == 'approve':
             suggestion.approve(request.user)
-            # Уведомление в фоне (Celery), чтобы не зависал запрос «Одобрить» на внешних API
-            sid = suggestion.pk
+            # Синхронно: Telegram ~12 с, MAX ~30 с — зато автор гарантированно получает ответ в боте
             try:
-                from .tasks import notify_suggestion_approved_task
-                transaction.on_commit(lambda sid=sid: notify_suggestion_approved_task.delay(sid))
+                from .services import notify_suggestion_approved
+                notify_suggestion_approved(suggestion)
             except Exception:
-                try:
-                    from .services import notify_suggestion_approved
-                    notify_suggestion_approved(suggestion)
-                except Exception:
-                    pass
+                pass
             messages.success(request, f'Предложение #{suggestion.short_tracking_id} одобрено.')
             # Если пришли из ленты — сразу ведём в создание поста из предложки
             next_url = (request.POST.get('next') or '').strip()
-            if next_url:
+            if next_url and url_has_allowed_host_and_scheme(
+                next_url,
+                allowed_hosts={request.get_host()},
+                require_https=request.is_secure(),
+            ):
                 return redirect(next_url)
         elif action == 'reject':
             reason = request.POST.get('reason', '')
             suggestion.reject(reason, request.user)
-            sid = suggestion.pk
-            rej_reason = reason or ''
             try:
-                from .tasks import notify_suggestion_rejected_task
-                transaction.on_commit(
-                    lambda sid=sid, r=rej_reason: notify_suggestion_rejected_task.delay(sid, r)
-                )
+                from .services import notify_suggestion_rejected
+                notify_suggestion_rejected(suggestion, reason=reason)
             except Exception:
-                try:
-                    from .services import notify_suggestion_rejected
-                    notify_suggestion_rejected(suggestion, reason=reason)
-                except Exception:
-                    pass
+                pass
             messages.success(request, f'Предложение #{suggestion.short_tracking_id} отклонено.')
     return redirect(request.META.get('HTTP_REFERER', 'bots:suggestions'))
 
