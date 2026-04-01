@@ -15,6 +15,7 @@ Callback data формат (не более 64 байт — ограничени
 """
 import html
 import logging
+import time
 import uuid as uuid_module
 
 from asgiref.sync import sync_to_async
@@ -27,6 +28,51 @@ from telegram.ext import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Альбомы копятся в Django cache + flush через Celery: в webhook-режиме JobQueue PTB не обрабатывает run_once.
+TELEGRAM_ALBUM_CACHE_PREFIX = 'tg_album:'
+
+
+def _telegram_album_cache_key(mg_key: str) -> str:
+    return f'{TELEGRAM_ALBUM_CACHE_PREFIX}{mg_key}'
+
+
+def _telegram_album_cache_append(full_key: str, message_dict: dict, meta: dict, *, timeout: int = 300) -> None:
+    """Потокобезопасное добавление части альбома (несколько воркеров Celery могут прийти параллельно)."""
+    from django.core.cache import cache
+
+    lock_k = full_key + ':append'
+    for _ in range(50):
+        if cache.add(lock_k, 1, timeout=5):
+            try:
+                data = cache.get(full_key)
+                if not isinstance(data, dict):
+                    data = {'messages': [], 'meta': dict(meta)}
+                else:
+                    m = dict(data.get('meta') or {})
+                    m.update(meta)
+                    data = {'messages': list(data.get('messages') or []), 'meta': m}
+                data['messages'].append(message_dict)
+                cache.set(full_key, data, timeout)
+            finally:
+                cache.delete(lock_k)
+            return
+        time.sleep(0.02)
+    logger.warning('[TG] album cache append lock timeout key=%s', full_key)
+
+
+def _schedule_telegram_album_flush(full_key: str, bot_id: int) -> None:
+    """Отложенный flush; несколько вызовов подряд — несколько задач, вторая увидит пустой cache."""
+    try:
+        from bots.tasks import flush_telegram_media_group_task
+
+        flush_telegram_media_group_task.apply_async(
+            kwargs={'cache_key': full_key, 'bot_id': bot_id},
+            countdown=4,
+        )
+    except Exception as e:
+        logger.exception('[TG] не удалось поставить задачу сбора альбома в Celery: %s', e)
+
 
 # Варианты причин отклонения (индекс → текст)
 REJECT_REASONS = [
@@ -327,8 +373,9 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['send_mode'] = False
 
         # --- Media group (albums): collect and process once ---
-        # Telegram sends albums (e.g. text+2 photos) as multiple messages with same media_group_id.
-        # If we process each message independently, moderators receive multiple cards.
+        # Telegram шлёт альбом несколькими сообщениями с одним media_group_id.
+        # В webhook + Celery у PTB не крутится JobQueue — run_once никогда не сработает.
+        # Копим в Django cache и flush через bots.tasks.flush_telegram_media_group_task.
         mgid = getattr(message, 'media_group_id', None)
         if mgid and (message.photo or message.video or message.document):
             try:
@@ -336,37 +383,24 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 mg_key = f'mg:0:{str(mgid)}'
 
-            buf = context.application.bot_data.get(mg_key)
-            if not isinstance(buf, dict):
-                buf = {'messages': [], 'created_at': timezone.now()}
-                context.application.bot_data[mg_key] = buf
-
-            # Append current message snapshot (we'll extract file_ids later)
+            full_key = _telegram_album_cache_key(mg_key)
             try:
-                buf['messages'].append(message.to_dict())
+                msg_dict = message.to_dict()
             except Exception:
-                pass
-
-            # Schedule a flush job only once
-            job_key = mg_key + ':job'
-            if not context.application.bot_data.get(job_key):
-                context.application.bot_data[job_key] = True
-                try:
-                    context.application.job_queue.run_once(
-                        _flush_media_group_job,
-                        when=2.0,
-                        data={
-                            'mg_key': mg_key,
-                            'chat_id': int(update.effective_chat.id) if update.effective_chat else 0,
-                            'user_id': int(user.id) if user else 0,
-                            'send_mode': bool(send_mode),
-                        },
-                        name=job_key,
-                    )
-                except Exception:
-                    # If no job queue, fallback to normal per-message handling
-                    context.application.bot_data.pop(job_key, None)
-            # Do not process this message further (wait for flush)
+                msg_dict = {}
+            meta = {
+                'bot_id': bot_config.id,
+                'chat_id': int(update.effective_chat.id) if update.effective_chat else 0,
+                'user_id': int(user.id) if user else 0,
+                'send_mode': bool(send_mode),
+                'platform_username': getattr(user, 'username', None) or '',
+                'platform_first_name': getattr(user, 'first_name', None) or '',
+                'platform_last_name': getattr(user, 'last_name', None) or '',
+                'display_name': _build_display_name(user),
+            }
+            if msg_dict:
+                _telegram_album_cache_append(full_key, msg_dict, meta)
+            _schedule_telegram_album_flush(full_key, bot_config.id)
             return
 
         # Определяем тип контента и собираем медиа-ID
@@ -673,33 +707,8 @@ async def _forward_to_admin(update, context, suggestion, admin_chat_id: str):
         logger.error('Ошибка при пересылке в чат модерации %s: %s', admin_chat_id, e)
 
 
-async def _flush_media_group_job(context: ContextTypes.DEFAULT_TYPE):
-    """
-    JobQueue callback: flush collected album messages into ONE Suggestion + ONE moderation card.
-    """
-    try:
-        data = getattr(context, 'job', None).data if getattr(context, 'job', None) else {}
-    except Exception:
-        data = {}
-    mg_key = (data.get('mg_key') or '').strip()
-    if not mg_key:
-        return
-    buf = context.application.bot_data.get(mg_key) or {}
-    msgs = buf.get('messages') if isinstance(buf, dict) else None
-    if not isinstance(msgs, list) or not msgs:
-        context.application.bot_data.pop(mg_key, None)
-        context.application.bot_data.pop(mg_key + ':job', None)
-        return
-
-    bot_config = context.application.bot_data.get('bot_config')
-    if not bot_config:
-        return
-
-    chat_id = int(data.get('chat_id') or 0)
-    user_id = int(data.get('user_id') or 0)
-    send_mode = bool(data.get('send_mode'))
-
-    # Extract media file_ids and caption/text from album messages
+def _album_messages_to_media_and_text(msgs: list) -> tuple[list[str], str]:
+    """Из to_dict() сообщений альбома — file_id и подпись (берём первую непустую)."""
     media_ids: list[str] = []
     text = ''
     for m in msgs:
@@ -707,26 +716,51 @@ async def _flush_media_group_job(context: ContextTypes.DEFAULT_TYPE):
             continue
         if not text:
             text = (m.get('caption') or m.get('text') or '') or ''
-        # photo sizes array -> take last file_id
         ph = m.get('photo') or []
         if isinstance(ph, list) and ph:
             fid = ph[-1].get('file_id') if isinstance(ph[-1], dict) else None
             if fid:
-                media_ids.append(fid)
+                media_ids.append(str(fid))
         vid = m.get('video') or {}
         if isinstance(vid, dict) and vid.get('file_id'):
             media_ids.append(str(vid.get('file_id')))
+        doc = m.get('document') or {}
+        if isinstance(doc, dict) and doc.get('file_id'):
+            media_ids.append(str(doc.get('file_id')))
 
-    # De-dup while preserving order
-    seen = set()
-    media_ids2 = []
+    seen: set[str] = set()
+    out: list[str] = []
     for fid in media_ids:
         if fid and fid not in seen:
             seen.add(fid)
-            media_ids2.append(fid)
-    media_ids = media_ids2[:10]
+            out.append(fid)
+    return out[:10], text
 
-    from bots.models import Suggestion
+
+async def flush_collected_telegram_album(
+    bot,
+    bot_config,
+    *,
+    chat_id: int,
+    user_id: int,
+    send_mode: bool,
+    msgs: list,
+    meta: dict | None = None,
+):
+    """
+    Одна заявка из собранных частей альбома + подтверждение пользователю и карточка модераторам.
+    Вызывается из Celery (webhook) или при необходимости — с тем же Bot API.
+    """
+    meta = meta or {}
+    if not isinstance(msgs, list) or not msgs:
+        return
+
+    media_ids, text = _album_messages_to_media_and_text(msgs)
+
+    uname = (meta.get('platform_username') or '').strip()
+    fname = (meta.get('platform_first_name') or '').strip()
+    lname = (meta.get('platform_last_name') or '').strip()
+    disp = (meta.get('display_name') or '').strip() or str(user_id)
 
     @sync_to_async
     def save_album_suggestion():
@@ -770,21 +804,33 @@ async def _flush_media_group_job(context: ContextTypes.DEFAULT_TYPE):
             suggestion = Suggestion.objects.create(
                 bot=bot_config,
                 platform_user_id=str(user_id),
-                content_type=Suggestion.CONTENT_MIXED if media_ids and text else (Suggestion.CONTENT_PHOTO if media_ids else Suggestion.CONTENT_TEXT),
+                platform_username=uname,
+                platform_first_name=fname,
+                platform_last_name=lname,
+                content_type=Suggestion.CONTENT_MIXED if media_ids and text else (
+                    Suggestion.CONTENT_PHOTO if media_ids else Suggestion.CONTENT_TEXT
+                ),
                 text=text or '',
                 media_file_ids=media_ids,
                 raw_data={'messages': msgs},
             )
             created_new = True
 
-        stats, created = SuggestionUserStats.objects.get_or_create(
+        stats, stats_created = SuggestionUserStats.objects.get_or_create(
             bot=bot_config,
             platform_user_id=str(user_id),
-            defaults={'display_name': str(user_id)},
+            defaults={
+                'platform_username': uname,
+                'display_name': disp,
+            },
         )
         if created_new:
             stats.total += 1
             stats.pending += 1
+        if not stats_created:
+            if uname:
+                stats.platform_username = uname
+            stats.display_name = disp
         stats.last_submission = tz.now()
         stats.save()
         return suggestion
@@ -795,7 +841,6 @@ async def _flush_media_group_job(context: ContextTypes.DEFAULT_TYPE):
         logger.exception('[TG] album save failed: %s', e)
         return
 
-    # Confirm to user once
     try:
         confirm = bot_config.success_message.replace('{tracking_id}', suggestion.short_tracking_id)
         tracking_tag = f'#{suggestion.short_tracking_id}'
@@ -804,38 +849,76 @@ async def _flush_media_group_job(context: ContextTypes.DEFAULT_TYPE):
         if send_mode:
             confirm = '✅ Новость получена!\n\n' + confirm
         if chat_id:
-            await context.bot.send_message(chat_id=chat_id, text=confirm)
+            await bot.send_message(chat_id=chat_id, text=confirm)
+            try:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text='Готово. Хотите сделать что-то ещё?',
+                    reply_markup=_menu_keyboard(),
+                )
+            except Exception:
+                pass
     except Exception:
-        pass
+        logger.exception('[TG] album user confirm failed')
 
-    # Forward to moderation chats once
-    admin_chat_ids = []
+    admin_chat_ids: list[str] = []
     try:
         admin_chat_ids = list(bot_config.get_moderation_chat_ids())
     except Exception:
         admin_chat_ids = [bot_config.admin_chat_id] if bot_config.admin_chat_id else []
+
+    @sync_to_async
+    def _staff_moderation_chat_ids(tg_user_id: int) -> list[str]:
+        try:
+            from content.models_imports import TelegramImportLink
+        except Exception:
+            return []
+        link = (
+            TelegramImportLink.objects.filter(telegram_user_id=tg_user_id)
+            .select_related('user')
+            .first()
+        )
+        if not link or not link.user_id:
+            return []
+        u = link.user
+        if u.is_superuser or u.is_staff:
+            return [str(tg_user_id)]
+        return []
+
+    try:
+        for cid in await _staff_moderation_chat_ids(int(user_id)):
+            if cid and cid not in admin_chat_ids:
+                admin_chat_ids.append(cid)
+    except Exception:
+        pass
+
+    def _hx(s) -> str:
+        return html.escape(str(s or ''), quote=False)
+
+    sender_line = f'👤 {_hx(disp)}'
+    if uname:
+        sender_line = f'👤 {_hx(disp)} (@{_hx(uname)})'
+
     for cid in admin_chat_ids:
         try:
-            # Fake an Update-like minimal object is hard; reuse send logic directly
-            # by sending based on suggestion.media_file_ids with caption+buttons.
             uuid_str = str(suggestion.tracking_id)
             keyboard = InlineKeyboardMarkup([[
                 InlineKeyboardButton('✅ Одобрить', callback_data=f'approve|{uuid_str}'),
                 InlineKeyboardButton('❌ Отклонить', callback_data=f'reject|{uuid_str}'),
             ]])
-            # Build caption (no name/username here)
             cap = (
                 '📬 Новое предложение '
-                f'<code>#{html.escape(suggestion.short_tracking_id, quote=False)}</code>\n\n'
-                f'🆔 <code>{html.escape(str(user_id), quote=False)}</code>\n'
-                f'📎 Тип: {_h(suggestion.get_content_type_display())}'
+                f'<code>#{_hx(suggestion.short_tracking_id)}</code>\n\n'
+                f'{sender_line}\n'
+                f'🆔 <code>{_hx(user_id)}</code>\n'
+                f'📎 Тип: {_hx(suggestion.get_content_type_display())}'
             )
             if suggestion.text:
                 preview = suggestion.text[:300] + ('…' if len(suggestion.text) > 300 else '')
-                cap += f'\n\n📝 {html.escape(preview, quote=False)}'
+                cap += f'\n\n📝 {_hx(preview)}'
             mids = list(suggestion.media_file_ids or [])
             if mids:
-                sent = await context.bot.send_photo(
+                sent = await bot.send_photo(
                     chat_id=str(cid),
                     photo=mids[0],
                     caption=cap,
@@ -844,17 +927,16 @@ async def _flush_media_group_job(context: ContextTypes.DEFAULT_TYPE):
                 )
                 for fid in mids[1:10]:
                     try:
-                        await context.bot.send_photo(chat_id=str(cid), photo=fid, reply_to_message_id=sent.message_id)
+                        await bot.send_photo(chat_id=str(cid), photo=fid, reply_to_message_id=sent.message_id)
                     except Exception:
-                        await context.bot.send_photo(chat_id=str(cid), photo=fid)
+                        try:
+                            await bot.send_photo(chat_id=str(cid), photo=fid)
+                        except Exception:
+                            pass
             else:
-                await context.bot.send_message(chat_id=str(cid), text=cap, reply_markup=keyboard, parse_mode='HTML')
-        except Exception:
-            pass
-
-    # Cleanup
-    context.application.bot_data.pop(mg_key, None)
-    context.application.bot_data.pop(mg_key + ':job', None)
+                await bot.send_message(chat_id=str(cid), text=cap, reply_markup=keyboard, parse_mode='HTML')
+        except Exception as e:
+            logger.error('[TG] album forward to admin %s: %s', cid, e)
 
 # ─── Callback-обработчик кнопок модерации ─────────────────────────────────────
 

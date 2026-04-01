@@ -66,3 +66,61 @@ def process_telegram_update_task(self, bot_id: int, update_data: dict):
         logger.exception("[TG Task] update failed for bot_id=%s: %s", bot_id, e)
         raise self.retry(exc=e)
 
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=5)
+def flush_telegram_media_group_task(self, cache_key: str, bot_id: int):
+    """
+    Собрать части media_group из Django cache и оформить одну заявку.
+    Отдельная задача, т.к. JobQueue PTB при process_update в Celery не выполняется.
+    """
+    from django.core.cache import cache
+    from telegram import Bot
+
+    from bots.models import SuggestionBot
+    from bots.telegram.handlers import flush_collected_telegram_album
+
+    flush_lock = cache_key + ':flush'
+    if not cache.add(flush_lock, 1, timeout=120):
+        return
+
+    try:
+        payload = cache.get(cache_key)
+        if not isinstance(payload, dict):
+            return
+        msgs = payload.get('messages')
+        if not isinstance(msgs, list) or not msgs:
+            cache.delete(cache_key)
+            return
+        meta = payload.get('meta') if isinstance(payload.get('meta'), dict) else {}
+        cache.delete(cache_key)
+
+        user_id = int(meta.get('user_id') or 0)
+        chat_id = int(meta.get('chat_id') or 0)
+        send_mode = bool(meta.get('send_mode'))
+
+        bot_config = SuggestionBot.objects.get(
+            id=bot_id,
+            platform=SuggestionBot.PLATFORM_TELEGRAM,
+            is_active=True,
+        )
+        token = bot_config.get_token()
+        bot = Bot(token)
+
+        async def run():
+            await flush_collected_telegram_album(
+                bot,
+                bot_config,
+                chat_id=chat_id,
+                user_id=user_id,
+                send_mode=send_mode,
+                msgs=msgs,
+                meta=meta,
+            )
+
+        asyncio.run(run())
+    except Exception as e:
+        logger.exception('[TG] flush_telegram_media_group_task failed: %s', e)
+        raise self.retry(exc=e)
+    finally:
+        cache.delete(flush_lock)
+

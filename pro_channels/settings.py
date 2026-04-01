@@ -172,6 +172,28 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_ACCEPT_CONTENT = ['json']
 
+# ─── Cache ────────────────────────────────────────────────────────────────────
+# Общий для web + Celery (буфер альбомов Telegram). Без Redis все воркеры не видят одни данные.
+def _redis_url_select_db(url: str, db: int) -> str:
+    from urllib.parse import urlparse, urlunparse
+
+    p = urlparse(url)
+    return urlunparse((p.scheme, p.netloc, f'/{db}', '', '', ''))
+
+
+DJANGO_CACHE_REDIS_URL = config('DJANGO_CACHE_REDIS_URL', default='')
+if not DJANGO_CACHE_REDIS_URL:
+    DJANGO_CACHE_REDIS_URL = _redis_url_select_db(CELERY_BROKER_URL, 2)
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': DJANGO_CACHE_REDIS_URL,
+        'KEY_PREFIX': 'pch',
+        'TIMEOUT': 300,
+    },
+}
+
 # ─── OpenAI ───────────────────────────────────────────────────────────────────
 OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
 OPENAI_MODEL = 'gpt-4o-mini'
