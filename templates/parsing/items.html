@@ -35,13 +35,11 @@
     <div class="card-body p-4">
       <div class="d-flex align-items-start gap-3">
         <div class="flex-grow-1">
-          {% if item.title %}
-          <h6 class="fw-bold mb-1">{{ item.title }}</h6>
-          {% endif %}
+          <h6 class="fw-bold mb-1">Материал</h6>
           <p class="small mb-2 text-muted">{{ item.text|truncatechars:200 }}</p>
           <div class="d-flex gap-2 align-items-center flex-wrap">
-            <span class="badge bg-light text-dark border small">{{ item.source.name|default:item.source.url }}</span>
-            <span class="text-muted" style="font-size:.75rem;">{{ item.published_at|date:"d.m.Y H:i"|default:"" }}</span>
+            <span class="badge bg-light text-dark border small">{{ item.source.name }}</span>
+            <span class="text-muted" style="font-size:.75rem;">{{ item.found_at|date:"d.m.Y H:i"|default:"" }}</span>
             {% if item.status == 'new' %}
               <span class="badge bg-primary-subtle text-primary">Новый</span>
             {% elif item.status == 'used' %}
@@ -50,6 +48,11 @@
               <span class="badge bg-secondary-subtle text-secondary">Пропущен</span>
             {% endif %}
           </div>
+          {% if item.original_url %}
+          <div class="mt-2">
+            <a href="{{ item.original_url }}" target="_blank" rel="noopener" class="small">Открыть источник</a>
+          </div>
+          {% endif %}
         </div>
         <div class="d-flex flex-column gap-1 flex-shrink-0">
           <a href="{% url 'parsing:item_to_post' item.pk %}" class="btn btn-outline-primary btn-sm">
@@ -67,6 +70,7 @@
     </div>
   </div>
   {% endfor %}
+</div>
 {% else %}
 <div class="card">
   <div class="card-body text-center py-5">
