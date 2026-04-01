@@ -288,7 +288,9 @@ def post_create_from_suggestion(request, tracking_id):
 
 @login_required
 def post_detail(request, pk):
-    if request.user.role in ('manager', 'assistant_admin'):
+    if request.user.is_staff or request.user.is_superuser:
+        post = get_object_or_404(Post, pk=pk)
+    elif request.user.role in ('manager', 'assistant_admin'):
         allowed_channel_ids = _manager_content_channel_ids(request.user)
         post = get_object_or_404(
             Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct(),
@@ -306,7 +308,10 @@ def post_detail(request, pk):
 @login_required
 def post_edit(request, pk):
     from channels.models import Channel
-    if request.user.role in ('manager', 'assistant_admin'):
+    if request.user.is_staff or request.user.is_superuser:
+        post = get_object_or_404(Post, pk=pk)
+        user_channels = Channel.objects.filter(is_active=True).distinct()
+    elif request.user.role in ('manager', 'assistant_admin'):
         allowed_channel_ids = _manager_content_channel_ids(request.user)
         post = get_object_or_404(
             Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct(),
@@ -631,7 +636,9 @@ def tg_import_webhook(request):
 
 @login_required
 def post_delete(request, pk):
-    if request.user.role in ('manager', 'assistant_admin'):
+    if request.user.is_staff or request.user.is_superuser:
+        post = get_object_or_404(Post, pk=pk)
+    elif request.user.role in ('manager', 'assistant_admin'):
         from managers.models import TeamMember
         allowed_channel_ids = TeamMember.objects.filter(
             member=request.user,
@@ -654,7 +661,9 @@ def post_delete(request, pk):
 @login_required
 def post_publish_now(request, pk):
     """Немедленная публикация поста."""
-    if request.user.role in ('manager', 'assistant_admin'):
+    if request.user.is_staff or request.user.is_superuser:
+        post = get_object_or_404(Post, pk=pk)
+    elif request.user.role in ('manager', 'assistant_admin'):
         from managers.models import TeamMember
         allowed_channel_ids = TeamMember.objects.filter(
             member=request.user,
