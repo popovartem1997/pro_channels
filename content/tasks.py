@@ -55,15 +55,14 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
     if not bot:
         return 0, warnings
 
-    # Avoid duplicating import if media already present
-    if PostMedia.objects.filter(post=post).exists():
-        return 0, warnings
-
     max_o = PostMedia.objects.filter(post=post).aggregate(m=Max('order'))['m']
     current_max = int(max_o) if max_o is not None else 0
 
     # Telegram media import
     if bot.platform == bot.PLATFORM_TELEGRAM and (suggestion.media_file_ids or []):
+        # Не дублируем: один проход импорта на пост
+        if PostMedia.objects.filter(post=post).exists():
+            return imported, warnings
         token = bot.get_token()
         api_base = f'https://api.telegram.org/bot{token}'
         file_base = f'https://api.telegram.org/file/bot{token}'
@@ -92,6 +91,33 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
     # MAX media import (best-effort)
     if bot.platform == bot.PLATFORM_MAX:
         try:
+            from bots.max_media_preview import attachment_entries_from_raw
+
+            entries = attachment_entries_from_raw(suggestion.raw_data)
+            expected_attachments = max(
+                len(entries),
+                len(suggestion.media_file_ids or []),
+            )
+            existing_n = PostMedia.objects.filter(post=post).count()
+            auto_prefix = f'max_{suggestion.short_tracking_id}_'
+            if expected_attachments > 0 and existing_n >= expected_attachments:
+                return imported, warnings
+
+            # Частичный импорт (сбой Celery / таймаут): старый код выходил при любом PostMedia —
+            # оставался один файл. Удаляем только наши max_<short>_*, затем импортируем заново всё.
+            if expected_attachments > 0 and 0 < existing_n < expected_attachments:
+                for m in list(PostMedia.objects.filter(post=post)):
+                    fname = (getattr(m.file, 'name', None) or '')
+                    base = fname.split('/')[-1]
+                    if base.startswith(auto_prefix):
+                        try:
+                            m.file.delete(save=False)
+                        except Exception:
+                            pass
+                        m.delete()
+                max_o = PostMedia.objects.filter(post=post).aggregate(m=Max('order'))['m']
+                current_max = int(max_o) if max_o is not None else 0
+
             raw = suggestion.raw_data or {}
             # В MAX мы сохраняем raw_data как объект message (без update wrapper).
             if isinstance(raw, dict) and isinstance(raw.get('message'), dict):
@@ -188,6 +214,7 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
 
             order = 0
             seen_urls = set()
+            seen_tokens: set[str] = set()
             for att in attachments[:10]:
                 if not isinstance(att, dict):
                     continue
@@ -200,14 +227,16 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
                 elif att_type == 'file':
                     media_type = PostMedia.TYPE_DOCUMENT
 
+                payload = att.get('payload') or {}
+                token_key = ''
+                if isinstance(payload, dict):
+                    token_key = str(payload.get('token') or payload.get('id') or '')
+
                 urls = _iter_attachment_urls(att)
                 # If no direct URL in payload, try resolve by token via API (video is documented)
                 if not urls:
                     try:
-                        payload = att.get('payload') or {}
-                        token = None
-                        if isinstance(payload, dict):
-                            token = payload.get('token') or payload.get('id')
+                        token = token_key or None
                         if token:
                             from bots.max_bot.bot import MaxBotAPI
                             api = MaxBotAPI(bot.get_token())
@@ -233,9 +262,15 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
                     continue
 
                 url = urls[0]
-                if url in seen_urls:
-                    continue
-                seen_urls.add(url)
+                # Разные вложения могут дать один и тот же URL в ответе API — не схлопываем по URL, если токены разные.
+                if token_key:
+                    if token_key in seen_tokens:
+                        continue
+                    seen_tokens.add(token_key)
+                else:
+                    if url in seen_urls:
+                        continue
+                    seen_urls.add(url)
 
                 try:
                     # Некоторые CDN-ссылки MAX не требуют Authorization; пробуем без него, а при ошибке — с ним.
