@@ -9,7 +9,8 @@
     </a>
     <h1>{{ channel.name }}</h1>
   </div>
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-2 flex-wrap">
+    {% if not channel_team_access %}
     {% if channel.platform == 'telegram' or channel.platform == 'vk' or channel.platform == 'instagram' %}
     <button id="btn-test" class="btn btn-outline-success" onclick="testConnection()">
       <i class="bi bi-wifi me-1"></i> Проверить подключение
@@ -20,12 +21,15 @@
       <i class="bi bi-send me-1"></i> Тест: отправить в MAX
     </button>
     {% endif %}
+    {% endif %}
     <a href="{% url 'channels:edit' channel.pk %}" class="btn btn-outline-primary">
-      <i class="bi bi-pencil me-1"></i> Редактировать
+      <i class="bi bi-pencil me-1"></i> {% if channel_team_access %}Подпись{% else %}Редактировать{% endif %}
     </a>
+    {% if not channel_team_access %}
     <a href="{% url 'channels:delete' channel.pk %}" class="btn btn-outline-danger">
       <i class="bi bi-trash me-1"></i> Удалить
     </a>
+    {% endif %}
   </div>
 </div>
 

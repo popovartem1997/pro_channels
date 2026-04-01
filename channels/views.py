@@ -11,6 +11,21 @@ from django.db import IntegrityError
 from .models import Channel
 
 
+def _team_channel_editor_user(user) -> bool:
+    """Менеджер / помощник админа (не staff): доступ к каналам команды с ограниченным редактированием."""
+    return getattr(user, 'role', '') in ('manager', 'assistant_admin') and not (
+        user.is_staff or user.is_superuser
+    )
+
+
+def _team_member_channel_ids(user) -> list[int]:
+    """ID каналов, назначенных пользователю в команде (активное членство)."""
+    from managers.models import TeamMember
+
+    raw = TeamMember.objects.filter(member=user, is_active=True).values_list('channels__pk', flat=True)
+    return sorted({int(x) for x in raw if str(x).isdigit()})
+
+
 def _channel_create_store_form(request, *, platform: str, name: str, data: dict):
     """
     Store last entered values for channel create form.
@@ -34,8 +49,17 @@ def _channel_create_store_form(request, *, platform: str, name: str, data: dict)
 
 @login_required
 def channel_list(request):
-    channels = Channel.objects.filter(owner=request.user).order_by('-created_at')
-    return render(request, 'channels/list.html', {'channels': channels})
+    if _team_channel_editor_user(request.user):
+        ids = _team_member_channel_ids(request.user)
+        channels = Channel.objects.filter(pk__in=ids, is_active=True).order_by('-created_at')
+        team_channel_list = True
+    else:
+        channels = Channel.objects.filter(owner=request.user).order_by('-created_at')
+        team_channel_list = False
+    return render(request, 'channels/list.html', {
+        'channels': channels,
+        'team_channel_list': team_channel_list,
+    })
 
 
 @login_required
@@ -134,7 +158,13 @@ def channel_create(request):
 
 @login_required
 def channel_detail(request, pk):
-    channel = get_object_or_404(Channel, pk=pk, owner=request.user)
+    if _team_channel_editor_user(request.user):
+        allowed_ids = _team_member_channel_ids(request.user)
+        channel = get_object_or_404(Channel.objects.filter(pk__in=allowed_ids), pk=pk)
+        channel_team_access = True
+    else:
+        channel = get_object_or_404(Channel, pk=pk, owner=request.user)
+        channel_team_access = False
     from content.models import Post
     from stats.models import ChannelStat
     recent_posts = Post.objects.filter(channels=channel).order_by('-created_at')[:10]
@@ -145,6 +175,7 @@ def channel_detail(request, pk):
         'recent_posts': recent_posts,
         'stats': stats,
         'total_views': total_views,
+        'channel_team_access': channel_team_access,
     })
 
 
@@ -152,15 +183,10 @@ def channel_detail(request, pk):
 def channel_edit(request, pk):
     footer_only = False
 
-    # Owner/staff can edit everything for own channels.
-    if request.user.role in ('manager', 'assistant_admin') and not (request.user.is_staff or request.user.is_superuser):
-        from managers.models import TeamMember
-        allowed_channel_ids = TeamMember.objects.filter(
-            member=request.user,
-            is_active=True,
-            can_publish=True,  # подпись влияет на публикации
-        ).values_list('channels__pk', flat=True)
-        channel = get_object_or_404(Channel.objects.filter(pk__in=allowed_channel_ids).distinct(), pk=pk)
+    # Менеджер / помощник: только подписи (tg/max/vk), по каналам из команды.
+    if _team_channel_editor_user(request.user):
+        allowed_ids = _team_member_channel_ids(request.user)
+        channel = get_object_or_404(Channel.objects.filter(pk__in=allowed_ids), pk=pk)
         footer_only = True
     else:
         channel = get_object_or_404(Channel, pk=pk, owner=request.user)
