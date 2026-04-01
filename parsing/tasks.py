@@ -14,6 +14,7 @@ import logging
 import re
 from celery import shared_task
 from django.utils import timezone
+from asgiref.sync import sync_to_async
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +253,10 @@ def _parse_telegram(source, keywords, keyword_objects):
                 matched = _match_keywords(msg_text, keywords)
                 if matched:
                     kw_obj = keyword_objects[matched[0]]
-                    if _save_item(source, kw_obj, msg_text, str(message.id)):
+                    created = await sync_to_async(_save_item, thread_sensitive=True)(
+                        source, kw_obj, msg_text, str(message.id)
+                    )
+                    if created:
                         found += 1
         finally:
             await client.disconnect()
