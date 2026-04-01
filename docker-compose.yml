@@ -11,7 +11,9 @@ services:
       - mysql_data:/var/lib/mysql
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${DB_ROOT_PASSWORD:-root_password_change_me}"]
+      # Важно: healthcheck выполняется ВНУТРИ контейнера db.
+      # Там доступен MYSQL_ROOT_PASSWORD, а переменной DB_ROOT_PASSWORD внутри контейнера нет.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$MYSQL_ROOT_PASSWORD\" --silent"]
       interval: 10s
       timeout: 5s
       retries: 10
