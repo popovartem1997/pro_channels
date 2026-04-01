@@ -109,7 +109,17 @@
             </div>
 
             <div class="fw-semibold mb-1">{{ it.title }}</div>
-            <div class="text-muted small mb-2">{{ it.meta }}</div>
+            {% if it.kind == 'parsing' and it.obj and it.obj.source %}
+              <div class="text-muted small mb-2">
+                Источник:
+                <a href="{% url 'parsing:sources' %}{% if request.GET.chgroup %}?chgroup={{ request.GET.chgroup }}{% endif %}">
+                  {{ it.obj.source.name }}
+                </a>
+                · {% platform_badge it.obj.source.platform %}
+              </div>
+            {% else %}
+              <div class="text-muted small mb-2">{{ it.meta }}</div>
+            {% endif %}
             {% if it.kind == 'parsing' and it.channels %}
               {% with it.channels.0 as ch0 %}
                 {% if ch0 %}
