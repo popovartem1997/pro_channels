@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 # Альбомы копятся в Django cache + flush через Celery: в webhook-режиме JobQueue PTB не обрабатывает run_once.
 TELEGRAM_ALBUM_CACHE_PREFIX = 'tg_album:'
+# В process_telegram_update_task (Celery) выставляется 'inline' — сборка альбома в том же хендлере.
+ALBUM_FLUSH_INLINE = 'inline'
 
 
 def _telegram_album_cache_key(mg_key: str) -> str:
@@ -357,10 +359,11 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id_dbg = 0
         try:
             logger.info(
-                "[TG] handle_suggestion: bot_id=%s chat_id=%s user_id=%s has_text=%s has_photo=%s has_video=%s has_doc=%s",
+                "[TG] handle_suggestion: bot_id=%s chat_id=%s user_id=%s mg_id=%s has_text=%s has_photo=%s has_video=%s has_doc=%s",
                 getattr(bot_config, "id", None),
                 chat_id_dbg,
                 getattr(user, "id", None),
+                getattr(message, "media_group_id", None),
                 bool(getattr(message, "text", None)),
                 bool(getattr(message, "photo", None)),
                 bool(getattr(message, "video", None)),
@@ -493,42 +496,61 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # В webhook + Celery у PTB не крутится JobQueue — run_once никогда не сработает.
         # Копим в Django cache и flush через bots.tasks.flush_telegram_media_group_task.
         mgid = getattr(message, 'media_group_id', None)
+        if mgid is None:
+            try:
+                mgid = message.to_dict().get('media_group_id')
+            except Exception:
+                mgid = None
         if mgid and (message.photo or message.video or message.document):
             try:
-                mg_key = f'mg:{int(update.effective_chat.id)}:{str(mgid)}'
-            except Exception:
-                mg_key = f'mg:0:{str(mgid)}'
+                try:
+                    mg_key = f'mg:{int(update.effective_chat.id)}:{str(mgid)}'
+                except Exception:
+                    mg_key = f'mg:0:{str(mgid)}'
 
-            full_key = _telegram_album_cache_key(mg_key)
-            part = _album_part_from_message(message)
-            meta = {
-                'bot_id': bot_config.id,
-                'chat_id': int(update.effective_chat.id) if update.effective_chat else 0,
-                'user_id': int(user.id) if user else 0,
-                'send_mode': bool(send_mode),
-                'platform_username': getattr(user, 'username', None) or '',
-                'platform_first_name': getattr(user, 'first_name', None) or '',
-                'platform_last_name': getattr(user, 'last_name', None) or '',
-                'display_name': _build_display_name(user),
-            }
-            if not part:
-                await message.reply_text('Не удалось принять фото. Попробуйте отправить ещё раз.')
-                return
-            _telegram_album_cache_append(full_key, part, meta)
-            # run_polling: нельзя долго sleep в хендлере — вторая часть альбома не обработается.
-            # Webhook+Celery: апдейты параллельны — ждём тишину и flush здесь.
-            app = context.application
-            if getattr(app, 'running', False) and getattr(app, 'job_queue', None) is not None:
-                _schedule_telegram_album_flush(full_key, bot_config.id)
-            else:
-                await _wait_and_flush_telegram_album(
-                    context,
-                    bot_config,
+                full_key = _telegram_album_cache_key(mg_key)
+                part = _album_part_from_message(message)
+                meta = {
+                    'bot_id': bot_config.id,
+                    'chat_id': int(update.effective_chat.id) if update.effective_chat else 0,
+                    'user_id': int(user.id) if user else 0,
+                    'send_mode': bool(send_mode),
+                    'platform_username': getattr(user, 'username', None) or '',
+                    'platform_first_name': getattr(user, 'first_name', None) or '',
+                    'platform_last_name': getattr(user, 'last_name', None) or '',
+                    'display_name': _build_display_name(user),
+                }
+                if not part:
+                    await message.reply_text('Не удалось принять фото. Попробуйте отправить ещё раз.')
+                    return
+                _telegram_album_cache_append(full_key, part, meta)
+                logger.info(
+                    '[TG] album append mg=%s key=%s inline_mode=%s',
+                    mgid,
                     full_key,
-                    fallback_chat_id=int(update.effective_chat.id) if update.effective_chat else 0,
-                    fallback_user_id=int(user.id) if user else 0,
-                    fallback_send_mode=bool(send_mode),
+                    context.application.bot_data.get('album_flush_mode'),
                 )
+                if context.application.bot_data.get('album_flush_mode') == ALBUM_FLUSH_INLINE:
+                    await _wait_and_flush_telegram_album(
+                        context,
+                        bot_config,
+                        full_key,
+                        fallback_chat_id=int(update.effective_chat.id) if update.effective_chat else 0,
+                        fallback_user_id=int(user.id) if user else 0,
+                        fallback_send_mode=bool(send_mode),
+                    )
+                else:
+                    # Long polling: отложенный flush (иначе вторая часть альбома не попадёт в очередь).
+                    _schedule_telegram_album_flush(full_key, bot_config.id)
+            except Exception:
+                logger.exception('[TG] ошибка при приёме альбома (mg=%s)', mgid)
+                try:
+                    await message.reply_text(
+                        'Не удалось обработать альбом. Отправьте, пожалуйста, фото по одному '
+                        'или напишите текст отдельным сообщением.'
+                    )
+                except Exception:
+                    pass
             return
 
         # Определяем тип контента и собираем медиа-ID
@@ -982,11 +1004,13 @@ async def flush_collected_telegram_album(
             confirm = f'{tracking_tag}\n' + confirm
         if send_mode:
             confirm = '✅ Новость получена!\n\n' + confirm
-        if chat_id:
-            await bot.send_message(chat_id=chat_id, text=confirm)
+        # В личке chat_id совпадает с user_id; если chat_id потерялся в meta — всё равно отвечаем.
+        subscriber_chat = int(chat_id) if chat_id else int(user_id)
+        if subscriber_chat:
+            await bot.send_message(chat_id=subscriber_chat, text=confirm)
             try:
                 await bot.send_message(
-                    chat_id=chat_id,
+                    chat_id=subscriber_chat,
                     text='Готово. Хотите сделать что-то ещё?',
                     reply_markup=_menu_keyboard(),
                 )

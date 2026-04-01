@@ -53,6 +53,9 @@ def process_telegram_update_task(self, bot_id: int, update_data: dict):
 
         bot_config = SuggestionBot.objects.get(id=bot_id, platform=SuggestionBot.PLATFORM_TELEGRAM, is_active=True)
         app = build_application(bot_config)
+        # Не полагаться на application.running (он может быть True после initialize) —
+        # альбомы обрабатываем ожиданием+flush в самом хендлере, а не отложенной задачей.
+        app.bot_data['album_flush_mode'] = 'inline'
 
         async def process():
             async with app:
