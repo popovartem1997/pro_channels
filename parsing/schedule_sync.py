@@ -64,6 +64,9 @@ def sync_auto_parse_tasks_for_channel(channel) -> None:
             task.save(update_fields=['schedule_cron', 'is_active'])
         task.sources.set(sources)
         task.keywords.set(keywords)
+        # Иначе остаются старые «Auto parsing (channel N)» — дубли и пустые прогоны.
+        for c in chs:
+            ParseTask.objects.filter(owner=owner, name=f'Auto parsing (channel {c.pk})').delete()
         return
 
     # Канал без группы — как раньше, отдельная задача

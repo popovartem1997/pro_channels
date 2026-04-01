@@ -13,6 +13,7 @@ Callback data формат (не более 64 байт — ограничени
   reject|<uuid>           — выбрать причину отклонения
   rr|<uuid>|<idx>         — подтвердить отклонение с причиной (rr = reject_reason)
 """
+import html
 import logging
 import uuid as uuid_module
 
@@ -431,62 +432,85 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text('Не удалось принять новость. Попробуйте ещё раз через минуту.')
             return
 
-        # Подтверждение пользователю
-        confirm = bot_config.success_message.replace('{tracking_id}', suggestion.short_tracking_id)
-        tracking_tag = f'#{suggestion.short_tracking_id}'
-        if tracking_tag not in confirm:
-            confirm = f'{tracking_tag}\n' + confirm
-        if send_mode:
-            confirm = '✅ Новость получена!\n\n' + confirm
+        # Уведомления после сохранения: не должны приводить к «Произошла ошибка» — заявка уже в БД.
         try:
-            logger.info("[TG] replying confirm: chat_id=%s tracking=%s", chat_id_dbg, suggestion.short_tracking_id)
-        except Exception:
-            pass
-        await message.reply_text(confirm)
-        try:
-            logger.info("[TG] replied confirm OK: chat_id=%s tracking=%s", chat_id_dbg, suggestion.short_tracking_id)
-        except Exception:
-            pass
-
-        # Пересылаем в чат модерации (если настроен)
-        admin_chat_ids = []
-        try:
-            admin_chat_ids = list(bot_config.get_moderation_chat_ids())
-        except Exception:
-            admin_chat_ids = [bot_config.admin_chat_id] if bot_config.admin_chat_id else []
-
-        # Staff/superuser с привязкой Telegram (импорт-бот) — дублируем карточку модерации в их личку
-        @sync_to_async
-        def _staff_moderation_chat_ids(telegram_user_id: int) -> list[str]:
+            # Подтверждение пользователю
+            confirm = bot_config.success_message.replace('{tracking_id}', suggestion.short_tracking_id)
+            tracking_tag = f'#{suggestion.short_tracking_id}'
+            if tracking_tag not in confirm:
+                confirm = f'{tracking_tag}\n' + confirm
+            if send_mode:
+                confirm = '✅ Новость получена!\n\n' + confirm
             try:
-                from content.models_imports import TelegramImportLink
+                logger.info(
+                    "[TG] replying confirm: chat_id=%s tracking=%s",
+                    chat_id_dbg,
+                    suggestion.short_tracking_id,
+                )
             except Exception:
+                pass
+            await message.reply_text(confirm)
+            try:
+                logger.info(
+                    "[TG] replied confirm OK: chat_id=%s tracking=%s",
+                    chat_id_dbg,
+                    suggestion.short_tracking_id,
+                )
+            except Exception:
+                pass
+
+            # Пересылаем в чат модерации (если настроен)
+            admin_chat_ids = []
+            try:
+                admin_chat_ids = list(bot_config.get_moderation_chat_ids())
+            except Exception:
+                admin_chat_ids = [bot_config.admin_chat_id] if bot_config.admin_chat_id else []
+
+            # Staff/superuser с привязкой Telegram (импорт-бот) — дублируем карточку модерации в их личку
+            @sync_to_async
+            def _staff_moderation_chat_ids(telegram_user_id: int) -> list[str]:
+                try:
+                    from content.models_imports import TelegramImportLink
+                except Exception:
+                    return []
+                link = (
+                    TelegramImportLink.objects.filter(telegram_user_id=telegram_user_id)
+                    .select_related('user')
+                    .first()
+                )
+                if not link or not link.user_id:
+                    return []
+                u = link.user
+                if u.is_superuser or u.is_staff:
+                    return [str(telegram_user_id)]
                 return []
-            link = (
-                TelegramImportLink.objects.filter(telegram_user_id=telegram_user_id)
-                .select_related('user')
-                .first()
+
+            try:
+                for cid in await _staff_moderation_chat_ids(int(user.id)):
+                    if cid and cid not in admin_chat_ids:
+                        admin_chat_ids.append(cid)
+            except Exception:
+                pass
+
+            for admin_chat_id in admin_chat_ids:
+                await _forward_to_admin(update, context, suggestion, admin_chat_id)
+            try:
+                await _send_menu(update, context, text='Готово. Хотите сделать что-то ещё?')
+            except Exception:
+                pass
+        except Exception as e:
+            logger.exception(
+                'После сохранения предложения #%s (подтверждение/модерация): %s',
+                getattr(suggestion, 'pk', None),
+                e,
             )
-            if not link or not link.user_id:
-                return []
-            u = link.user
-            if u.is_superuser or u.is_staff:
-                return [str(telegram_user_id)]
-            return []
-
-        try:
-            for cid in await _staff_moderation_chat_ids(int(user.id)):
-                if cid and cid not in admin_chat_ids:
-                    admin_chat_ids.append(cid)
-        except Exception:
-            pass
-
-        for admin_chat_id in admin_chat_ids:
-            await _forward_to_admin(update, context, suggestion, admin_chat_id)
-        try:
-            await _send_menu(update, context, text='Готово. Хотите сделать что-то ещё?')
-        except Exception:
-            pass
+            try:
+                await message.reply_text(
+                    f'Заявка #{suggestion.short_tracking_id} сохранена. '
+                    'Если не пришло обычное подтверждение — она учтена, свяжитесь с администратором канала.'
+                )
+            except Exception:
+                pass
 
     except Exception as e:
         logger.exception('handle_suggestion failed: %s', e)
@@ -508,21 +532,26 @@ async def _forward_to_admin(update, context, suggestion, admin_chat_id: str):
     user = update.effective_user
     message = update.effective_message
 
+    def _h(s) -> str:
+        return html.escape(str(s or ''), quote=False)
+
     sender = f'{user.first_name or ""} {user.last_name or ""}'.strip()
     if user.username:
         sender += f' (@{user.username})'
 
+    # HTML: текст заявки часто содержит _ * ` — ломали Markdown и иногда роняли весь handle_suggestion.
     caption = (
-        f'📬 Новое предложение `#{suggestion.short_tracking_id}`\n\n'
-        f'👤 {sender}\n'
-        f'🆔 `{user.id}`\n'
-        f'📎 Тип: {suggestion.get_content_type_display()}'
+        '📬 Новое предложение '
+        f'<code>#{_h(suggestion.short_tracking_id)}</code>\n\n'
+        f'👤 {_h(sender)}\n'
+        f'🆔 <code>{_h(user.id)}</code>\n'
+        f'📎 Тип: {_h(suggestion.get_content_type_display())}'
     )
     if suggestion.text:
         preview = suggestion.text[:300]
         if len(suggestion.text) > 300:
             preview += '…'
-        caption += f'\n\n📝 {preview}'
+        caption += f'\n\n📝 {_h(preview)}'
 
     uuid_str = str(suggestion.tracking_id)
     keyboard = InlineKeyboardMarkup([[
@@ -534,32 +563,32 @@ async def _forward_to_admin(update, context, suggestion, admin_chat_id: str):
         if message.photo:
             await context.bot.send_photo(
                 chat_id=admin_chat_id, photo=message.photo[-1].file_id,
-                caption=caption, reply_markup=keyboard, parse_mode='Markdown'
+                caption=caption, reply_markup=keyboard, parse_mode='HTML',
             )
         elif message.video:
             await context.bot.send_video(
                 chat_id=admin_chat_id, video=message.video.file_id,
-                caption=caption, reply_markup=keyboard, parse_mode='Markdown'
+                caption=caption, reply_markup=keyboard, parse_mode='HTML',
             )
         elif message.document:
             await context.bot.send_document(
                 chat_id=admin_chat_id, document=message.document.file_id,
-                caption=caption, reply_markup=keyboard, parse_mode='Markdown'
+                caption=caption, reply_markup=keyboard, parse_mode='HTML',
             )
         elif message.audio:
             await context.bot.send_audio(
                 chat_id=admin_chat_id, audio=message.audio.file_id,
-                caption=caption, reply_markup=keyboard, parse_mode='Markdown'
+                caption=caption, reply_markup=keyboard, parse_mode='HTML',
             )
         elif message.voice:
             await context.bot.send_voice(
                 chat_id=admin_chat_id, voice=message.voice.file_id,
-                caption=caption, reply_markup=keyboard, parse_mode='Markdown'
+                caption=caption, reply_markup=keyboard, parse_mode='HTML',
             )
         else:
             await context.bot.send_message(
                 chat_id=admin_chat_id, text=caption,
-                reply_markup=keyboard, parse_mode='Markdown'
+                reply_markup=keyboard, parse_mode='HTML',
             )
     except Exception as e:
         logger.error('Ошибка при пересылке в чат модерации %s: %s', admin_chat_id, e)
