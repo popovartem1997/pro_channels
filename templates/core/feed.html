@@ -272,10 +272,14 @@
   <nav class="mt-4" aria-label="Пагинация">
     <ul class="pagination pagination-sm mb-0 flex-wrap">
       <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
-        <a class="page-link"
-           href="?{% if page_base_qs %}{{ page_base_qs }}&{% endif %}page={{ page_obj.previous_page_number }}{% if per_page %}&per_page={{ per_page }}{% endif %}">
-          Назад
-        </a>
+        {% if page_obj.has_previous %}
+          <a class="page-link"
+             href="?{% if page_base_qs %}{{ page_base_qs }}&{% endif %}page={{ page_obj.previous_page_number }}{% if per_page %}&per_page={{ per_page }}{% endif %}">
+            Назад
+          </a>
+        {% else %}
+          <span class="page-link">Назад</span>
+        {% endif %}
       </li>
 
       <li class="page-item disabled">
@@ -285,10 +289,14 @@
       </li>
 
       <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
-        <a class="page-link"
-           href="?{% if page_base_qs %}{{ page_base_qs }}&{% endif %}page={{ page_obj.next_page_number }}{% if per_page %}&per_page={{ per_page }}{% endif %}">
-          Вперёд
-        </a>
+        {% if page_obj.has_next %}
+          <a class="page-link"
+             href="?{% if page_base_qs %}{{ page_base_qs }}&{% endif %}page={{ page_obj.next_page_number }}{% if per_page %}&per_page={{ per_page }}{% endif %}">
+            Вперёд
+          </a>
+        {% else %}
+          <span class="page-link">Вперёд</span>
+        {% endif %}
       </li>
     </ul>
   </nav>
