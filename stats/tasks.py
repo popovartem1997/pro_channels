@@ -237,7 +237,66 @@ def _get_post_stats(publish_result):
         except Exception as exc:
             logger.error(f'VK wall.getById ошибка: {exc}')
 
+    elif channel.platform == Ch.PLATFORM_MAX:
+        return _get_max_post_stats(channel, msg_id)
+
     return None
+
+
+def _get_max_post_stats(channel, msg_id):
+    """Статистика поста в канале MAX: GET /messages/{mid}, поле stat (документация dev.max.ru — Message.stat)."""
+    from bots.max_bot.bot import MaxBotAPI
+
+    token = channel.get_max_token()
+    if not token or not str(msg_id).strip():
+        return None
+    try:
+        api = MaxBotAPI(token)
+        data = api.get_message(str(msg_id).strip())
+    except Exception as exc:
+        logger.error('MAX get_message ошибка: %s', exc)
+        return None
+    if not isinstance(data, dict) or data.get('code'):
+        return None
+
+    msg = data
+    if isinstance(data.get('message'), dict):
+        msg = data['message']
+    stat = msg.get('stat') or msg.get('stats') or {}
+    if not isinstance(stat, dict):
+        stat = {}
+
+    def _int(v, default=0):
+        try:
+            if v is None:
+                return default
+            if isinstance(v, dict):
+                return int(v.get('count', v.get('value', default)) or default)
+            return int(v)
+        except Exception:
+            return default
+
+    views = _int(stat.get('views'))
+    if not views:
+        for k in ('view_count', 'views_count', 'total_views'):
+            views = _int(stat.get(k))
+            if views:
+                break
+    reactions = _int(stat.get('likes')) + _int(stat.get('reactions'))
+    if not reactions:
+        reactions = _int(stat.get('reactions_count')) + _int(stat.get('likes_count'))
+    forwards = _int(stat.get('shares')) + _int(stat.get('forwards'))
+    comments = _int(stat.get('comments'))
+
+    if not any((views, reactions, forwards, comments)):
+        return None
+
+    return {
+        'views': views,
+        'reactions': reactions,
+        'forwards': forwards,
+        'comments': comments,
+    }
 
 
 def _get_tg_post_stats(channel, msg_id):

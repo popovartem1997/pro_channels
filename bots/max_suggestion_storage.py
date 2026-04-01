@@ -61,6 +61,25 @@ def _iter_attachment_urls(att: dict) -> list[str]:
     return urls
 
 
+def persist_max_suggestion_attachments(suggestion, bot_token: str) -> int:
+    """
+    Сохранить вложения со всех сообщений предложки (цепочка «текст + фото» в MAX).
+    Идемпотентно: повторный вызов не дублирует файлы (attachment_key).
+    """
+    raw = suggestion.raw_data or {}
+    msgs: list[dict] = []
+    if isinstance(raw, dict):
+        prev = raw.get('messages')
+        if isinstance(prev, list):
+            msgs = [m for m in prev if isinstance(m, dict)]
+        if not msgs and raw.get('mid'):
+            msgs = [raw]
+    total = 0
+    for m in msgs:
+        total += persist_max_message_attachments(suggestion, m, bot_token)
+    return total
+
+
 def persist_max_message_attachments(suggestion, message: dict, bot_token: str) -> int:
     """
     Скачать вложения из одного сообщения MAX и сохранить в SuggestionStoredMedia.

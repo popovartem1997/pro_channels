@@ -354,9 +354,9 @@ class MAXSuggestionBot:
             recent.save(update_fields=['text', 'media_file_ids', 'content_type', 'raw_data'])
             suggestion = recent
             try:
-                from bots.max_suggestion_storage import persist_max_message_attachments
+                from bots.max_suggestion_storage import persist_max_suggestion_attachments
 
-                persist_max_message_attachments(suggestion, message, self.config.get_token())
+                persist_max_suggestion_attachments(suggestion, self.config.get_token())
             except Exception as e:
                 logger.warning('[MAX] Сохранение вложений на диск: %s', e)
         else:
@@ -372,9 +372,9 @@ class MAXSuggestionBot:
                 raw_data=message,
             )
             try:
-                from bots.max_suggestion_storage import persist_max_message_attachments
+                from bots.max_suggestion_storage import persist_max_suggestion_attachments
 
-                persist_max_message_attachments(suggestion, message, self.config.get_token())
+                persist_max_suggestion_attachments(suggestion, self.config.get_token())
             except Exception as e:
                 logger.warning('[MAX] Сохранение вложений на диск: %s', e)
 

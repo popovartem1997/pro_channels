@@ -14,6 +14,14 @@
   </div>
 </div>
 
+{% if feed_quick_links %}
+<div class="d-flex flex-wrap gap-2 mb-3">
+  {% for link in feed_quick_links %}
+  <a href="{{ link.url }}" class="btn btn-sm btn-outline-secondary rounded-pill">{{ link.label }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
 <form method="get" class="card mb-3">
   <div class="card-body p-3">
     <div class="row g-2 align-items-end">
@@ -26,6 +34,17 @@
           <option value="parsing" {% if kind == 'parsing' %}selected{% endif %}>Парсинг</option>
         </select>
       </div>
+      <div class="col-12 col-md-2">
+        <label class="form-label small text-muted mb-1">Статус поста</label>
+        <select class="form-select form-select-sm" name="post_status">
+          <option value="" {% if not post_status_filter %}selected{% endif %}>Все</option>
+          <option value="draft" {% if post_status_filter == 'draft' %}selected{% endif %}>Черновик</option>
+          <option value="scheduled" {% if post_status_filter == 'scheduled' %}selected{% endif %}>Запланирован</option>
+          <option value="publishing" {% if post_status_filter == 'publishing' %}selected{% endif %}>Публикуется</option>
+          <option value="published" {% if post_status_filter == 'published' %}selected{% endif %}>Опубликован</option>
+          <option value="failed" {% if post_status_filter == 'failed' %}selected{% endif %}>Ошибка</option>
+        </select>
+      </div>
       <div class="col-12 col-md-3">
         <label class="form-label small text-muted mb-1">Статус (для предложки/парсинга)</label>
         <select class="form-select form-select-sm" name="status">
@@ -36,7 +55,7 @@
           <option value="published" {% if status_filter == 'published' %}selected{% endif %}>Опубликованные</option>
         </select>
       </div>
-      <div class="col-12 col-md-3">
+      <div class="col-12 col-md-2">
         <label class="form-label small text-muted mb-1">Канал</label>
         <select class="form-select form-select-sm" name="channel">
           <option value="" {% if not channel_id %}selected{% endif %}>Все</option>
@@ -45,7 +64,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-12 col-md-3">
+      <div class="col-12 col-md-2">
         <button class="btn btn-brand btn-sm w-100">Фильтровать</button>
       </div>
     </div>

@@ -96,31 +96,28 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
 
         stored_list = list(SuggestionStoredMedia.objects.filter(suggestion=suggestion).order_by('order', 'pk'))
         if stored_list:
-            existing = PostMedia.objects.filter(post=post).count()
-            if existing != len(stored_list):
-                for m in PostMedia.objects.filter(post=post):
-                    try:
-                        m.file.delete(save=False)
-                    except Exception:
-                        pass
-                PostMedia.objects.filter(post=post).delete()
-                max_o2 = PostMedia.objects.filter(post=post).aggregate(m=Max('order'))['m']
-                cur = int(max_o2) if max_o2 is not None else 0
-                for idx, sm in enumerate(stored_list):
-                    sm.file.open('rb')
-                    raw_bytes = sm.file.read()
-                    sm.file.close()
-                    name = os.path.basename(sm.file.name) or f'media_{idx}'
-                    mt = sm.media_type
-                    if mt not in (PostMedia.TYPE_PHOTO, PostMedia.TYPE_VIDEO, PostMedia.TYPE_DOCUMENT):
-                        mt = PostMedia.TYPE_DOCUMENT
-                    PostMedia.objects.create(
-                        post=post,
-                        file=ContentFile(raw_bytes, name=name),
-                        media_type=mt,
-                        order=cur + idx + 1,
-                    )
-                    imported += 1
+            # Всегда пересобираем из локальных файлов (без MAX CDN), чтобы совпадало с числом вложений на диске.
+            for m in PostMedia.objects.filter(post=post):
+                try:
+                    m.file.delete(save=False)
+                except Exception:
+                    pass
+            PostMedia.objects.filter(post=post).delete()
+            for idx, sm in enumerate(stored_list):
+                sm.file.open('rb')
+                raw_bytes = sm.file.read()
+                sm.file.close()
+                name = os.path.basename(sm.file.name) or f'media_{idx}'
+                mt = sm.media_type
+                if mt not in (PostMedia.TYPE_PHOTO, PostMedia.TYPE_VIDEO, PostMedia.TYPE_DOCUMENT):
+                    mt = PostMedia.TYPE_DOCUMENT
+                PostMedia.objects.create(
+                    post=post,
+                    file=ContentFile(raw_bytes, name=name),
+                    media_type=mt,
+                    order=idx + 1,
+                )
+                imported += 1
             normalize_post_media_orders(post)
             return imported, warnings
 

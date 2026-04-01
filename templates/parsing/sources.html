@@ -56,6 +56,15 @@
             <div>
               <div class="fw-semibold small">{{ source.name }}</div>
               <div class="text-muted" style="font-size:.75rem;">{{ source.source_id }}</div>
+              <div class="text-muted mt-1" style="font-size:.7rem;">
+                {% if source.last_parsed_at %}
+                  Последний парсинг: {{ source.last_parsed_at|date:"d.m.Y H:i" }}
+                  · новых материалов: {{ source.last_parse_new_items }}
+                  · уникальных ключевых слов (срабатывания): {{ source.last_parse_keywords_matched }}
+                {% else %}
+                  Ещё не парсился
+                {% endif %}
+              </div>
             </div>
             <div class="d-flex align-items-center gap-2">
               <span class="status-dot {% if source.is_active %}published{% else %}draft{% endif %}"></span>
