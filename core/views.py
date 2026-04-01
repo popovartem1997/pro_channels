@@ -315,6 +315,9 @@ def feed(request):
     n_sch = post_qs.filter(status=Post.STATUS_SCHEDULED).count()
     if n_sch:
         feed_quick_links.append({'label': f'Запланированы · {n_sch}', 'url': _feed_qs(kind='post', post_status=Post.STATUS_SCHEDULED)})
+    n_fail = post_qs.filter(status=Post.STATUS_FAILED).count()
+    if n_fail:
+        feed_quick_links.append({'label': f'Ошибки · {n_fail}', 'url': _feed_qs(kind='post', post_status=Post.STATUS_FAILED)})
     n_parse = parsed_qs.filter(status=ParsedItem.STATUS_NEW).count()
     if n_parse:
         feed_quick_links.append({'label': f'Парсинг (новые) · {n_parse}', 'url': _feed_qs(kind='parsing', status='pending')})
