@@ -83,6 +83,15 @@ class MaxBotAPI:
             return {}
         return self.call(f'messages/{mid}', params={})
 
+    def list_chat_messages(self, chat_id, count: int = 50) -> dict:
+        """История сообщений чата (парсинг и т.п.). GET /messages?chat_id=&count="""
+        try:
+            cid = int(str(chat_id).strip())
+        except Exception:
+            return {}
+        cnt = max(1, min(int(count), 100))
+        return self.call('messages', params={'chat_id': cid, 'count': cnt})
+
     def get_video(self, video_token: str) -> dict:
         """Получить информацию о видео (urls/thumbnail) по token."""
         try:
@@ -508,7 +517,13 @@ class MAXSuggestionBot:
                 return
             suggestion.approve()
             notify = self.config.approved_message.replace('{tracking_id}', suggestion.short_tracking_id)
-            self._notify_user(suggestion.platform_user_id, notify)
+            from bots.services import _subscriber_menu_buttons_max
+
+            self._notify_user(
+                suggestion.platform_user_id,
+                notify,
+                buttons=_subscriber_menu_buttons_max(),
+            )
             if callback_id:
                 self.api.answer_callback(callback_id, 'Одобрено!')
             mod_name = user.get('name', 'Модератор')
@@ -563,11 +578,11 @@ class MAXSuggestionBot:
         except (Suggestion.DoesNotExist, ValueError):
             return None
 
-    def _notify_user(self, user_id: str, text: str):
+    def _notify_user(self, user_id: str, text: str, buttons: list | None = None):
         """Отправить уведомление пользователю (через личку)."""
         # В MAX для личных сообщений используем user_id.
         try:
-            self.api.send_message_to_user(str(user_id), text)
+            self.api.send_message_to_user(str(user_id), text, buttons=buttons)
         except Exception as e:
             logger.warning('[MAX] Не удалось уведомить %s: %s', user_id, e)
 

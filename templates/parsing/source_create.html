@@ -40,8 +40,8 @@
             <label class="form-label fw-semibold" for="id_source_id">ID / URL источника</label>
             <input type="text" name="source_id" id="id_source_id" class="form-control font-monospace"
                    value="{{ request.POST.source_id|default:'' }}"
-                   placeholder="@channel_name / club12345 / https://example.com/rss" required>
-            <div class="form-text">Для TG: <code>@channel_name</code>, для VK: <code>club12345</code>, для RSS: URL ленты</div>
+                   placeholder="" required>
+            <div id="id_source_help" class="form-text small mt-2"></div>
           </div>
 
           <div class="d-flex gap-2 mt-4">
@@ -55,4 +55,39 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var plat = document.getElementById('id_platform');
+  var inp = document.getElementById('id_source_id');
+  var help = document.getElementById('id_source_help');
+  if (!plat || !inp || !help) return;
+
+  var hints = {
+    telegram: 'Telegram: укажите <code>@username</code> канала (как в ссылке t.me/username) или публичную ссылку на канал. Нужна однократная авторизация Telethon в разделе «Парсинг» (владелец аккаунта).',
+    vk: 'ВКонтакте: <code>club12345678</code>, короткое имя сообщества или числовой ID (с минусом для групп). В «Ключи API» должен быть токен парсинга VK.',
+    max: 'MAX: укажите <strong>числовой chat_id</strong> чата или канала, откуда читать сообщения. Бот предложки MAX должен быть <strong>добавлен в этот чат</strong> и привязан к тому же каналу публикации, что выбран для парсинга. Достаточно вставить строку, где есть этот номер (например из ссылки).',
+    dzen: 'Дзен: полный URL страницы ленты или канала (как в браузере).',
+    rss: 'RSS: полный URL файла ленты (<code>https://…/feed.xml</code>).'
+  };
+  var placeholders = {
+    telegram: '@channel_name или https://t.me/channel_name',
+    vk: 'club12345',
+    max: 'например 12345678901234',
+    dzen: 'https://dzen.ru/…',
+    rss: 'https://example.com/rss.xml'
+  };
+
+  function apply() {
+    var v = plat.value || '';
+    help.innerHTML = hints[v] || 'Выберите платформу — подсказка появится здесь.';
+    inp.placeholder = placeholders[v] || '';
+  }
+
+  plat.addEventListener('change', apply);
+  apply();
+})();
+</script>
 {% endblock %}

@@ -749,7 +749,7 @@ async def _process_approve(query, bot_config, uuid_str: str):
 
     # Уведомление пользователю
     notify = bot_config.approved_message.replace('{tracking_id}', suggestion.short_tracking_id)
-    await _notify_user(query.bot, suggestion.platform_user_id, notify)
+    await _notify_user(query.bot, suggestion.platform_user_id, notify, reply_markup=_menu_keyboard())
 
     # Ссылка на создание поста на сайте (черновик из предложки)
     try:
@@ -836,10 +836,13 @@ def _get_suggestion(bot_config, uuid_str: str):
         return None
 
 
-async def _notify_user(bot, user_id: str, text: str):
+async def _notify_user(bot, user_id: str, text: str, reply_markup=None):
     """Отправить уведомление пользователю (молча, если не получилось)."""
     try:
-        await bot.send_message(chat_id=user_id, text=text)
+        kwargs = {'chat_id': user_id, 'text': text}
+        if reply_markup is not None:
+            kwargs['reply_markup'] = reply_markup
+        await bot.send_message(**kwargs)
     except Exception as e:
         logger.warning('Не удалось отправить уведомление пользователю %s: %s', user_id, e)
 

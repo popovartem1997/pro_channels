@@ -45,6 +45,7 @@ def ai_rewrite_task(self, job_id: int):
         if not api_key:
             raise ValueError('OPENAI_API_KEY не задан (Ключи API → OpenAI).')
 
+        from django.conf import settings
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
 
@@ -55,7 +56,7 @@ def ai_rewrite_task(self, job_id: int):
         )
 
         response = client.chat.completions.create(
-            model=job.model_name or settings.OPENAI_MODEL,
+            model=job.model_name or getattr(settings, 'OPENAI_MODEL', 'gpt-4o-mini'),
             messages=[
                 {'role': 'system', 'content': prompt},
                 {'role': 'user', 'content': job.original_text},
@@ -199,6 +200,16 @@ def _parse_telegram(source, keywords, keyword_objects):
                         raw_txt = getattr(message, 'raw_text', None)
                         if raw_txt is not None:
                             msg_text = str(raw_txt).strip()
+                    except Exception:
+                        pass
+                if not msg_text:
+                    try:
+                        poll = getattr(message, 'poll', None)
+                        if poll is not None:
+                            pq = getattr(poll, 'poll', poll)
+                            q = getattr(pq, 'question', None) or getattr(poll, 'question', None)
+                            if q:
+                                msg_text = str(q).strip()
                     except Exception:
                         pass
                 if not msg_text:
@@ -366,16 +377,88 @@ def _parse_dzen(source, keywords, keyword_objects):
     return found
 
 
-# ─── MAX (заглушка) ──────────────────────────────────────────────────────────
+# ─── MAX (Bot API: история чата) ─────────────────────────────────────────────
 def _parse_max(source, keywords, keyword_objects):
-    """Парсинг каналов MAX.
+    """Парсинг текста из чата MAX через GET /messages?chat_id= (бот должен быть в чате).
 
-    На стороне MAX нужен источник данных (официальный API/веб-страница/RSS/экспорт).
-    Пока оставляем заглушку, чтобы можно было настроить источники/ключевики/задачи
-    и не падать при запуске задач.
+    В поле «ID / URL источника» укажите числовой chat_id канала (как в MAX для чатов).
+    Токен берётся у активного бота предложки MAX, привязанного к тому же каналу, что и источник.
     """
-    logger.warning('MAX парсинг пока не реализован (заглушка). Источник: %s', source.source_id)
-    return 0
+    import re
+
+    from bots.models import SuggestionBot
+    from bots.max_bot.bot import MaxBotAPI
+
+    if not source.channel_id:
+        logger.warning('MAX parse: у источника не выбран канал публикации')
+        return 0
+
+    bot = SuggestionBot.objects.filter(
+        channel_id=source.channel_id,
+        platform=SuggestionBot.PLATFORM_MAX,
+        is_active=True,
+    ).first()
+    if not bot:
+        logger.warning(
+            'MAX parse: для канала #%s нет активного бота предложки MAX — привяжите бота к каналу',
+            source.channel_id,
+        )
+        return 0
+
+    raw_sid = (source.source_id or '').strip()
+    chat_id = raw_sid
+    if not raw_sid.lstrip('-').isdigit():
+        m = re.search(r'(-?\d{4,})', raw_sid)
+        chat_id = m.group(1) if m else ''
+    if not chat_id:
+        logger.warning('MAX parse: укажите числовой chat_id канала MAX (бот должен состоять в этом чате)')
+        return 0
+
+    try:
+        cid = int(chat_id)
+    except ValueError:
+        return 0
+
+    api = MaxBotAPI(bot.get_token())
+    data = api.list_chat_messages(cid, count=40)
+    msgs = data.get('messages')
+    if msgs is None and isinstance(data.get('result'), dict):
+        msgs = data['result'].get('messages')
+    if msgs is None and isinstance(data.get('items'), list):
+        msgs = data.get('items')
+    if not isinstance(msgs, list):
+        logger.info(
+            'MAX parse: пустой или нестандартный ответ API (chat_id=%s keys=%s)',
+            cid,
+            list(data.keys()) if isinstance(data, dict) else type(data),
+        )
+        msgs = []
+
+    found = 0
+    for msg in msgs:
+        if not isinstance(msg, dict):
+            continue
+        body = msg.get('body') if isinstance(msg.get('body'), dict) else {}
+        text = (body.get('text') or '').strip()
+        if not text:
+            continue
+        matched = _match_keywords(text, keywords)
+        if not matched:
+            continue
+        kw_obj = keyword_objects[matched[0]]
+        mid = msg.get('mid')
+        if mid is None:
+            mid = msg.get('id')
+        if mid is None:
+            mid = msg.get('message_id')
+        if mid is not None and str(mid).strip() != '':
+            platform_id = f'{cid}_{mid}'
+        else:
+            platform_id = f'{cid}_h{abs(hash(text[:500]))}'
+        if _save_item(source, kw_obj, text, str(platform_id), ''):
+            found += 1
+
+    return found
 
 
 # ─── Периодическая задача ────────────────────────────────────────────────────

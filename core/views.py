@@ -2,6 +2,7 @@ from django.shortcuts import render, redirect
 from django.http import HttpResponse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.db.models import Q
 from django.utils import timezone
 
 
@@ -231,7 +232,9 @@ def feed(request):
         allowed_channels = list(Channel.objects.filter(pk__in=allowed_channel_ids, is_active=True).order_by('name'))
         post_qs = Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct()
         sug_qs = Suggestion.objects.filter(bot__channel_id__in=allowed_channel_ids).distinct()
-        parsed_qs = ParsedItem.objects.filter(source__channel_id__in=allowed_channel_ids)
+        parsed_qs = ParsedItem.objects.filter(
+            Q(source__channel_id__in=allowed_channel_ids) | Q(keyword__channel_id__in=allowed_channel_ids)
+        ).distinct()
     else:
         # owner/staff
         from channels.models import Channel
@@ -241,7 +244,13 @@ def feed(request):
             allowed_channels = list(Channel.objects.filter(owner=request.user, is_active=True).order_by('name'))
         post_qs = Post.objects.filter(author=request.user) if not (request.user.is_staff or request.user.is_superuser) else Post.objects.all()
         sug_qs = Suggestion.objects.filter(bot__owner=request.user) if not (request.user.is_staff or request.user.is_superuser) else Suggestion.objects.all()
-        parsed_qs = ParsedItem.objects.filter(source__owner=request.user) if not (request.user.is_staff or request.user.is_superuser) else ParsedItem.objects.all()
+        if request.user.is_staff or request.user.is_superuser:
+            parsed_qs = ParsedItem.objects.all()
+        else:
+            # Источник и ключ могли быть созданы с разными FK owner — показываем, если совпадает любой.
+            parsed_qs = ParsedItem.objects.filter(
+                Q(source__owner=request.user) | Q(keyword__owner=request.user)
+            ).distinct()
 
     post_qs = post_qs.prefetch_related('channels').select_related('author', 'published_by')
     sug_qs = sug_qs.select_related('bot', 'bot__channel')
