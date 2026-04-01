@@ -30,6 +30,16 @@
   </div>
 </div>
 
+{% if telethon_connected and telethon_state %}
+<div class="small text-muted mb-3">
+  {% if telethon_state.user_session %}
+    Используется сессия: <code>user_{{ request.user.id }}.session</code>
+  {% elif telethon_state.default_session %}
+    Используется сессия: <code>user_default.session</code>
+  {% endif %}
+</div>
+{% endif %}
+
 {% include 'parsing/includes/chgroup_filter.html' %}
 
 <div class="row g-4">

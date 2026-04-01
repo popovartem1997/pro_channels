@@ -206,23 +206,37 @@ def _parse_url(viewname, scope, *, kwargs=None):
     return url
 
 
-def _telethon_session_exists_for_user(user_id: int) -> bool:
+def _telethon_session_state_for_user(user_id: int) -> dict:
     """
-    Быстрый признак "Telegram подключён": наличие session-файла Telethon.
-    Полная проверка через is_user_authorized() возможна, но дороже для обычных страниц.
+    Состояние Telethon-сессий.
+    Поддерживаем 2 формата:
+    - user_<id>.session (UI flow)
+    - user_default.session (management command fallback)
     """
+    state = {
+        'connected': False,
+        'user_session': False,
+        'default_session': False,
+        'user_session_path': '',
+        'default_session_path': '',
+    }
     try:
         from django.conf import settings
         session_dir = settings.BASE_DIR / 'media' / 'telethon_sessions'
-        # Основной режим: per-owner session (создаётся в web flow)
-        session_path = str(session_dir / f'user_{user_id}')
-        if os.path.exists(session_path + '.session'):
-            return True
-        # Fallback: management command telethon_login создаёт user_default.session
-        default_path = str(session_dir / 'user_default')
-        return os.path.exists(default_path + '.session')
+        user_base = str(session_dir / f'user_{user_id}')
+        default_base = str(session_dir / 'user_default')
+        state['user_session_path'] = user_base + '.session'
+        state['default_session_path'] = default_base + '.session'
+        state['user_session'] = os.path.exists(state['user_session_path'])
+        state['default_session'] = os.path.exists(state['default_session_path'])
+        state['connected'] = bool(state['user_session'] or state['default_session'])
     except Exception:
-        return False
+        pass
+    return state
+
+
+def _telethon_session_exists_for_user(user_id: int) -> bool:
+    return bool(_telethon_session_state_for_user(user_id).get('connected'))
 
 
 @login_required
@@ -239,6 +253,7 @@ def sources_list(request):
     ctx = {
         'sources': sources,
         'keywords': keywords,
+        'telethon_state': _telethon_session_state_for_user(request.user.id),
         'telethon_connected': _telethon_session_exists_for_user(request.user.id),
     }
     ctx.update(_parsing_template_extra(request, scope))
@@ -270,7 +285,8 @@ def telethon_connect(request):
     session_dir.mkdir(parents=True, exist_ok=True)
     session_path = str(session_dir / f'user_{request.user.id}')
 
-    telethon_connected = _telethon_session_exists_for_user(request.user.id)
+    telethon_state = _telethon_session_state_for_user(request.user.id)
+    telethon_connected = bool(telethon_state.get('connected'))
     if telethon_connected:
         messages.info(request, 'Telegram уже подключён для парсинга. Повторная авторизация не требуется.')
         return redirect('parsing:sources')
@@ -349,6 +365,7 @@ def telethon_connect(request):
     return render(request, 'parsing/telethon_connect.html', {
         'step': step or 'phone',
         'telethon_connected': telethon_connected,
+        'telethon_state': telethon_state,
     })
 
 
@@ -365,15 +382,25 @@ def telethon_disconnect(request):
         return HttpResponse(status=405)
 
     try:
-        from django.conf import settings
         import os
 
-        session_dir = settings.BASE_DIR / 'media' / 'telethon_sessions'
-        base = str(session_dir / f'user_{request.user.id}')
-        paths = [
-            base + '.session',
-            base + '.session-journal',
-        ]
+        state = _telethon_session_state_for_user(request.user.id)
+        # Удаляем и per-user, и fallback default, если он существует.
+        bases = []
+        try:
+            from django.conf import settings
+            session_dir = settings.BASE_DIR / 'media' / 'telethon_sessions'
+            bases = [
+                str(session_dir / f'user_{request.user.id}'),
+                str(session_dir / 'user_default'),
+            ]
+        except Exception:
+            bases = []
+
+        paths = []
+        for b in bases:
+            paths.extend([b + '.session', b + '.session-journal'])
+
         removed = 0
         for p in paths:
             try:
@@ -388,7 +415,11 @@ def telethon_disconnect(request):
         if removed:
             messages.success(request, 'Telegram-сессия завершена. Можно подключиться заново.')
         else:
-            messages.info(request, 'Сессия не найдена. Можно подключаться заново.')
+            # Если UI показывал connected, но файлов не нашли — сообщим чуть точнее.
+            if state.get('connected'):
+                messages.info(request, 'Сессия отмечена как подключённая, но файлы не найдены. Можно подключаться заново.')
+            else:
+                messages.info(request, 'Сессия не найдена. Можно подключаться заново.')
     except Exception as e:
         messages.error(request, f'Не удалось завершить сессию: {e}')
     return redirect('parsing:sources')
