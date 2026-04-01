@@ -137,31 +137,6 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
             elif isinstance(msg_obj, dict):
                 messages_chain = [msg_obj]
 
-            attachments: list[dict] = []
-            # 1) Попытка: получить полные сообщения через API по mid (часто там есть URL вложений)
-            try:
-                from bots.max_bot.bot import MaxBotAPI
-                api = MaxBotAPI(bot.get_token())
-                for m in messages_chain:
-                    mid = m.get('mid')
-                    if not mid:
-                        continue
-                    full_msg = api.get_message(mid)
-                    body_full = (full_msg.get('body') or {}) if isinstance(full_msg, dict) else {}
-                    atts = body_full.get('attachments') or []
-                    if isinstance(atts, list):
-                        attachments.extend([a for a in atts if isinstance(a, dict)])
-            except Exception:
-                pass
-
-            # 2) Фоллбек: attachments из исходных payload-ов
-            if not attachments:
-                for m in messages_chain:
-                    body = (m.get('body') or {}) if isinstance(m, dict) else {}
-                    atts = body.get('attachments') or []
-                    if isinstance(atts, list):
-                        attachments.extend([a for a in atts if isinstance(a, dict)])
-
             def _deep_http_urls(obj) -> list[str]:
                 """Достаёт все http(s) URL из вложенного dict/list."""
                 urls: list[str] = []
@@ -212,6 +187,58 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
                     urls = _deep_http_urls(att)
                 return urls
 
+            # Собираем вложения и из ответа get_message, и из сырых сообщений вебхука.
+            # Иначе API часто отдаёт неполный список (одно фото), а остальные только в raw messages.
+            att_by_token: dict[str, dict] = {}
+            att_order: list[str] = []
+            _anon_counter = [0]
+
+            def _register_attachment(att: dict) -> None:
+                if not isinstance(att, dict):
+                    return
+                pl = att.get('payload') or {}
+                tok = ''
+                if isinstance(pl, dict):
+                    tok = str(pl.get('token') or pl.get('id') or '')
+                if tok:
+                    if tok not in att_by_token:
+                        att_by_token[tok] = att
+                        att_order.append(tok)
+                    else:
+                        cur = att_by_token[tok]
+                        if len(_iter_attachment_urls(att)) > len(_iter_attachment_urls(cur)):
+                            att_by_token[tok] = att
+                else:
+                    k = f'__anon_{_anon_counter[0]}'
+                    _anon_counter[0] += 1
+                    att_by_token[k] = att
+                    att_order.append(k)
+
+            try:
+                from bots.max_bot.bot import MaxBotAPI
+                api = MaxBotAPI(bot.get_token())
+                for m in messages_chain:
+                    mid = m.get('mid')
+                    if not mid:
+                        continue
+                    full_msg = api.get_message(mid)
+                    body_full = (full_msg.get('body') or {}) if isinstance(full_msg, dict) else {}
+                    atts = body_full.get('attachments') or []
+                    if isinstance(atts, list):
+                        for a in atts:
+                            _register_attachment(a)
+            except Exception:
+                pass
+
+            for m in messages_chain:
+                body = (m.get('body') or {}) if isinstance(m, dict) else {}
+                atts = body.get('attachments') or []
+                if isinstance(atts, list):
+                    for a in atts:
+                        _register_attachment(a)
+
+            attachments = [att_by_token[k] for k in att_order if k in att_by_token]
+
             order = 0
             seen_urls = set()
             seen_tokens: set[str] = set()
@@ -255,6 +282,16 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
                                 if not urls:
                                     iinfo = api.get_image(token)
                                     urls = _deep_http_urls(iinfo)
+                            else:
+                                # Тип вложения не указан или неизвестен — пробуем как у превью MAX
+                                iinfo = api.get_image(token)
+                                urls = _deep_http_urls(iinfo)
+                                if not urls:
+                                    finfo = api.get_file(token)
+                                    urls = _deep_http_urls(finfo)
+                                if not urls:
+                                    vinfo = api.get_video(token)
+                                    urls = _deep_http_urls(vinfo)
                     except Exception:
                         urls = urls or []
                 if not urls:

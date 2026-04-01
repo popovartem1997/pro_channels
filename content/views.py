@@ -250,15 +250,17 @@ def post_create_from_suggestion(request, tracking_id):
         from .tasks import _import_suggestion_media_into_post, import_media_from_suggestion_task
 
         if bot.platform == bot.PLATFORM_MAX:
+            # Сначала синхронно — на странице редактора сразу все фото; Celery оставляем как запас при сбое.
             try:
-                import_media_from_suggestion_task.delay(post_pk)
+                _imported, warnings = _import_suggestion_media_into_post(post_pk)
+                for w in warnings[:15]:
+                    messages.warning(request, w)
             except Exception:
                 try:
-                    _imported, warnings = _import_suggestion_media_into_post(post_pk)
-                    for w in warnings[:10]:
-                        messages.warning(request, w)
+                    import_media_from_suggestion_task.delay(post_pk)
+                    messages.info(request, 'Медиа из MAX подгрузятся в черновик в фоне (основной импорт не сработал).')
                 except Exception:
-                    pass
+                    messages.warning(request, 'Не удалось импортировать медиа из MAX. Обновите страницу позже или добавьте файлы вручную.')
             return
         try:
             _imported, warnings = _import_suggestion_media_into_post(post_pk)
@@ -268,8 +270,6 @@ def post_create_from_suggestion(request, tracking_id):
             pass
 
     transaction.on_commit(_enqueue_import)
-    if bot.platform == bot.PLATFORM_MAX:
-        messages.info(request, 'Медиа из MAX подгрузятся в черновик в фоне (обычно до 1–2 минут).')
 
     messages.success(request, f'Создан черновик поста из предложки #{suggestion.short_tracking_id}.')
     return redirect('content:edit', pk=post.pk)

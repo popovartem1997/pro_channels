@@ -152,6 +152,7 @@
       {% endif %}
     </ul>
 
+    {% if user.role != 'manager' and user.role != 'assistant_admin' %}
     <span class="nav-section">Разделы</span>
     <ul class="nav flex-column">
       <li><a class="nav-link {% if 'channels' in request.path %}active{% endif %}" href="{% url 'channels:list' %}">
@@ -166,15 +167,14 @@
       </a></li>
       {% endif %}
     </ul>
-
-    {% if user.role != 'manager' and user.role != 'assistant_admin' %}
-      <span class="nav-section">Контент</span>
-      <ul class="nav flex-column">
-        <li><a class="nav-link {% if '/parsing/' in request.path %}active{% endif %}" href="{% url 'parsing:sources' %}">
-          <i class="bi bi-search"></i> Парсинг
-        </a></li>
-      </ul>
     {% endif %}
+
+    <span class="nav-section">Контент</span>
+    <ul class="nav flex-column">
+      <li><a class="nav-link {% if '/parsing/' in request.path %}active{% endif %}" href="{% url 'parsing:sources' %}">
+        <i class="bi bi-search"></i> Парсинг
+      </a></li>
+    </ul>
 
     {% if user.role != 'manager' and user.role != 'assistant_admin' or manager_can_view_stats %}
       <span class="nav-section">Аналитика</span>

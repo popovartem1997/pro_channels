@@ -4,10 +4,87 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.db.models import Q
 from .models import ParseSource, ParseKeyword, ParsedItem, ParseTask, AIRewriteJob
 from django.http import JsonResponse
 from django.http import HttpResponse
 import os
+
+
+def _manager_team_channel_ids(user):
+    """Каналы команды с правами как у ленты постов / предложек."""
+    from managers.models import TeamMember
+
+    if getattr(user, 'role', '') not in ('manager', 'assistant_admin'):
+        return []
+    return list(
+        TeamMember.objects.filter(member=user, is_active=True)
+        .filter(Q(can_publish=True) | Q(can_moderate=True))
+        .values_list('channels__pk', flat=True)
+        .distinct()
+    )
+
+
+def _parsing_channels_qs(user):
+    from channels.models import Channel
+
+    if user.role in ('manager', 'assistant_admin'):
+        ids = _manager_team_channel_ids(user)
+        return Channel.objects.filter(pk__in=ids, is_active=True)
+    return Channel.objects.filter(owner=user, is_active=True)
+
+
+def _parsing_channel_owner_ids(user):
+    return list(_parsing_channels_qs(user).values_list('owner_id', flat=True).distinct())
+
+
+def _parsing_data_owner(request_user, channel):
+    """FK owner в ParseSource / ParseKeyword / ParseTask — у владельца канала."""
+    if channel and request_user.role in ('manager', 'assistant_admin'):
+        return channel.owner
+    return request_user
+
+
+def _parse_sources_qs(user, selected_channel=None):
+    if user.role in ('manager', 'assistant_admin'):
+        ch_ids = list(_parsing_channels_qs(user).values_list('pk', flat=True))
+        qs = ParseSource.objects.filter(channel_id__in=ch_ids)
+    else:
+        qs = ParseSource.objects.filter(owner=user)
+    if selected_channel is not None:
+        qs = qs.filter(channel=selected_channel)
+    return qs
+
+
+def _parse_keywords_qs(user, selected_channel=None):
+    if user.role in ('manager', 'assistant_admin'):
+        ch_ids = list(_parsing_channels_qs(user).values_list('pk', flat=True))
+        qs = ParseKeyword.objects.filter(channel_id__in=ch_ids)
+    else:
+        qs = ParseKeyword.objects.filter(owner=user)
+    if selected_channel is not None:
+        qs = qs.filter(channel=selected_channel)
+    return qs
+
+
+def _parse_tasks_qs(user):
+    if user.role in ('manager', 'assistant_admin'):
+        return ParseTask.objects.filter(owner_id__in=_parsing_channel_owner_ids(user))
+    return ParseTask.objects.filter(owner=user)
+
+
+def _parsed_items_base_qs(user):
+    if user.role in ('manager', 'assistant_admin'):
+        ch_ids = _manager_team_channel_ids(user)
+        return ParsedItem.objects.filter(keyword__channel_id__in=ch_ids)
+    return ParsedItem.objects.filter(keyword__owner=user)
+
+
+def _ai_rewrite_jobs_qs(user):
+    if user.role in ('manager', 'assistant_admin'):
+        oids = _parsing_channel_owner_ids(user)
+        return AIRewriteJob.objects.filter(Q(owner_id__in=oids) | Q(owner=user)).order_by('-created_at')
+    return AIRewriteJob.objects.filter(owner=user).order_by('-created_at')
 
 
 def _ensure_parse_scheduler_every_20m():
@@ -61,23 +138,20 @@ def _ensure_auto_parse_task(owner, channel):
 
 
 def _get_selected_channel(request):
-    from channels.models import Channel
-    # 1) querystring has priority
+    channels_qs = _parsing_channels_qs(request.user)
     cid = request.GET.get('channel') or request.POST.get('channel_id')
     if cid:
         try:
-            return Channel.objects.get(pk=int(cid), owner=request.user)
+            return channels_qs.get(pk=int(cid))
         except Exception:
             return None
-    # 2) session
     sid = request.session.get('parsing_channel_id')
     if sid:
         try:
-            return Channel.objects.get(pk=int(sid), owner=request.user)
+            return channels_qs.get(pk=int(sid))
         except Exception:
             pass
-    # 3) first active channel
-    return Channel.objects.filter(owner=request.user, is_active=True).order_by('created_at').first()
+    return channels_qs.order_by('created_at').first()
 
 def _telethon_session_exists_for_user(user_id: int) -> bool:
     """
@@ -98,13 +172,12 @@ def sources_list(request):
     selected_channel = _get_selected_channel(request)
     if selected_channel:
         request.session['parsing_channel_id'] = selected_channel.pk
-        sources = ParseSource.objects.filter(owner=request.user, channel=selected_channel)
-        keywords = ParseKeyword.objects.filter(owner=request.user, channel=selected_channel)
+        sources = _parse_sources_qs(request.user, selected_channel)
+        keywords = _parse_keywords_qs(request.user, selected_channel)
     else:
-        sources = ParseSource.objects.filter(owner=request.user)
-        keywords = ParseKeyword.objects.filter(owner=request.user)
-    from channels.models import Channel
-    channels = Channel.objects.filter(owner=request.user, is_active=True).order_by('-created_at')
+        sources = _parse_sources_qs(request.user)
+        keywords = _parse_keywords_qs(request.user)
+    channels = _parsing_channels_qs(request.user).order_by('-created_at')
     return render(request, 'parsing/sources.html', {
         'channels': channels,
         'selected_channel': selected_channel,
@@ -121,6 +194,9 @@ def telethon_connect(request):
     Шаг 1: телефон -> отправить код
     Шаг 2: код (и опционально пароль 2FA) -> сохранить session
     """
+    if request.user.role in ('manager', 'assistant_admin'):
+        messages.info(request, 'Подключение Telegram для парсинга настраивает владелец аккаунта.')
+        return redirect('parsing:sources')
     from django.conf import settings
     from core.models import get_global_api_keys
     import asyncio
@@ -231,21 +307,21 @@ def source_create(request):
             if not selected_channel:
                 messages.error(request, 'Сначала выберите канал для парсинга.')
                 return redirect('parsing:sources')
+            data_owner = _parsing_data_owner(request.user, selected_channel)
             ParseSource.objects.create(
-                owner=request.user,
+                owner=data_owner,
                 channel=selected_channel,
                 name=name,
                 platform=platform,
                 source_id=source_id
             )
             try:
-                _ensure_auto_parse_task(request.user, selected_channel)
+                _ensure_auto_parse_task(data_owner, selected_channel)
             except Exception:
                 pass
             messages.success(request, f'Источник "{name}" добавлен.')
         return redirect('parsing:sources')
-    from channels.models import Channel
-    channels = Channel.objects.filter(owner=request.user, is_active=True).order_by('-created_at')
+    channels = _parsing_channels_qs(request.user).order_by('-created_at')
     return render(request, 'parsing/source_create.html', {
         'platforms': ParseSource.PLATFORM_CHOICES,
         'channels': channels,
@@ -255,7 +331,7 @@ def source_create(request):
 
 @login_required
 def source_delete(request, pk):
-    source = get_object_or_404(ParseSource, pk=pk, owner=request.user)
+    source = get_object_or_404(_parse_sources_qs(request.user), pk=pk)
     if request.method == 'POST':
         source.delete()
         messages.success(request, 'Источник удалён.')
@@ -274,16 +350,18 @@ def keyword_create(request):
         else:
             from channels.models import Channel
             if all_channels:
-                channel_ids = list(Channel.objects.filter(owner=request.user, is_active=True).values_list('pk', flat=True))
+                channel_ids = list(_parsing_channels_qs(request.user).values_list('pk', flat=True))
                 if not channel_ids:
-                    messages.error(request, 'Нет активных каналов. Сначала добавьте канал.')
+                    messages.error(request, 'Нет доступных каналов для парсинга.')
                     return redirect('parsing:sources')
                 created = 0
                 for cid in channel_ids:
-                    kw = ParseKeyword.objects.create(owner=request.user, channel_id=cid, keyword=keyword)
+                    ch = Channel.objects.get(pk=cid)
+                    data_owner = _parsing_data_owner(request.user, ch)
+                    kw = ParseKeyword.objects.create(owner=data_owner, channel_id=cid, keyword=keyword)
                     created += 1
                     try:
-                        _ensure_auto_parse_task(request.user, kw.channel)
+                        _ensure_auto_parse_task(data_owner, kw.channel)
                     except Exception:
                         pass
                 messages.success(request, f'Ключевое слово "{keyword}" добавлено для {created} канал(ов).')
@@ -291,16 +369,20 @@ def keyword_create(request):
                 if not selected_channel:
                     messages.error(request, 'Сначала выберите канал для парсинга.')
                     return redirect('parsing:sources')
-                kw = ParseKeyword.objects.create(owner=request.user, channel=selected_channel, keyword=keyword)
+                data_owner = _parsing_data_owner(request.user, selected_channel)
+                kw = ParseKeyword.objects.create(owner=data_owner, channel=selected_channel, keyword=keyword)
                 if source_ids:
-                    kw.sources.set(source_ids)
+                    allowed_src = set(_parse_sources_qs(request.user, selected_channel).values_list('pk', flat=True))
+                    safe = [int(x) for x in source_ids if str(x).isdigit() and int(x) in allowed_src]
+                    if safe:
+                        kw.sources.set(safe)
                 try:
-                    _ensure_auto_parse_task(request.user, selected_channel)
+                    _ensure_auto_parse_task(data_owner, selected_channel)
                 except Exception:
                     pass
                 messages.success(request, f'Ключевое слово "{keyword}" добавлено.')
         return redirect('parsing:sources')
-    sources = ParseSource.objects.filter(owner=request.user, channel=selected_channel) if selected_channel else ParseSource.objects.filter(owner=request.user)
+    sources = _parse_sources_qs(request.user, selected_channel) if selected_channel else _parse_sources_qs(request.user)
     return render(request, 'parsing/keyword_create.html', {
         'sources': sources,
         'selected_channel': selected_channel,
@@ -309,7 +391,7 @@ def keyword_create(request):
 
 @login_required
 def keyword_delete(request, pk):
-    kw = get_object_or_404(ParseKeyword, pk=pk, owner=request.user)
+    kw = get_object_or_404(_parse_keywords_qs(request.user), pk=pk)
     if request.method == 'POST':
         kw.delete()
         messages.success(request, 'Ключевое слово удалено.')
@@ -319,7 +401,7 @@ def keyword_delete(request, pk):
 @login_required
 def parsed_items(request):
     selected_channel = _get_selected_channel(request)
-    items = ParsedItem.objects.filter(keyword__owner=request.user).select_related('source', 'keyword').order_by('-found_at')
+    items = _parsed_items_base_qs(request.user).select_related('source', 'keyword').order_by('-found_at')
     if selected_channel:
         items = items.filter(keyword__channel=selected_channel)
     status_filter = request.GET.get('status', '')
@@ -336,7 +418,7 @@ def parsed_items(request):
 @login_required
 def item_skip(request, pk):
     """Отметить найденный материал как пропущенный/игнорируемый."""
-    item = get_object_or_404(ParsedItem, pk=pk, keyword__owner=request.user)
+    item = get_object_or_404(_parsed_items_base_qs(request.user), pk=pk)
     if request.method == 'POST':
         item.status = ParsedItem.STATUS_IGNORED
         item.save(update_fields=['status'])
@@ -347,23 +429,33 @@ def item_skip(request, pk):
 @login_required
 def item_to_post(request, pk):
     """Создать черновик поста из найденного материала (или AI версии) и перейти в редактор поста."""
-    item = get_object_or_404(ParsedItem, pk=pk, keyword__owner=request.user)
+    item = get_object_or_404(
+        _parsed_items_base_qs(request.user).select_related('keyword', 'keyword__channel'),
+        pk=pk,
+    )
     from content.models import Post
-    from channels.models import Channel
 
     # Текст: AI версия приоритетнее
     text = (item.ai_rewrite or '').strip() or item.text
 
+    kw_channel = item.keyword.channel
+    if request.user.role in ('manager', 'assistant_admin'):
+        post_author = kw_channel.owner if kw_channel else request.user
+    else:
+        post_author = request.user
+
     post = Post.objects.create(
-        author=request.user,
+        author=post_author,
         text=text,
         status=Post.STATUS_DRAFT,
     )
 
-    # Каналы по умолчанию — все активные каналы пользователя (можно потом снять галочки)
-    channel_ids = list(Channel.objects.filter(owner=request.user, is_active=True).values_list('pk', flat=True))
-    if channel_ids:
-        post.channels.set(channel_ids)
+    if kw_channel:
+        post.channels.set([kw_channel.pk])
+    else:
+        channel_ids = list(_parsing_channels_qs(request.user).values_list('pk', flat=True))
+        if channel_ids:
+            post.channels.set(channel_ids)
 
     item.status = ParsedItem.STATUS_USED
     item.save(update_fields=['status'])
@@ -375,7 +467,7 @@ def item_to_post(request, pk):
 def parse_tasks_list(request):
     """Список задач парсинга пользователя."""
     selected_channel = _get_selected_channel(request)
-    tasks = ParseTask.objects.filter(owner=request.user).prefetch_related('sources', 'keywords')
+    tasks = _parse_tasks_qs(request.user).prefetch_related('sources', 'keywords')
     if selected_channel:
         tasks = tasks.filter(sources__channel=selected_channel).distinct()
     return render(request, 'parsing/tasks.html', {'tasks': tasks, 'selected_channel': selected_channel})
@@ -394,21 +486,31 @@ def parse_task_create(request):
         if not name:
             messages.error(request, 'Введите название задачи.')
             return redirect('parsing:parse_tasks')
+        if not selected_channel:
+            messages.error(request, 'Сначала выберите канал для парсинга.')
+            return redirect('parsing:parse_tasks')
 
+        data_owner = _parsing_data_owner(request.user, selected_channel)
         task = ParseTask.objects.create(
-            owner=request.user,
+            owner=data_owner,
             name=name,
             schedule_cron=schedule,
         )
+        allowed_s = set(_parse_sources_qs(request.user, selected_channel).values_list('pk', flat=True))
+        allowed_k = set(_parse_keywords_qs(request.user, selected_channel).values_list('pk', flat=True))
         if source_ids:
-            task.sources.set(source_ids)
+            safe_s = [int(x) for x in source_ids if str(x).isdigit() and int(x) in allowed_s]
+            if safe_s:
+                task.sources.set(safe_s)
         if keyword_ids:
-            task.keywords.set(keyword_ids)
+            safe_k = [int(x) for x in keyword_ids if str(x).isdigit() and int(x) in allowed_k]
+            if safe_k:
+                task.keywords.set(safe_k)
         messages.success(request, f'Задача "{name}" создана.')
         return redirect('parsing:parse_tasks')
 
-    sources = ParseSource.objects.filter(owner=request.user, is_active=True)
-    keywords_qs = ParseKeyword.objects.filter(owner=request.user, is_active=True)
+    sources = _parse_sources_qs(request.user).filter(is_active=True)
+    keywords_qs = _parse_keywords_qs(request.user).filter(is_active=True)
     if selected_channel:
         sources = sources.filter(channel=selected_channel)
         keywords_qs = keywords_qs.filter(channel=selected_channel)
@@ -422,7 +524,7 @@ def parse_task_create(request):
 @login_required
 def parse_task_run(request, pk):
     """Ручной запуск задачи парсинга."""
-    task = get_object_or_404(ParseTask, pk=pk, owner=request.user)
+    task = get_object_or_404(_parse_tasks_qs(request.user), pk=pk)
     if request.method == 'POST':
         from .tasks import execute_parse_task
         execute_parse_task.delay(task.pk)
@@ -433,7 +535,7 @@ def parse_task_run(request, pk):
 @login_required
 def parse_task_delete(request, pk):
     """Удаление задачи парсинга."""
-    task = get_object_or_404(ParseTask, pk=pk, owner=request.user)
+    task = get_object_or_404(_parse_tasks_qs(request.user), pk=pk)
     if request.method == 'POST':
         task.delete()
         messages.success(request, 'Задача удалена.')
@@ -442,7 +544,7 @@ def parse_task_delete(request, pk):
 
 @login_required
 def ai_rewrite_list(request):
-    jobs = AIRewriteJob.objects.filter(owner=request.user).order_by('-created_at')
+    jobs = _ai_rewrite_jobs_qs(request.user)
     from django.conf import settings
     return render(request, 'parsing/ai_rewrite.html', {
         'jobs': jobs[:50],
@@ -461,7 +563,7 @@ def ai_rewrite_create(request):
     item_id = request.GET.get('item')
     if item_id:
         try:
-            item = ParsedItem.objects.get(pk=int(item_id), keyword__owner=request.user)
+            item = _parsed_items_base_qs(request.user).get(pk=int(item_id))
         except Exception:
             item = None
 
