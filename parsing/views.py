@@ -578,6 +578,40 @@ def parsed_items(request):
 
 
 @login_required
+def parsed_items_clear(request):
+    """
+    Удалить найденные материалы (ParsedItem) в текущем scope (группа/все).
+    Нужно для повторного парсинга "с нуля".
+    """
+    scope = _get_parse_scope(request)
+    if request.method != 'POST':
+        return HttpResponse(status=405)
+
+    items = _parsed_items_base_qs(request.user)
+    if scope.get('channel_ids') is not None:
+        items = items.filter(keyword__channel_id__in=scope['channel_ids'])
+
+    deleted = 0
+    try:
+        deleted = items.count()
+    except Exception:
+        deleted = 0
+    items.delete()
+
+    # Сбросить видимые счётчики на источниках (best-effort)
+    try:
+        src_qs = _parse_sources_qs(request.user, scope)
+        if scope.get('channel_ids') is not None:
+            src_qs = src_qs.filter(channel_id__in=scope['channel_ids'])
+        src_qs.update(last_parse_new_items=0, last_parse_keywords_matched=0)
+    except Exception:
+        pass
+
+    messages.success(request, f'Очищено материалов: {deleted}. Следующий запуск парсинга создаст их заново.')
+    return redirect(_parse_url('parsing:sources', scope))
+
+
+@login_required
 def item_skip(request, pk):
     """Отметить найденный материал как пропущенный/игнорируемый."""
     item = get_object_or_404(_parsed_items_base_qs(request.user), pk=pk)
