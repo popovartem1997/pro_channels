@@ -709,6 +709,32 @@ def _publish_vk(post, channel):
     return {'message_id': result.get('post_id', '')}
 
 
+def _max_autolink_urls_in_escaped_text(s: str) -> str:
+    """
+    После html.escape для тела поста: голые http(s)-ссылки → <a href>, как ожидает MAX (format=html).
+    """
+    import html as html_module
+    import re
+
+    def _trim_trailing_punct(url: str):
+        trail = ''
+        u = url
+        while u and u[-1] in '.,;:!?*)]':
+            trail = u[-1] + trail
+            u = u[:-1]
+        return u, trail
+
+    def _repl(m):
+        raw = m.group(0)
+        u, trail = _trim_trailing_punct(raw)
+        if not u:
+            return raw
+        href_esc = html_module.escape(u, quote=True)
+        return f'<a href="{href_esc}">{u}</a>{trail}'
+
+    return re.sub(r'https?://[^\s<]+', _repl, s or '')
+
+
 def _publish_max(post, channel):
     """Публикация в MAX (https://dev.max.ru/).
 
@@ -725,7 +751,8 @@ def _publish_max(post, channel):
     if not bot_token or not channel_id:
         raise ValueError('Не настроен токен или channel_id для MAX')
 
-    text = _build_text(post, channel)
+    import html as html_module
+
     media_files = list(post.media_files.order_by('order', 'pk'))
 
     # Пока отправляем стабильно текстом (как тестовая кнопка).
@@ -739,56 +766,31 @@ def _publish_max(post, channel):
     except Exception:
         chat_id = chat_id_raw
 
-    # MAX форматирование: чтобы ссылки точно работали, используем Markdown и конвертируем наш HTML.
-    def _max_html_to_markdown(s: str) -> str:
-        import re
-        import html as html_module
+    # MAX: в документации для ссылок поддерживаются format=html (<a href>) и markdown.
+    # Подпись канала хранится в HTML (как в редакторе канала). Конвертация в Markdown ломала
+    # часть ссылок (скобки в URL, нюансы парсера). Тело поста — plain text: экранируем и
+    # переводим переносы в <br>; подпись вставляем как доверенный HTML владельца канала.
+    from channels.models import Channel as Ch
 
-        text0 = html_module.unescape(s or '')
-        # Normalize line breaks
-        text0 = text0.replace('\r\n', '\n')
-        # Convert <br> to newline
-        text0 = re.sub(r'<\s*br\s*/?\s*>', '\n', text0, flags=re.IGNORECASE)
+    if post.ord_label:
+        main_raw = f'{post.ord_label}\n\n{post.text}'
+        footer_html = ''
+    else:
+        main_raw = post.text or ''
+        footer_html = (channel.max_footer or '').strip() if channel.platform == Ch.PLATFORM_MAX else ''
 
-        # Links
-        def _link(m):
-            url = (m.group(1) or '').strip()
-            label = (m.group(2) or '').strip() or url
-            return f'[{label}]({url})'
-        text0 = re.sub(r'<a\s+[^>]*href="([^"]+)"[^>]*>(.*?)</a>', _link, text0, flags=re.IGNORECASE | re.DOTALL)
-
-        # Basic tags
-        text0 = re.sub(r'<\s*(b|strong)\s*>', '**', text0, flags=re.IGNORECASE)
-        text0 = re.sub(r'</\s*(b|strong)\s*>', '**', text0, flags=re.IGNORECASE)
-        text0 = re.sub(r'<\s*(i|em)\s*>', '_', text0, flags=re.IGNORECASE)
-        text0 = re.sub(r'</\s*(i|em)\s*>', '_', text0, flags=re.IGNORECASE)
-        text0 = re.sub(r'<\s*(u)\s*>', '++', text0, flags=re.IGNORECASE)
-        text0 = re.sub(r'</\s*(u)\s*>', '++', text0, flags=re.IGNORECASE)
-        text0 = re.sub(r'<\s*(s|del|strike)\s*>', '~~', text0, flags=re.IGNORECASE)
-        text0 = re.sub(r'</\s*(s|del|strike)\s*>', '~~', text0, flags=re.IGNORECASE)
-
-        # Inline code
-        text0 = re.sub(r'<\s*code\s*>(.*?)</\s*code\s*>', lambda m: '`' + re.sub(r'\s+', ' ', (m.group(1) or '').strip()) + '`', text0, flags=re.IGNORECASE | re.DOTALL)
-
-        # Blockquote: prefix each line with >
-        def _bq(m):
-            inner = (m.group(1) or '').strip()
-            inner = re.sub(r'<[^>]+>', '', inner)  # strip remaining tags inside quote
-            lines = [ln.strip() for ln in inner.splitlines() if ln.strip()]
-            return '\n'.join('> ' + ln for ln in lines) + '\n'
-        text0 = re.sub(r'<\s*blockquote\s*>(.*?)</\s*blockquote\s*>', _bq, text0, flags=re.IGNORECASE | re.DOTALL)
-
-        # Strip any remaining tags
-        text0 = re.sub(r'<[^>]+>', '', text0)
-        return text0.strip()
-
-    max_text = _max_html_to_markdown(text)
+    body_html = html_module.escape(main_raw).replace('\n', '<br>')
+    body_html = _max_autolink_urls_in_escaped_text(body_html)
+    if footer_html:
+        max_text = body_html + '<br><br>' + footer_html
+    else:
+        max_text = body_html
 
     resp = requests.post(
         'https://platform-api.max.ru/messages',
         params={'chat_id': chat_id},
         headers={'Authorization': bot_token},
-        json={'text': max_text, 'format': 'markdown'},
+        json={'text': max_text, 'format': 'html'},
         timeout=30,
     )
     # MAX API may return non-JSON or plain string error bodies.
