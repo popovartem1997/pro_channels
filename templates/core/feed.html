@@ -95,7 +95,15 @@
               <span class="text-muted small">{{ it.dt|date:"d.m.Y H:i" }}</span>
               <span class="ms-auto d-inline-flex gap-1 flex-wrap">
                 {% for ch in it.channels %}
-                  {% if ch %}{% platform_badge ch.platform %}{% endif %}
+                  {% if ch %}
+                    {% if it.kind == 'parsing' %}
+                      <a href="{% url 'channels:detail' ch.pk %}" class="text-decoration-none" title="Открыть канал">
+                        {% platform_badge ch.platform %}
+                      </a>
+                    {% else %}
+                      {% platform_badge ch.platform %}
+                    {% endif %}
+                  {% endif %}
                 {% endfor %}
               </span>
             </div>
