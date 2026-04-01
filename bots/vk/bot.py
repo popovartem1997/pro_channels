@@ -232,7 +232,12 @@ class VKSuggestionBot:
             if suggestion.status != Suggestion.STATUS_PENDING:
                 return
             suggestion.approve()
-            notify = self.config.approved_message.replace('{tracking_id}', suggestion.short_tracking_id)
+            from bots.services import format_approved_subscriber_message
+
+            notify = format_approved_subscriber_message(
+                self.config.approved_message or '',
+                suggestion.short_tracking_id,
+            )
             self._send(suggestion.platform_user_id, notify)
             self.vk.messages.send(
                 peer_id=event.peer_id,
@@ -254,10 +259,12 @@ class VKSuggestionBot:
             if suggestion.status != Suggestion.STATUS_PENDING:
                 return
             suggestion.reject(reason=reason)
-            notify = (
-                self.config.rejected_message
-                .replace('{tracking_id}', suggestion.short_tracking_id)
-                .replace('{reason}', reason)
+            from bots.services import format_rejected_subscriber_message
+
+            notify = format_rejected_subscriber_message(
+                self.config.rejected_message or '',
+                suggestion.short_tracking_id,
+                reason,
             )
             self._send(suggestion.platform_user_id, notify)
             self.vk.messages.send(

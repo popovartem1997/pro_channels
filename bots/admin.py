@@ -215,13 +215,18 @@ class SuggestionAdmin(admin.ModelAdmin):
         """Отправить уведомление пользователю через соответствующую платформу."""
         try:
             bot_config = suggestion.bot
+            from bots.services import format_approved_subscriber_message, format_rejected_subscriber_message
+
             if action == 'approved':
-                text = bot_config.approved_message.replace('{tracking_id}', suggestion.short_tracking_id)
+                text = format_approved_subscriber_message(
+                    bot_config.approved_message or '',
+                    suggestion.short_tracking_id,
+                )
             else:
-                text = (
-                    bot_config.rejected_message
-                    .replace('{tracking_id}', suggestion.short_tracking_id)
-                    .replace('{reason}', suggestion.rejection_reason or 'Не соответствует требованиям')
+                text = format_rejected_subscriber_message(
+                    bot_config.rejected_message or '',
+                    suggestion.short_tracking_id,
+                    suggestion.rejection_reason or 'Не соответствует требованиям',
                 )
 
             if bot_config.platform == SuggestionBot.PLATFORM_TELEGRAM:

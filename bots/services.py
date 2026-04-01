@@ -14,6 +14,36 @@ logger = logging.getLogger(__name__)
 _TELEGRAM_SEND_TIMEOUT = 12
 
 
+def _subscriber_text_ensure_tracking_id(text: str, tracking_short_id: str) -> str:
+    """
+    Если в шаблоне не было {tracking_id}, после replace номера в тексте нет —
+    добавляем первой строкой #short_id (как в подтверждении приёма заявки).
+    """
+    tid = (tracking_short_id or '').strip()
+    if not tid:
+        return text
+    body = (text or '').strip()
+    if tid in body:
+        return body
+    return f'#{tid}\n\n{body}' if body else f'#{tid}'
+
+
+def format_approved_subscriber_message(raw_template: str, tracking_short_id: str) -> str:
+    raw = (raw_template or '').strip()
+    if not raw:
+        raw = 'Ваша заявка #{tracking_id} одобрена и будет опубликована. Спасибо!'
+    text = raw.replace('{tracking_id}', tracking_short_id)
+    return _subscriber_text_ensure_tracking_id(text, tracking_short_id)
+
+
+def format_rejected_subscriber_message(raw_template: str, tracking_short_id: str, reason: str = '') -> str:
+    raw = (raw_template or '').strip()
+    if not raw:
+        raw = 'Ваша заявка #{tracking_id} не прошла модерацию.\nПричина: {reason}'
+    text = raw.replace('{tracking_id}', tracking_short_id).replace('{reason}', reason or '')
+    return _subscriber_text_ensure_tracking_id(text, tracking_short_id)
+
+
 def _subscriber_menu_inline_keyboard_tg() -> dict:
     """Те же действия, что в боте предложки (callback обрабатывает handlers.handle_callback)."""
     return {
@@ -75,10 +105,7 @@ def notify_suggestion_approved(suggestion):
     if not bot:
         return
 
-    raw_approved = (bot.approved_message or '').strip()
-    if not raw_approved:
-        raw_approved = 'Ваша заявка #{tracking_id} одобрена и будет опубликована. Спасибо!'
-    text = raw_approved.replace('{tracking_id}', suggestion.short_tracking_id)
+    text = format_approved_subscriber_message(bot.approved_message or '', suggestion.short_tracking_id)
     if not text.strip():
         return
 
@@ -125,10 +152,7 @@ def notify_suggestion_rejected(suggestion, reason: str = ''):
     if not bot:
         return
 
-    raw_rej = (bot.rejected_message or '').strip()
-    if not raw_rej:
-        raw_rej = 'Ваша заявка #{tracking_id} не прошла модерацию.\nПричина: {reason}'
-    text = raw_rej.replace('{tracking_id}', suggestion.short_tracking_id).replace('{reason}', reason or '')
+    text = format_rejected_subscriber_message(bot.rejected_message or '', suggestion.short_tracking_id, reason)
     if not text.strip():
         return
 

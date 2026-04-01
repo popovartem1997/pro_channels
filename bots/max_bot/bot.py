@@ -528,9 +528,12 @@ class MAXSuggestionBot:
                     self.api.answer_callback(callback_id, 'Заявка уже обработана.')
                 return
             suggestion.approve()
-            notify = self.config.approved_message.replace('{tracking_id}', suggestion.short_tracking_id)
-            from bots.services import _subscriber_menu_buttons_max
+            from bots.services import _subscriber_menu_buttons_max, format_approved_subscriber_message
 
+            notify = format_approved_subscriber_message(
+                self.config.approved_message or '',
+                suggestion.short_tracking_id,
+            )
             self._notify_user(
                 suggestion.platform_user_id,
                 notify,
@@ -566,10 +569,12 @@ class MAXSuggestionBot:
                     self.api.answer_callback(callback_id, 'Заявка уже обработана.')
                 return
             suggestion.reject(reason=reason)
-            notify = (
-                self.config.rejected_message
-                .replace('{tracking_id}', suggestion.short_tracking_id)
-                .replace('{reason}', reason)
+            from bots.services import format_rejected_subscriber_message
+
+            notify = format_rejected_subscriber_message(
+                self.config.rejected_message or '',
+                suggestion.short_tracking_id,
+                reason,
             )
             self._notify_user(suggestion.platform_user_id, notify)
             if callback_id:

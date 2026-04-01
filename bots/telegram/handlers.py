@@ -748,7 +748,12 @@ async def _process_approve(query, bot_config, uuid_str: str):
     await do_approve()
 
     # Уведомление пользователю
-    notify = bot_config.approved_message.replace('{tracking_id}', suggestion.short_tracking_id)
+    from bots.services import format_approved_subscriber_message
+
+    notify = format_approved_subscriber_message(
+        bot_config.approved_message or '',
+        suggestion.short_tracking_id,
+    )
     await _notify_user(query.bot, suggestion.platform_user_id, notify, reply_markup=_menu_keyboard())
 
     # Ссылка на создание поста на сайте (черновик из предложки)
@@ -805,10 +810,12 @@ async def _process_reject(query, bot_config, uuid_str: str, reason_idx: int):
 
     await do_reject()
 
-    notify = (
-        bot_config.rejected_message
-        .replace('{tracking_id}', suggestion.short_tracking_id)
-        .replace('{reason}', reason)
+    from bots.services import format_rejected_subscriber_message
+
+    notify = format_rejected_subscriber_message(
+        bot_config.rejected_message or '',
+        suggestion.short_tracking_id,
+        reason,
     )
     await _notify_user(query.bot, suggestion.platform_user_id, notify)
 
