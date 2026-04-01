@@ -20,6 +20,49 @@
       <li>Вернись в редактор поста и нажми «Вставить из Telegram».</li>
     </ol>
 
+    <h6 class="fw-bold mb-2">Webhook импорт-бота</h6>
+    <div class="text-muted small mb-3">
+      Импорт-бот работает только если Telegram отправляет обновления на webhook вашего сайта.
+    </div>
+    {% if not tg_import_token_set %}
+      <div class="alert alert-warning small">
+        TG_IMPORT_BOT_TOKEN не задан в «Ключи API». Попросите администратора сервиса задать токен.
+      </div>
+    {% else %}
+      {% if webhook_url_expected %}
+      <div class="small mb-2"><b>Ожидаемый URL</b></div>
+      <div class="font-monospace small p-2 rounded border bg-light mb-3">{{ webhook_url_expected }}</div>
+      {% endif %}
+
+      {% if webhook_info %}
+        <div class="small text-muted mb-3">
+          Текущий webhook: <span class="font-monospace">{{ webhook_info.url|default:"(не установлен)" }}</span>
+          {% if webhook_info.pending_update_count %}
+            · очередь: {{ webhook_info.pending_update_count }}
+          {% endif %}
+          {% if webhook_info.last_error_message %}
+            <div class="text-danger mt-1">Ошибка: {{ webhook_info.last_error_message }}</div>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      <div class="d-flex gap-2 flex-wrap mb-4">
+        <form method="post" action="{% url 'content:tg_import_webhook_setup' %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-brand btn-sm">
+            <i class="bi bi-link-45deg me-1"></i> Подключить webhook
+          </button>
+        </form>
+        <form method="post" action="{% url 'content:tg_import_webhook_disable' %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-outline-danger btn-sm"
+                  onclick="return confirm('Отключить webhook у импорт-бота? Импорт перестанет работать.')">
+            <i class="bi bi-x-circle me-1"></i> Отключить webhook
+          </button>
+        </form>
+      </div>
+    {% endif %}
+
     <div class="alert alert-info py-2 small mb-3">
       Твой код привязки: <span class="font-monospace fw-bold">{{ link.code }}</span>
       {% if link.telegram_user_id %}

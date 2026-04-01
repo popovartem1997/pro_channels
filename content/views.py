@@ -415,7 +415,12 @@ def post_edit(request, pk):
 @login_required
 def tg_import_link(request):
     """Страница с кодом привязки для служебного Telegram-бота импорта."""
+    from core.models import get_global_api_keys
     from .models_imports import TelegramImportLink
+    from django.conf import settings
+    from django.urls import reverse
+    import requests
+
     link, _ = TelegramImportLink.objects.get_or_create(
         user=request.user,
         defaults={'code': secrets.token_hex(8)},
@@ -427,7 +432,100 @@ def tg_import_link(request):
         link.save(update_fields=['code', 'telegram_user_id', 'linked_at'])
         messages.success(request, 'Код обновлён.')
         return redirect('content:tg_import_link')
-    return render(request, 'content/tg_import_link.html', {'link': link})
+
+    # Webhook status (best-effort) for clients so they can self-service setup.
+    token = (get_global_api_keys().get_tg_import_bot_token() or '').strip()
+    webhook_info = None
+    webhook_url_expected = ''
+    try:
+        site_url = (getattr(settings, 'SITE_URL', '') or '').rstrip('/')
+        if site_url:
+            webhook_url_expected = site_url + reverse('content:tg_import_webhook')
+    except Exception:
+        webhook_url_expected = ''
+
+    if token:
+        try:
+            resp = requests.get(
+                f'https://api.telegram.org/bot{token}/getWebhookInfo',
+                timeout=10,
+            )
+            webhook_info = resp.json().get('result') if isinstance(resp.json(), dict) else None
+        except Exception:
+            webhook_info = None
+
+    return render(request, 'content/tg_import_link.html', {
+        'link': link,
+        'tg_import_token_set': bool(token),
+        'webhook_info': webhook_info,
+        'webhook_url_expected': webhook_url_expected,
+    })
+
+
+@login_required
+def tg_import_webhook_setup(request):
+    """Подключить webhook для служебного Telegram import bot (server-side)."""
+    if request.method != 'POST':
+        return HttpResponse(status=405)
+    from core.models import get_global_api_keys
+    from django.conf import settings
+    from django.urls import reverse
+    import requests
+
+    token = (get_global_api_keys().get_tg_import_bot_token() or '').strip()
+    if not token:
+        messages.error(request, 'TG_IMPORT_BOT_TOKEN не задан в Ключах API.')
+        return redirect('content:tg_import_link')
+
+    site_url = (getattr(settings, 'SITE_URL', '') or '').rstrip('/')
+    if not site_url or not site_url.startswith('https://'):
+        messages.error(request, 'SITE_URL должен быть задан и начинаться с https:// (Telegram требует HTTPS для webhook).')
+        return redirect('content:tg_import_link')
+
+    url = site_url + reverse('content:tg_import_webhook')
+    try:
+        resp = requests.post(
+            f'https://api.telegram.org/bot{token}/setWebhook',
+            json={'url': url, 'drop_pending_updates': True},
+            timeout=15,
+        )
+        data = resp.json()
+        if not data.get('ok'):
+            raise ValueError(data.get('description', 'Telegram error'))
+    except Exception as e:
+        messages.error(request, f'Не удалось подключить webhook: {e}')
+        return redirect('content:tg_import_link')
+
+    messages.success(request, 'Webhook для импорт-бота подключён.')
+    return redirect('content:tg_import_link')
+
+
+@login_required
+def tg_import_webhook_disable(request):
+    """Отключить webhook для служебного Telegram import bot (server-side)."""
+    if request.method != 'POST':
+        return HttpResponse(status=405)
+    from core.models import get_global_api_keys
+    import requests
+
+    token = (get_global_api_keys().get_tg_import_bot_token() or '').strip()
+    if not token:
+        messages.error(request, 'TG_IMPORT_BOT_TOKEN не задан в Ключах API.')
+        return redirect('content:tg_import_link')
+    try:
+        resp = requests.post(
+            f'https://api.telegram.org/bot{token}/deleteWebhook',
+            json={'drop_pending_updates': True},
+            timeout=15,
+        )
+        data = resp.json()
+        if not data.get('ok'):
+            raise ValueError(data.get('description', 'Telegram error'))
+    except Exception as e:
+        messages.error(request, f'Не удалось отключить webhook: {e}')
+        return redirect('content:tg_import_link')
+    messages.success(request, 'Webhook для импорт-бота отключён.')
+    return redirect('content:tg_import_link')
 
 
 @csrf_exempt
