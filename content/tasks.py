@@ -825,23 +825,31 @@ def _max_footer_link_inline_keyboard(footer_html: str):
 
     if not (footer_html or '').strip():
         return None
-    m = re.search(
+    links = re.findall(
         r'<a\s[^>]*\bhref\s*=\s*(["\'])([^"\']+)\1[^>]*>(.*?)</a\s*>',
         footer_html,
         flags=re.IGNORECASE | re.DOTALL,
     )
-    if not m:
+    if not links:
         return None
-    url = (m.group(2) or '').strip()
-    if not url.startswith(('http://', 'https://')):
+
+    buttons_row = []
+    for _, url_raw, inner in links[:7]:
+        url = (url_raw or '').strip()
+        if not url.startswith(('http://', 'https://')):
+            continue
+        label = _max_strip_inner_html(inner or '')
+        label = html_module.unescape(label).strip() or 'Ссылка'
+        label = label[:200]
+        url = url[:2048]
+        buttons_row.append({'type': 'link', 'text': label, 'url': url})
+
+    if not buttons_row:
         return None
-    label = _max_strip_inner_html(m.group(3) or '')
-    label = html_module.unescape(label).strip() or 'Ссылка'
-    label = label[:200]
-    url = url[:2048]
+
     return {
         'type': 'inline_keyboard',
-        'payload': {'buttons': [[{'type': 'link', 'text': label, 'url': url}]]},
+        'payload': {'buttons': [buttons_row]},
     }
 
 
@@ -893,7 +901,9 @@ def _publish_max(post, channel):
     if len(max_text) > 4000:
         max_text = max_text[:3997] + '…'
 
-    payload = {'text': max_text, 'format': 'markdown'}
+    # В каналах MAX разметка текста может отображаться плоско независимо от format.
+    # Поэтому отправляем plain text, а кликабельные ссылки даём кнопками type=link.
+    payload = {'text': max_text}
     link_kb = _max_footer_link_inline_keyboard(footer_html)
     if link_kb:
         payload['attachments'] = [link_kb]
