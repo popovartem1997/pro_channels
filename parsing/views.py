@@ -287,11 +287,15 @@ def telethon_connect(request):
 
     telethon_state = _telethon_session_state_for_user(request.user.id)
     telethon_connected = bool(telethon_state.get('connected'))
-    if telethon_connected:
+
+    step = (request.GET.get('step') or '').strip()
+    in_progress = bool((request.session.get('telethon_phone_code_hash') or '').strip())
+    # ВАЖНО: после send_code Telethon создаёт файл .session, но это ещё не значит,
+    # что сессия авторизована. Поэтому не блокируем шаг ввода кода, если авторизация в процессе.
+    if telethon_connected and not in_progress and step != 'code':
         messages.info(request, 'Telegram уже подключён для парсинга. Повторная авторизация не требуется.')
         return redirect('parsing:sources')
 
-    step = (request.GET.get('step') or '').strip()
     if request.method == 'POST':
         action = (request.POST.get('action') or '').strip()
         if action == 'send_code':
