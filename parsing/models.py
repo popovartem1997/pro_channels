@@ -16,13 +16,11 @@ class ParseSource(models.Model):
     """Источник для парсинга — Telegram канал, VK группа, Дзен и т.д."""
     PLATFORM_TELEGRAM = 'telegram'
     PLATFORM_VK = 'vk'
-    PLATFORM_MAX = 'max'
     PLATFORM_DZEN = 'dzen'
     PLATFORM_RSS = 'rss'
     PLATFORM_CHOICES = [
         (PLATFORM_TELEGRAM, 'Telegram'),
         (PLATFORM_VK, 'ВКонтакте'),
-        (PLATFORM_MAX, 'MAX'),
         (PLATFORM_DZEN, 'Яндекс Дзен'),
         (PLATFORM_RSS, 'RSS-лента'),
     ]
@@ -94,6 +92,7 @@ class ParsedItem(models.Model):
     platform_id = models.CharField(max_length=200, blank=True, verbose_name='ID на платформе')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_NEW, verbose_name='Статус')
     ai_rewrite = models.TextField(blank=True, verbose_name='Версия от AI')
+    media = models.JSONField(default=list, blank=True, verbose_name='Медиа (список файлов/URL)')
     found_at = models.DateTimeField(auto_now_add=True, verbose_name='Найдено')
 
     class Meta:

@@ -123,8 +123,6 @@ def execute_parse_task(self, task_id: int):
                 found = _parse_rss(source, keywords, keyword_objects)
             elif source.platform == source.PLATFORM_DZEN:
                 found = _parse_dzen(source, keywords, keyword_objects)
-            elif hasattr(source, 'PLATFORM_MAX') and source.platform == source.PLATFORM_MAX:
-                found = _parse_max(source, keywords, keyword_objects)
             else:
                 logger.warning(f'Неизвестная платформа: {source.platform}')
                 found = 0
@@ -156,11 +154,13 @@ def _match_keywords(text, keywords):
     return [kw for kw in keywords if kw.lower() in text_lower]
 
 
-def _save_item(source, keyword_obj, text, platform_id, original_url=''):
+def _save_item(source, keyword_obj, text, platform_id, original_url='', media=None):
     """Сохраняет найденный материал, если его ещё нет (дедупликация по source + platform_id)."""
     from .models import ParsedItem
     if not platform_id:
         return False
+    if media is None:
+        media = []
     _, created = ParsedItem.objects.get_or_create(
         source=source,
         platform_id=str(platform_id),
@@ -168,6 +168,7 @@ def _save_item(source, keyword_obj, text, platform_id, original_url=''):
             'keyword': keyword_obj,
             'text': text[:10000],
             'original_url': original_url[:200] if original_url else '',
+            'media': media,
         },
     )
     return created
@@ -192,6 +193,8 @@ def _parse_telegram(source, keywords, keyword_objects):
 
     async def _fetch():
         from telethon import TelegramClient
+        from pathlib import Path
+        from django.conf import settings
         # Session is per-owner, created via interactive web flow or management command.
         session_dir = settings.BASE_DIR / 'media' / 'telethon_sessions'
         try:
@@ -253,8 +256,29 @@ def _parse_telegram(source, keywords, keyword_objects):
                 matched = _match_keywords(msg_text, keywords)
                 if matched:
                     kw_obj = keyword_objects[matched[0]]
+                    media_urls = []
+                    try:
+                        if getattr(message, "media", None):
+                            media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
+                            rel_dir = Path("parsed_items") / "telegram" / f"source_{source.pk}"
+                            abs_dir = media_root / rel_dir
+                            abs_dir.mkdir(parents=True, exist_ok=True)
+                            # One file per message (enough for preview); telethon will choose proper extension.
+                            base = abs_dir / f"msg_{message.id}"
+                            saved_path = await client.download_media(message, file=str(base))
+                            if saved_path:
+                                p = Path(saved_path)
+                                try:
+                                    rel = p.relative_to(media_root)
+                                    media_urls = ["/media/" + str(rel).replace("\\", "/")]
+                                except Exception:
+                                    # Fallback: absolute path is not web-accessible; skip
+                                    media_urls = []
+                    except Exception:
+                        media_urls = []
+
                     created = await sync_to_async(_save_item, thread_sensitive=True)(
-                        source, kw_obj, msg_text, str(message.id)
+                        source, kw_obj, msg_text, str(message.id), "", media_urls
                     )
                     if created:
                         found += 1
@@ -412,90 +436,6 @@ def _parse_dzen(source, keywords, keyword_objects):
             platform_id = link or title[:100]
             if _save_item(source, kw_obj, text, platform_id, link):
                 found += 1
-
-    return found
-
-
-# ─── MAX (Bot API: история чата) ─────────────────────────────────────────────
-def _parse_max(source, keywords, keyword_objects):
-    """Парсинг текста из чата MAX через GET /messages?chat_id= (бот должен быть в чате).
-
-    В поле «ID / URL источника» укажите числовой chat_id канала (как в MAX для чатов).
-    Токен берётся у активного бота предложки MAX, привязанного к тому же каналу, что и источник.
-    """
-    import re
-
-    from bots.models import SuggestionBot
-    from bots.max_bot.bot import MaxBotAPI
-
-    if not source.channel_id:
-        logger.warning('MAX parse: у источника не выбран канал публикации')
-        return 0
-
-    bot = SuggestionBot.objects.filter(
-        channel_id=source.channel_id,
-        platform=SuggestionBot.PLATFORM_MAX,
-        is_active=True,
-    ).first()
-    if not bot:
-        logger.warning(
-            'MAX parse: для канала #%s нет активного бота предложки MAX — привяжите бота к каналу',
-            source.channel_id,
-        )
-        return 0
-
-    raw_sid = (source.source_id or '').strip()
-    chat_id = raw_sid
-    if not raw_sid.lstrip('-').isdigit():
-        m = re.search(r'(-?\d{4,})', raw_sid)
-        chat_id = m.group(1) if m else ''
-    if not chat_id:
-        logger.warning('MAX parse: укажите числовой chat_id канала MAX (бот должен состоять в этом чате)')
-        return 0
-
-    try:
-        cid = int(chat_id)
-    except ValueError:
-        return 0
-
-    api = MaxBotAPI(bot.get_token())
-    data = api.list_chat_messages(cid, count=100)
-    msgs = data.get('messages')
-    if msgs is None and isinstance(data.get('result'), dict):
-        msgs = data['result'].get('messages')
-    if msgs is None and isinstance(data.get('items'), list):
-        msgs = data.get('items')
-    if not isinstance(msgs, list):
-        logger.info(
-            'MAX parse: пустой или нестандартный ответ API (chat_id=%s keys=%s)',
-            cid,
-            list(data.keys()) if isinstance(data, dict) else type(data),
-        )
-        msgs = []
-
-    found = 0
-    for msg in msgs:
-        if not isinstance(msg, dict):
-            continue
-        body = msg.get('body') if isinstance(msg.get('body'), dict) else {}
-        text = (body.get('text') or '').strip()
-        if not text:
-            continue
-        matched = _match_keywords(text, keywords)
-        if not matched:
-            continue
-        kw_obj = keyword_objects[matched[0]]
-        mid = msg.get('mid')
-        if mid is None:
-            mid = msg.get('id')
-        if mid is None:
-            mid = msg.get('message_id')
-        if mid is not None and str(mid).strip() != '':
-            platform_id = f'{cid}_{mid}'
-        else:
-            platform_id = f'{cid}_h{abs(hash(text[:500]))}'
-        if _save_item(source, kw_obj, text, str(platform_id), ''):
-            found += 1
 
     return found
 

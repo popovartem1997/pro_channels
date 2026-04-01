@@ -152,6 +152,16 @@
               </div>
             {% endif %}
 
+            {% if it.kind == 'parsing' and it.obj and it.obj.media %}
+              <div class="mt-3 d-flex gap-2 flex-wrap">
+                {% for u in it.obj.media %}
+                  <a href="{{ u }}" target="_blank" rel="noopener" class="d-inline-block">
+                    <img src="{{ u }}" alt="" style="width:96px;height:96px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;">
+                  </a>
+                {% endfor %}
+              </div>
+            {% endif %}
+
             {% if it.kind == 'subscriber' and it.obj and it.status == 'pending' %}
               <div class="mt-3 d-flex gap-2 flex-wrap">
                 <form method="post" action="{% url 'bots:moderate' it.obj.pk %}">
@@ -169,6 +179,23 @@
                     <i class="bi bi-x-lg me-1"></i> Отклонить
                   </button>
                 </form>
+              </div>
+            {% endif %}
+
+            {% if it.kind == 'parsing' and it.obj %}
+              <div class="mt-3 d-flex gap-2 flex-wrap">
+                <a href="{% url 'parsing:item_to_post' it.obj.pk %}" class="btn btn-outline-primary btn-sm">
+                  <i class="bi bi-pencil-square me-1"></i> В пост
+                </a>
+                <form method="post" action="{% url 'parsing:item_skip' it.obj.pk %}">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-slash-circle me-1"></i> Пропустить
+                  </button>
+                </form>
+                <button type="button" class="btn btn-outline-secondary btn-sm" disabled title="AI временно отключён">
+                  <i class="bi bi-stars me-1"></i> AI
+                </button>
               </div>
             {% endif %}
 

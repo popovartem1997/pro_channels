@@ -37,6 +37,15 @@
         <div class="flex-grow-1">
           <h6 class="fw-bold mb-1">Материал</h6>
           <p class="small mb-2 text-muted">{{ item.text|truncatechars:200 }}</p>
+          {% if item.media %}
+          <div class="mt-2 d-flex gap-2 flex-wrap">
+            {% for u in item.media %}
+              <a href="{{ u }}" target="_blank" rel="noopener" class="d-inline-block">
+                <img src="{{ u }}" alt="" style="width:96px;height:96px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;">
+              </a>
+            {% endfor %}
+          </div>
+          {% endif %}
           <div class="d-flex gap-2 align-items-center flex-wrap">
             <span class="badge bg-light text-dark border small">{{ item.source.name }}</span>
             <span class="text-muted" style="font-size:.75rem;">{{ item.found_at|date:"d.m.Y H:i"|default:"" }}</span>

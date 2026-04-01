@@ -384,7 +384,8 @@ def source_create(request):
                 pass
             messages.success(request, f'Источник "{name}" добавлен.')
         return redirect(_parsing_sources_redirect(request, scope))
-    ctx = {'platforms': ParseSource.PLATFORM_CHOICES}
+    # MAX парсинг отключён
+    ctx = {'platforms': [p for p in ParseSource.PLATFORM_CHOICES if p[0] != 'max']}
     ctx.update(_parsing_template_extra(request, scope))
     return render(request, 'parsing/source_create.html', ctx)
 
