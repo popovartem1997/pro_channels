@@ -237,21 +237,9 @@
             <p class="small text-muted mb-2">
               Для MAX подпись отправляется как обычный текст (без разметки).
             </p>
-            <div class="fmt-toolbar js-footer-toolbar" data-target="id_max_footer" data-preview="max-preview">
-              <button type="button" class="fmt-btn" data-action="wrap" data-open="<b>" data-close="</b>"><b>Ж</b></button>
-              <button type="button" class="fmt-btn" data-action="wrap" data-open="<i>" data-close="</i>"><i>К</i></button>
-              <button type="button" class="fmt-btn" data-action="wrap" data-open="<u>" data-close="</u>"><u>П</u></button>
-              <button type="button" class="fmt-btn" data-action="link"><i class="bi bi-link-45deg"></i> Ссылка</button>
-              <button type="button" class="fmt-btn" data-action="wrap" data-open="<blockquote>" data-close="</blockquote>"><i class="bi bi-quote"></i> Цитата</button>
-              <button type="button" class="fmt-btn" data-action="wrap" data-open="<code>" data-close="</code>"><i class="bi bi-code"></i> Код</button>
-              <button type="button" class="fmt-btn text-danger" data-action="clear"><i class="bi bi-x-lg"></i></button>
-            </div>
             <textarea name="max_footer" id="id_max_footer" rows="4"
                       class="form-control footer-textarea mb-2"
-                      placeholder="Текст подписи для MAX..."
-                      data-preview="max-preview">{{ channel.max_footer }}</textarea>
-            <div class="small text-muted mb-1">Предпросмотр:</div>
-            <div class="footer-preview" id="max-preview">{{ channel.max_footer|safe }}</div>
+                      placeholder="Текст подписи для MAX...">{{ channel.max_footer }}</textarea>
           </div>
 
           <!-- ── VK ── -->
