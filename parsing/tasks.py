@@ -191,11 +191,22 @@ def _parse_telegram(source, keywords, keyword_objects):
         client = TelegramClient(session_path, int(api_id), api_hash)
         await client.connect()
         if not await client.is_user_authorized():
-            raise ValueError(
-                'Telethon session не авторизована для этого владельца (файл пользователя). '
-                'Владелец аккаунта должен один раз пройти «Подключить Telegram» в разделе парсинга '
-                '(или telethon_login в контейнере web). Убедитесь, что у celery worker смонтирована та же папка media/.'
-            )
+            # Fallback: если авторизация делалась через management command telethon_login,
+            # то session хранится как user_default.session
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+            default_path = str(session_dir / 'user_default')
+            client = TelegramClient(default_path, int(api_id), api_hash)
+            await client.connect()
+            if not await client.is_user_authorized():
+                raise ValueError(
+                    'Telethon session не авторизована. '
+                    'Подключите Telegram в UI (Парсинг → Подключить Telegram) или выполните '
+                    '`python manage.py telethon_login` в контейнере web. '
+                    'Важно: у celery должен быть смонтирован тот же /app/media.'
+                )
         found = 0
         try:
             channel = await client.get_entity(source.source_id)

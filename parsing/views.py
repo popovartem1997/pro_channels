@@ -208,8 +208,13 @@ def _telethon_session_exists_for_user(user_id: int) -> bool:
     try:
         from django.conf import settings
         session_dir = settings.BASE_DIR / 'media' / 'telethon_sessions'
+        # Основной режим: per-owner session (создаётся в web flow)
         session_path = str(session_dir / f'user_{user_id}')
-        return os.path.exists(session_path + '.session')
+        if os.path.exists(session_path + '.session'):
+            return True
+        # Fallback: management command telethon_login создаёт user_default.session
+        default_path = str(session_dir / 'user_default')
+        return os.path.exists(default_path + '.session')
     except Exception:
         return False
 
