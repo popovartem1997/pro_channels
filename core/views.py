@@ -306,9 +306,6 @@ def feed(request):
     n_mod = sug_qs.filter(status=Suggestion.STATUS_PENDING).count()
     if n_mod:
         feed_quick_links.append({'label': f'На модерации · {n_mod}', 'url': _feed_qs(kind='subscriber', status='pending')})
-    n_appr = sug_qs.filter(status=Suggestion.STATUS_APPROVED).count()
-    if n_appr:
-        feed_quick_links.append({'label': f'Одобрены · {n_appr}', 'url': _feed_qs(kind='subscriber', status='approved')})
     n_draft = post_qs.filter(status=Post.STATUS_DRAFT).count()
     if n_draft:
         feed_quick_links.append({'label': f'Черновики · {n_draft}', 'url': _feed_qs(kind='post', post_status=Post.STATUS_DRAFT)})

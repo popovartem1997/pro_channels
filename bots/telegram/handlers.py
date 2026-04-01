@@ -894,7 +894,7 @@ async def _process_reject(query, bot_config, uuid_str: str, reason_idx: int):
         suggestion.short_tracking_id,
         reason,
     )
-    await _notify_user(query.bot, suggestion.platform_user_id, notify)
+    await _notify_user(query.bot, suggestion.platform_user_id, notify, reply_markup=_menu_keyboard())
 
     moderator = query.from_user.first_name or 'Модератор'
     await query.message.reply_text(

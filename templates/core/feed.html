@@ -65,7 +65,6 @@
         <select class="form-select form-select-sm" name="status">
           <option value="" {% if not status_filter %}selected{% endif %}>Все</option>
           <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>Ожидают</option>
-          <option value="approved" {% if status_filter == 'approved' %}selected{% endif %}>Одобрены</option>
           <option value="rejected" {% if status_filter == 'rejected' %}selected{% endif %}>Отклонены</option>
           <option value="published" {% if status_filter == 'published' %}selected{% endif %}>Опубликованные</option>
         </select>
