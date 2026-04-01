@@ -7,6 +7,7 @@ from django.contrib import messages
 from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
+from django.core.paginator import Paginator
 
 
 def home(request):
@@ -383,10 +384,35 @@ def feed(request):
             })
 
     items.sort(key=lambda x: x.get('dt') or timezone.now(), reverse=True)
-    items = items[:300]
+    # Safety cap to avoid building too large list in memory (we paginate below).
+    items = items[:1000]
+
+    # Pagination
+    try:
+        per_page = int((request.GET.get('per_page') or '').strip() or 50)
+    except Exception:
+        per_page = 50
+    per_page = max(10, min(per_page, 200))
+
+    page_number = (request.GET.get('page') or '').strip()
+    paginator = Paginator(items, per_page)
+    page_obj = paginator.get_page(page_number)
+
+    # Base querystring without page/per_page (used for pagination links)
+    try:
+        base_q = {}
+        for k, v in request.GET.items():
+            if k in ('page', 'per_page'):
+                continue
+            if v is None or str(v).strip() == '':
+                continue
+            base_q[k] = v
+        page_base_qs = urlencode(base_q)
+    except Exception:
+        page_base_qs = ''
 
     return render(request, 'core/feed.html', {
-        'items': items,
+        'items': list(page_obj.object_list),
         'kind': kind,
         'status_filter': status_filter,
         'post_status_filter': post_status_filter,
@@ -394,4 +420,8 @@ def feed(request):
         'channel_id': cid_int or '',
         'chgroup_id': chgroup_int or '',
         'feed_quick_links': feed_quick_links,
+        'page_obj': page_obj,
+        'paginator': paginator,
+        'per_page': per_page,
+        'page_base_qs': page_base_qs,
     })
