@@ -10,10 +10,18 @@
   </div>
   <div class="d-flex gap-2 flex-wrap">
     {% if telethon_connected %}
-      <button class="btn btn-outline-secondary btn-sm" type="button" disabled
-              title="Telegram уже подключён">
+      <button class="btn btn-outline-secondary btn-sm" type="button" disabled title="Telegram уже подключён">
         <i class="bi bi-telegram me-1"></i> Telegram подключён
       </button>
+      {% if request.user.role != 'manager' and request.user.role != 'assistant_admin' %}
+      <form method="post" action="{% url 'parsing:telethon_disconnect' %}" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline-danger btn-sm"
+                onclick="return confirm('Завершить Telegram-сессию для парсинга? Потом нужно будет подключить заново.')">
+          <i class="bi bi-box-arrow-right me-1"></i> Завершить сессию
+        </button>
+      </form>
+      {% endif %}
     {% else %}
       <a href="{% url 'parsing:telethon_connect' %}{{ parsing_scope_query }}" class="btn btn-outline-secondary btn-sm">
         <i class="bi bi-telegram me-1"></i> Подключить Telegram

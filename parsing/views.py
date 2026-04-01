@@ -353,6 +353,48 @@ def telethon_connect(request):
 
 
 @login_required
+def telethon_disconnect(request):
+    """
+    Завершить Telethon-сессию для парсинга и позволить переподключиться.
+    Удаляем session-файлы на диске (best-effort).
+    """
+    if request.user.role in ('manager', 'assistant_admin'):
+        messages.info(request, 'Завершение Telegram-сессии выполняет владелец аккаунта.')
+        return redirect('parsing:sources')
+    if request.method != 'POST':
+        return HttpResponse(status=405)
+
+    try:
+        from django.conf import settings
+        import os
+
+        session_dir = settings.BASE_DIR / 'media' / 'telethon_sessions'
+        base = str(session_dir / f'user_{request.user.id}')
+        paths = [
+            base + '.session',
+            base + '.session-journal',
+        ]
+        removed = 0
+        for p in paths:
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+                    removed += 1
+            except Exception:
+                pass
+        # сбрасываем промежуточные значения шага авторизации
+        request.session.pop('telethon_phone', None)
+        request.session.pop('telethon_phone_code_hash', None)
+        if removed:
+            messages.success(request, 'Telegram-сессия завершена. Можно подключиться заново.')
+        else:
+            messages.info(request, 'Сессия не найдена. Можно подключаться заново.')
+    except Exception as e:
+        messages.error(request, f'Не удалось завершить сессию: {e}')
+    return redirect('parsing:sources')
+
+
+@login_required
 def source_create(request):
     scope = _get_parse_scope(request)
     channels_in_scope = _channels_in_scope(request.user, scope)
