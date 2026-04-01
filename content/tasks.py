@@ -911,19 +911,32 @@ def _publish_max(post, channel):
         if not file_path:
             raise ValueError('MAX upload: file path is empty')
 
+        filename = ''
+        try:
+            filename = (getattr(mf.file, 'name', '') or '').split('/')[-1]
+        except Exception:
+            filename = ''
+        if not filename:
+            filename = 'upload.bin'
+
+        # По документации MAX upload URL может не требовать Authorization.
+        # На практике для видео/аудио часто корректнее грузить БЕЗ Authorization header.
         with open(file_path, 'rb') as f:
+            files = {'data': (filename, f, getattr(mf, 'content_type', None) or 'application/octet-stream')}
             r = requests.post(
                 upload_url,
-                headers={'Authorization': bot_token},
-                files={'data': f},
-                timeout=120,
+                files=files,
+                timeout=180,
             )
+
+        # MAX upload endpoints могут возвращать не-JSON (HTML) при ошибке — сохраняем как текст.
         try:
             rdata = r.json()
         except Exception:
-            rdata = {}
+            rdata = None
         if r.status_code >= 400:
-            raise ValueError(f'MAX upload failed (type={upload_type}, http={r.status_code}): {rdata or r.text}')
+            body = rdata if rdata is not None else (r.text[:500] if hasattr(r, 'text') else '')
+            raise ValueError(f'MAX upload failed (type={upload_type}, http={r.status_code}): {body}')
 
         # video/audio: payload = {token: "..."}
         if upload_type in ('video', 'audio'):
