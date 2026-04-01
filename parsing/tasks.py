@@ -83,7 +83,9 @@ def ai_rewrite_task(self, job_id: int):
 @shared_task(bind=True, max_retries=2, default_retry_delay=120)
 def execute_parse_task(self, task_id: int):
     """Выполняет задачу парсинга: обходит все источники, ищет по ключевикам."""
-    from .models import ParseTask
+    from django.db.models import Max
+
+    from .models import ParseSource, ParseTask, ParsedItem
     try:
         task = ParseTask.objects.prefetch_related('sources', 'keywords').get(pk=task_id)
     except ParseTask.DoesNotExist:
@@ -100,6 +102,7 @@ def execute_parse_task(self, task_id: int):
     total_found = 0
 
     for source in task.sources.filter(is_active=True):
+        max_id_before = ParsedItem.objects.filter(source=source).aggregate(m=Max('pk'))['m'] or 0
         try:
             if source.platform == source.PLATFORM_TELEGRAM:
                 found = _parse_telegram(source, keywords, keyword_objects)
@@ -115,10 +118,18 @@ def execute_parse_task(self, task_id: int):
                 logger.warning(f'Неизвестная платформа: {source.platform}')
                 found = 0
 
+            new_qs = ParsedItem.objects.filter(source=source, pk__gt=max_id_before)
+            ParseSource.objects.filter(pk=source.pk).update(
+                last_parsed_at=timezone.now(),
+                last_parse_new_items=new_qs.count(),
+                last_parse_keywords_matched=new_qs.values('keyword_id').distinct().count(),
+            )
+
             total_found += found
             logger.info(f'ParseTask #{task_id}, источник "{source.name}": найдено {found}')
         except Exception as exc:
             logger.exception('Ошибка парсинга источника "%s" (%s): %s', source.name, source.platform, exc)
+            ParseSource.objects.filter(pk=source.pk).update(last_parsed_at=timezone.now())
 
     task.last_run_at = timezone.now()
     task.items_found_total += total_found

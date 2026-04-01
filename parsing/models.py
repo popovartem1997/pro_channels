@@ -39,6 +39,13 @@ class ParseSource(models.Model):
         help_text='Для TG: @channel_name, для VK: club12345, для RSS: URL ленты')
     is_active = models.BooleanField(default=True, verbose_name='Активен')
     created_at = models.DateTimeField(auto_now_add=True)
+    last_parsed_at = models.DateTimeField(null=True, blank=True, verbose_name='Последний парсинг')
+    last_parse_new_items = models.PositiveIntegerField(
+        default=0, verbose_name='Новых материалов за последний запуск',
+    )
+    last_parse_keywords_matched = models.PositiveIntegerField(
+        default=0, verbose_name='Уникальных ключевых слов (срабатывания)',
+    )
 
     class Meta:
         verbose_name = 'Источник парсинга'

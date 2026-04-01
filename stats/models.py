@@ -14,6 +14,11 @@ class ChannelStat(models.Model):
     views = models.PositiveIntegerField(default=0, verbose_name='Просмотров за день')
     er = models.FloatField(default=0.0, verbose_name='ER (вовлечённость %)')
     posts_count = models.PositiveIntegerField(default=0, verbose_name='Постов за день')
+    cumulative_post_views = models.PositiveIntegerField(
+        default=0,
+        verbose_name='Сумма просмотров постов (снимок)',
+        help_text='Для расчёта дневного прироста просмотров',
+    )
 
     class Meta:
         verbose_name = 'Статистика канала'

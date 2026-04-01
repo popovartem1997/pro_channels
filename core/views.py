@@ -1,8 +1,11 @@
+from urllib.parse import urlencode
+
 from django.shortcuts import render, redirect
 from django.http import HttpResponse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Q
+from django.urls import reverse
 from django.utils import timezone
 
 
@@ -217,6 +220,7 @@ def feed(request):
 
     kind = (request.GET.get('kind') or 'all').strip()  # all|post|subscriber|parsing
     status_filter = (request.GET.get('status') or '').strip()  # for subscriber/parsing
+    post_status_filter = (request.GET.get('post_status') or '').strip()  # draft|scheduled|...
     channel_id = (request.GET.get('channel') or '').strip()
 
     # Visibility scopes
@@ -263,7 +267,35 @@ def feed(request):
         cid = int(channel_id)
         post_qs = post_qs.filter(channels__pk=cid).distinct()
         sug_qs = sug_qs.filter(bot__channel_id=cid).distinct()
-        parsed_qs = parsed_qs.filter(source__channel_id=cid)
+        parsed_qs = parsed_qs.filter(Q(source__channel_id=cid) | Q(keyword__channel_id=cid)).distinct()
+
+    cid_int = int(channel_id) if (channel_id and str(channel_id).isdigit()) else None
+
+    def _feed_qs(**params):
+        q = {k: v for k, v in params.items() if v is not None and v != ''}
+        if cid_int:
+            q['channel'] = str(cid_int)
+        return reverse('core:feed') + '?' + urlencode(q)
+
+    feed_quick_links = []
+    n_mod = sug_qs.filter(status=Suggestion.STATUS_PENDING).count()
+    if n_mod:
+        feed_quick_links.append({'label': f'На модерации · {n_mod}', 'url': _feed_qs(kind='subscriber', status='pending')})
+    n_appr = sug_qs.filter(status=Suggestion.STATUS_APPROVED).count()
+    if n_appr:
+        feed_quick_links.append({'label': f'Одобрены · {n_appr}', 'url': _feed_qs(kind='subscriber', status='approved')})
+    n_draft = post_qs.filter(status=Post.STATUS_DRAFT).count()
+    if n_draft:
+        feed_quick_links.append({'label': f'Черновики · {n_draft}', 'url': _feed_qs(kind='post', post_status=Post.STATUS_DRAFT)})
+    n_sch = post_qs.filter(status=Post.STATUS_SCHEDULED).count()
+    if n_sch:
+        feed_quick_links.append({'label': f'Запланированы · {n_sch}', 'url': _feed_qs(kind='post', post_status=Post.STATUS_SCHEDULED)})
+    n_parse = parsed_qs.filter(status=ParsedItem.STATUS_NEW).count()
+    if n_parse:
+        feed_quick_links.append({'label': f'Парсинг (новые) · {n_parse}', 'url': _feed_qs(kind='parsing', status='pending')})
+
+    if post_status_filter:
+        post_qs = post_qs.filter(status=post_status_filter)
 
     if kind in ('all', 'post'):
         from content.models import PostMedia
@@ -333,6 +365,8 @@ def feed(request):
         'items': items,
         'kind': kind,
         'status_filter': status_filter,
+        'post_status_filter': post_status_filter,
         'channels': allowed_channels or [],
-        'channel_id': int(channel_id) if (channel_id and channel_id.isdigit()) else '',
+        'channel_id': cid_int or '',
+        'feed_quick_links': feed_quick_links,
     })

@@ -315,6 +315,43 @@ class Suggestion(models.Model):
         stats.save(update_fields=['pending', 'approved', 'rejected'])
 
 
+class SuggestionStoredMedia(models.Model):
+    """
+    Файлы вложений MAX (и при необходимости других платформ), сохранённые при приёме предложки.
+    При создании поста из предложки копируются в PostMedia без повторного скачивания с CDN.
+    """
+    MEDIA_PHOTO = 'photo'
+    MEDIA_VIDEO = 'video'
+    MEDIA_DOCUMENT = 'document'
+    MEDIA_CHOICES = [
+        (MEDIA_PHOTO, 'Фото'),
+        (MEDIA_VIDEO, 'Видео'),
+        (MEDIA_DOCUMENT, 'Документ'),
+    ]
+
+    suggestion = models.ForeignKey(
+        Suggestion, on_delete=models.CASCADE, related_name='stored_media', verbose_name='Предложение'
+    )
+    file = models.FileField(upload_to='suggestion_stored/%Y/%m/', max_length=500, verbose_name='Файл')
+    media_type = models.CharField(max_length=20, choices=MEDIA_CHOICES, default=MEDIA_PHOTO, verbose_name='Тип')
+    attachment_key = models.CharField(
+        max_length=300, db_index=True,
+        verbose_name='Ключ вложения',
+        help_text='Токен MAX или синтетический ключ для дедупликации',
+    )
+    order = models.PositiveSmallIntegerField(default=0, verbose_name='Порядок')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Сохранённое медиа предложки'
+        verbose_name_plural = 'Сохранённые медиа предложки'
+        ordering = ['order', 'pk']
+        unique_together = ('suggestion', 'attachment_key')
+
+    def __str__(self):
+        return f'{self.suggestion_id} #{self.order} ({self.media_type})'
+
+
 class SuggestionUserStats(models.Model):
     """
     Агрегированная статистика пользователя по конкретному боту.

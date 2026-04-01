@@ -88,7 +88,43 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
             except Exception as e:
                 warnings.append(f'TG: failed file_id={file_id}: {e}')
 
-    # MAX media import (best-effort)
+    # MAX: копируем файлы с диска (сохранены при приёме предложки), без повторного скачивания с CDN
+    if bot.platform == bot.PLATFORM_MAX:
+        import os
+
+        from bots.models import SuggestionStoredMedia
+
+        stored_list = list(SuggestionStoredMedia.objects.filter(suggestion=suggestion).order_by('order', 'pk'))
+        if stored_list:
+            existing = PostMedia.objects.filter(post=post).count()
+            if existing != len(stored_list):
+                for m in PostMedia.objects.filter(post=post):
+                    try:
+                        m.file.delete(save=False)
+                    except Exception:
+                        pass
+                PostMedia.objects.filter(post=post).delete()
+                max_o2 = PostMedia.objects.filter(post=post).aggregate(m=Max('order'))['m']
+                cur = int(max_o2) if max_o2 is not None else 0
+                for idx, sm in enumerate(stored_list):
+                    sm.file.open('rb')
+                    raw_bytes = sm.file.read()
+                    sm.file.close()
+                    name = os.path.basename(sm.file.name) or f'media_{idx}'
+                    mt = sm.media_type
+                    if mt not in (PostMedia.TYPE_PHOTO, PostMedia.TYPE_VIDEO, PostMedia.TYPE_DOCUMENT):
+                        mt = PostMedia.TYPE_DOCUMENT
+                    PostMedia.objects.create(
+                        post=post,
+                        file=ContentFile(raw_bytes, name=name),
+                        media_type=mt,
+                        order=cur + idx + 1,
+                    )
+                    imported += 1
+            normalize_post_media_orders(post)
+            return imported, warnings
+
+    # MAX fallback: старые предложки без локальных файлов — best-effort через API
     if bot.platform == bot.PLATFORM_MAX:
         try:
             from bots.max_media_preview import attachment_entries_from_raw
@@ -103,8 +139,6 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
             if expected_attachments > 0 and existing_n >= expected_attachments:
                 return imported, warnings
 
-            # Частичный импорт (сбой Celery / таймаут): старый код выходил при любом PostMedia —
-            # оставался один файл. Удаляем только наши max_<short>_*, затем импортируем заново всё.
             if expected_attachments > 0 and 0 < existing_n < expected_attachments:
                 for m in list(PostMedia.objects.filter(post=post)):
                     fname = (getattr(m.file, 'name', None) or '')

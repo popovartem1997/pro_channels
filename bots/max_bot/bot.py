@@ -353,6 +353,12 @@ class MAXSuggestionBot:
             # иначе окно "2 минуты" станет скользящим и все сообщения будут попадать в одну заявку.
             recent.save(update_fields=['text', 'media_file_ids', 'content_type', 'raw_data'])
             suggestion = recent
+            try:
+                from bots.max_suggestion_storage import persist_max_message_attachments
+
+                persist_max_message_attachments(suggestion, message, self.config.get_token())
+            except Exception as e:
+                logger.warning('[MAX] Сохранение вложений на диск: %s', e)
         else:
             suggestion = Suggestion.objects.create(
                 bot=self.config,
@@ -365,6 +371,12 @@ class MAXSuggestionBot:
                 media_file_ids=media_ids,
                 raw_data=message,
             )
+            try:
+                from bots.max_suggestion_storage import persist_max_message_attachments
+
+                persist_max_message_attachments(suggestion, message, self.config.get_token())
+            except Exception as e:
+                logger.warning('[MAX] Сохранение вложений на диск: %s', e)
 
         stats, created = SuggestionUserStats.objects.get_or_create(
             bot=self.config,
