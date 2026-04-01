@@ -256,6 +256,22 @@ def _parse_telegram(source, keywords, keyword_objects):
                 matched = _match_keywords(msg_text, keywords)
                 if matched:
                     kw_obj = keyword_objects[matched[0]]
+                    # Публичная ссылка на оригинальный пост (если source_id публичный).
+                    original_url = ''
+                    try:
+                        sid = (source.source_id or '').strip()
+                        username = ''
+                        if sid.startswith('@'):
+                            username = sid.lstrip('@').strip()
+                        elif 't.me/' in sid:
+                            # https://t.me/<username> or https://t.me/<username>/...
+                            after = sid.split('t.me/', 1)[1]
+                            username = after.split('?', 1)[0].split('#', 1)[0].strip('/').split('/', 1)[0]
+                        if username and getattr(message, 'id', None):
+                            original_url = f'https://t.me/{username}/{message.id}'
+                    except Exception:
+                        original_url = ''
+
                     media_urls = []
                     try:
                         if getattr(message, "media", None):
@@ -278,7 +294,7 @@ def _parse_telegram(source, keywords, keyword_objects):
                         media_urls = []
 
                     created = await sync_to_async(_save_item, thread_sensitive=True)(
-                        source, kw_obj, msg_text, str(message.id), "", media_urls
+                        source, kw_obj, msg_text, str(message.id), original_url, media_urls
                     )
                     if created:
                         found += 1
