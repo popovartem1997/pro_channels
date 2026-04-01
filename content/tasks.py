@@ -882,31 +882,23 @@ def _publish_max(post, channel):
     except Exception:
         chat_id = chat_id_raw
 
-    # MAX: в каналах разметка в тексте иногда показывается «плоско»; в доках явно указаны
-    # format=markdown и format=html. Практика: markdown + кнопка type=link из первой <a> в подписи
-    # (пример dev.max.ru для POST /messages) даёт и форматирование, и гарантированную ссылку.
     from channels.models import Channel as Ch
 
     if post.ord_label:
         main_raw = f'{post.ord_label}\n\n{post.text}'
-        footer_html = ''
     else:
         main_raw = post.text or ''
-        footer_html = (channel.max_footer or '').strip() if channel.platform == Ch.PLATFORM_MAX else ''
 
-    main_raw = (main_raw or '').replace('\r\n', '\n')
-    main_md = _max_plain_urls_to_markdown_links(main_raw)
-    footer_md = _max_html_footer_to_markdown(footer_html) if footer_html else ''
-    max_text = '\n\n'.join(p for p in (main_md, footer_md) if p)
+    footer_text = ''
+    if (not post.ord_label) and channel.platform == Ch.PLATFORM_MAX:
+        # По запросу: MAX — только обычный текст без разметки и без кнопок.
+        footer_text = (channel.max_footer or '').strip()
+
+    max_text = '\n\n'.join(p for p in ((main_raw or '').replace('\r\n', '\n'), footer_text) if p)
     if len(max_text) > 4000:
         max_text = max_text[:3997] + '…'
 
-    # В каналах MAX разметка текста может отображаться плоско независимо от format.
-    # Поэтому отправляем plain text, а кликабельные ссылки даём кнопками type=link.
     payload = {'text': max_text}
-    link_kb = _max_footer_link_inline_keyboard(footer_html)
-    if link_kb:
-        payload['attachments'] = [link_kb]
 
     resp = requests.post(
         'https://platform-api.max.ru/messages',
