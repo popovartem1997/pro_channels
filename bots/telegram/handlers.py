@@ -37,7 +37,21 @@ def _telegram_album_cache_key(mg_key: str) -> str:
     return f'{TELEGRAM_ALBUM_CACHE_PREFIX}{mg_key}'
 
 
-def _telegram_album_cache_append(full_key: str, message_dict: dict, meta: dict, *, timeout: int = 300) -> None:
+def _album_part_from_message(message) -> dict | None:
+    """Минимальная сериализуемая часть альбома (без to_dict — в PTB 20+ он ненадёжен/пустой в фоновых задачах)."""
+    caption = (getattr(message, 'caption', None) or '') or ''
+    if getattr(message, 'photo', None):
+        photos = message.photo
+        if photos:
+            return {'file_id': str(photos[-1].file_id), 'caption': caption, 'kind': 'photo'}
+    if getattr(message, 'video', None):
+        return {'file_id': str(message.video.file_id), 'caption': caption, 'kind': 'video'}
+    if getattr(message, 'document', None):
+        return {'file_id': str(message.document.file_id), 'caption': caption, 'kind': 'document'}
+    return None
+
+
+def _telegram_album_cache_append(full_key: str, part: dict, meta: dict, *, timeout: int = 300) -> None:
     """Потокобезопасное добавление части альбома (несколько воркеров Celery могут прийти параллельно)."""
     from django.core.cache import cache
 
@@ -47,12 +61,14 @@ def _telegram_album_cache_append(full_key: str, message_dict: dict, meta: dict, 
             try:
                 data = cache.get(full_key)
                 if not isinstance(data, dict):
-                    data = {'messages': [], 'meta': dict(meta)}
+                    merged_meta = dict(meta)
                 else:
-                    m = dict(data.get('meta') or {})
-                    m.update(meta)
-                    data = {'messages': list(data.get('messages') or []), 'meta': m}
-                data['messages'].append(message_dict)
+                    merged_meta = dict(data.get('meta') or {})
+                    merged_meta.update(meta)
+                merged_meta['_last_append_ts'] = time.time()
+                prev_parts = list(data.get('parts') or []) if isinstance(data, dict) else []
+                prev_parts.append(part)
+                data = {'parts': prev_parts, 'meta': merged_meta}
                 cache.set(full_key, data, timeout)
             finally:
                 cache.delete(lock_k)
@@ -62,16 +78,28 @@ def _telegram_album_cache_append(full_key: str, message_dict: dict, meta: dict, 
 
 
 def _schedule_telegram_album_flush(full_key: str, bot_id: int) -> None:
-    """Отложенный flush; несколько вызовов подряд — несколько задач, вторая увидит пустой cache."""
+    """
+    Одна отложенная задача на альбом: иначе два flush могли сработать почти одновременно,
+    первый забирал неполный список, второй из-за :flushLock выходил и ничего не делал.
+    """
+    from django.core.cache import cache
+
     try:
         from bots.tasks import flush_telegram_media_group_task
 
+        sched_key = full_key + ':sched'
+        if not cache.add(sched_key, '1', timeout=60):
+            return
         flush_telegram_media_group_task.apply_async(
             kwargs={'cache_key': full_key, 'bot_id': bot_id},
-            countdown=4,
+            countdown=6,
         )
     except Exception as e:
         logger.exception('[TG] не удалось поставить задачу сбора альбома в Celery: %s', e)
+        try:
+            cache.delete(full_key + ':sched')
+        except Exception:
+            pass
 
 
 # Варианты причин отклонения (индекс → текст)
@@ -384,10 +412,7 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 mg_key = f'mg:0:{str(mgid)}'
 
             full_key = _telegram_album_cache_key(mg_key)
-            try:
-                msg_dict = message.to_dict()
-            except Exception:
-                msg_dict = {}
+            part = _album_part_from_message(message)
             meta = {
                 'bot_id': bot_config.id,
                 'chat_id': int(update.effective_chat.id) if update.effective_chat else 0,
@@ -398,8 +423,10 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'platform_last_name': getattr(user, 'last_name', None) or '',
                 'display_name': _build_display_name(user),
             }
-            if msg_dict:
-                _telegram_album_cache_append(full_key, msg_dict, meta)
+            if not part:
+                await message.reply_text('Не удалось принять фото. Попробуйте отправить ещё раз.')
+                return
+            _telegram_album_cache_append(full_key, part, meta)
             _schedule_telegram_album_flush(full_key, bot_config.id)
             return
 
@@ -707,12 +734,18 @@ async def _forward_to_admin(update, context, suggestion, admin_chat_id: str):
         logger.error('Ошибка при пересылке в чат модерации %s: %s', admin_chat_id, e)
 
 
-def _album_messages_to_media_and_text(msgs: list) -> tuple[list[str], str]:
-    """Из to_dict() сообщений альбома — file_id и подпись (берём первую непустую)."""
+def _album_items_to_media_and_text(items: list) -> tuple[list[str], str]:
+    """Части альбома: явный file_id или устаревший формат to_dict()."""
     media_ids: list[str] = []
     text = ''
-    for m in msgs:
+    for m in items:
         if not isinstance(m, dict):
+            continue
+        fid = m.get('file_id')
+        if fid:
+            if not text:
+                text = (m.get('caption') or m.get('text') or '') or ''
+            media_ids.append(str(fid))
             continue
         if not text:
             text = (m.get('caption') or m.get('text') or '') or ''
@@ -755,7 +788,7 @@ async def flush_collected_telegram_album(
     if not isinstance(msgs, list) or not msgs:
         return
 
-    media_ids, text = _album_messages_to_media_and_text(msgs)
+    media_ids, text = _album_items_to_media_and_text(msgs)
 
     uname = (meta.get('platform_username') or '').strip()
     fname = (meta.get('platform_first_name') or '').strip()
@@ -793,10 +826,10 @@ async def flush_collected_telegram_album(
                 recent.content_type = Suggestion.CONTENT_MIXED
             prev_msgs = []
             if isinstance(recent.raw_data, dict):
-                prev = recent.raw_data.get('messages')
+                prev = recent.raw_data.get('album_parts') or recent.raw_data.get('messages')
                 if isinstance(prev, list):
                     prev_msgs = prev
-            recent.raw_data = {'messages': prev_msgs + msgs}
+            recent.raw_data = {'album_parts': prev_msgs + msgs}
             recent.save(update_fields=['text', 'media_file_ids', 'content_type', 'raw_data'])
             suggestion = recent
             created_new = False
@@ -812,7 +845,7 @@ async def flush_collected_telegram_album(
                 ),
                 text=text or '',
                 media_file_ids=media_ids,
-                raw_data={'messages': msgs},
+                raw_data={'album_parts': msgs},
             )
             created_new = True
 

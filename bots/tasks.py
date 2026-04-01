@@ -67,12 +67,15 @@ def process_telegram_update_task(self, bot_id: int, update_data: dict):
         raise self.retry(exc=e)
 
 
-@shared_task(bind=True, max_retries=2, default_retry_delay=5)
+@shared_task(bind=True, max_retries=15, default_retry_delay=2)
 def flush_telegram_media_group_task(self, cache_key: str, bot_id: int):
     """
     Собрать части media_group из Django cache и оформить одну заявку.
     Отдельная задача, т.к. JobQueue PTB при process_update в Celery не выполняется.
     """
+    import time
+
+    from celery.exceptions import Retry
     from django.core.cache import cache
     from telegram import Bot
 
@@ -86,13 +89,43 @@ def flush_telegram_media_group_task(self, cache_key: str, bot_id: int):
     try:
         payload = cache.get(cache_key)
         if not isinstance(payload, dict):
+            cache.delete(cache_key + ':sched')
             return
-        msgs = payload.get('messages')
-        if not isinstance(msgs, list) or not msgs:
-            cache.delete(cache_key)
-            return
+
         meta = payload.get('meta') if isinstance(payload.get('meta'), dict) else {}
-        cache.delete(cache_key)
+        parts = payload.get('parts')
+        if parts is None:
+            parts = payload.get('messages')
+        if not isinstance(parts, list):
+            parts = []
+
+        last_ts = float(meta.get('_last_append_ts') or 0)
+        # Подождать, пока придут остальные сообщения альбома (разнесены по времени в Celery).
+        if last_ts > 0 and (time.time() - last_ts) < 1.6 and self.request.retries < 14:
+            logger.info(
+                '[TG] album flush debounce retry=%s parts=%s age=%.2fs',
+                self.request.retries,
+                len(parts),
+                time.time() - last_ts,
+            )
+            raise self.retry(countdown=2)
+
+        payload = cache.get(cache_key)
+        if not isinstance(payload, dict):
+            cache.delete(cache_key + ':sched')
+            return
+        parts = payload.get('parts')
+        if parts is None:
+            parts = payload.get('messages')
+        meta = payload.get('meta') if isinstance(payload.get('meta'), dict) else {}
+        if not isinstance(parts, list) or not parts:
+            logger.warning('[TG] album flush: пустой буфер key=%s', cache_key)
+            cache.delete(cache_key)
+            cache.delete(cache_key + ':sched')
+            return
+
+        logger.info('[TG] album flush run parts=%s key=%s', len(parts), cache_key)
+        msgs = list(parts)
 
         user_id = int(meta.get('user_id') or 0)
         chat_id = int(meta.get('chat_id') or 0)
@@ -118,8 +151,13 @@ def flush_telegram_media_group_task(self, cache_key: str, bot_id: int):
             )
 
         asyncio.run(run())
+        cache.delete(cache_key)
+        cache.delete(cache_key + ':sched')
+    except Retry:
+        raise
     except Exception as e:
         logger.exception('[TG] flush_telegram_media_group_task failed: %s', e)
+        cache.delete(cache_key + ':sched')
         raise self.retry(exc=e)
     finally:
         cache.delete(flush_lock)
