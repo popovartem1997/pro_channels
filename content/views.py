@@ -323,6 +323,7 @@ def post_edit(request, pk):
     _fix_mislabeled_post_media(post)
 
     if request.method == 'POST':
+        original_status = post.status
         # Delete selected existing media
         delete_media_ids = request.POST.getlist('delete_media')
         if delete_media_ids:
@@ -430,6 +431,24 @@ def post_edit(request, pk):
                 'selected_channels': [],
             })
         post.channels.set(selected_ids)
+        # Publish now from edit page (same behavior as on detail page)
+        if request.POST.get('publish_now'):
+            from .tasks import publish_post_task
+            force = bool(original_status == Post.STATUS_PUBLISHED)
+            try:
+                post.published_by = request.user
+                post.scheduled_at = None
+                post.status = Post.STATUS_PUBLISHING
+                post.save(update_fields=['published_by', 'scheduled_at', 'status'])
+            except Exception:
+                pass
+            publish_post_task.delay(post.pk, force=force)
+            messages.success(
+                request,
+                'Пост отправлен на публикацию.' if not force else 'Пост отправлен на повторную публикацию.',
+            )
+            return redirect('content:detail', pk=pk)
+
         messages.success(request, 'Пост обновлён.')
         return redirect('content:detail', pk=pk)
 
