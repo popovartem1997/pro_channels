@@ -462,8 +462,14 @@ def keyword_create(request):
                 messages.error(request, 'В выбранной группе нет доступных каналов.')
                 return redirect(_parse_url('parsing:keyword_create', scope))
 
-            allowed_src = set(_parse_sources_qs(request.user, scope).values_list('pk', flat=True))
-            safe = [int(x) for x in source_ids if str(x).isdigit() and int(x) in allowed_src]
+            # Источники: если ничего не выбрано — применяем ко всем источникам в выбранной группе.
+            sources_qs = _parse_sources_qs(request.user, scope).filter(is_active=True)
+            sources_qs = sources_qs.filter(channel_group=group)
+            if source_ids:
+                allowed_src = set(sources_qs.values_list('pk', flat=True))
+                safe = [int(x) for x in source_ids if str(x).isdigit() and int(x) in allowed_src]
+            else:
+                safe = list(sources_qs.values_list('pk', flat=True))
 
             if apply_all_group:
                 created = 0
