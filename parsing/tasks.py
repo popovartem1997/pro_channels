@@ -199,8 +199,8 @@ def _parse_telegram(source, keywords, keyword_objects):
         found = 0
         try:
             channel = await client.get_entity(source.source_id)
-            # Берём только последние 20 сообщений, чтобы не упереться в лимиты API
-            async for message in client.iter_messages(channel, limit=20):
+            # Берём последние 100 сообщений: 20 часто мало, когда в канале много постов/репостов.
+            async for message in client.iter_messages(channel, limit=100):
                 msg_text = ''
                 try:
                     msg_text = (message.text or '').strip()
@@ -431,7 +431,7 @@ def _parse_max(source, keywords, keyword_objects):
         return 0
 
     api = MaxBotAPI(bot.get_token())
-    data = api.list_chat_messages(cid, count=40)
+    data = api.list_chat_messages(cid, count=100)
     msgs = data.get('messages')
     if msgs is None and isinstance(data.get('result'), dict):
         msgs = data['result'].get('messages')
