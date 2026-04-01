@@ -179,6 +179,16 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not message:
             return
 
+        chat_type = getattr(getattr(update, "effective_chat", None), "type", "") or ""
+        is_private = (chat_type == "private")
+        is_channel = (chat_type == "channel")
+
+        # Никогда не обрабатываем посты в каналах как "предложку":
+        # менеджеры/админы могут публиковать в своих каналах, где бот состоит, и это не должно
+        # приводить к ответам бота в канал.
+        if is_channel:
+            return
+
         try:
             chat_id_dbg = int(update.effective_chat.id) if update.effective_chat else 0
         except Exception:
@@ -207,8 +217,6 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Если считать личку "чатом модерации", владелец никогда не сможет отправить новость
         # (сообщения будут игнорироваться). Поэтому режим "чат модерации" включаем
         # только для групп/каналов.
-        chat_type = getattr(getattr(update, "effective_chat", None), "type", "") or ""
-        is_private = (chat_type == "private")
         if chat_id and _is_admin_chat(context, chat_id) and not is_private:
             # Reply-to: менеджер отвечает на пересланную заявку -> отправляем пользователю
             if message.text and getattr(message, 'reply_to_message', None):
@@ -246,6 +254,10 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     return
 
             # В чате модерации, если не reply — игнорируем, чтобы не плодить "предложения"
+            return
+
+        # Любые сообщения вне лички (группы/супергруппы) игнорируем: бот-предложка работает в личных чатах.
+        if not is_private:
             return
 
         # Не считаем команды предложениями
@@ -515,7 +527,9 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception('handle_suggestion failed: %s', e)
         try:
-            if update and update.effective_chat:
+            # Не отвечаем в группах/каналах об общей ошибке — только в личке.
+            chat_type = getattr(getattr(update, "effective_chat", None), "type", "") or ""
+            if update and update.effective_chat and chat_type == "private":
                 await context.bot.send_message(chat_id=update.effective_chat.id, text='Произошла ошибка. Попробуйте ещё раз.')
         except Exception:
             pass
