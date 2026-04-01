@@ -14,6 +14,7 @@ urlpatterns = [
     path('items/', views.parsed_items, name='items'),
     path('items/clear/', views.parsed_items_clear, name='items_clear'),
     path('items/<int:pk>/skip/', views.item_skip, name='item_skip'),
+    path('items/<int:pk>/delete/', views.item_delete, name='item_delete'),
     path('items/<int:pk>/to-post/', views.item_to_post, name='item_to_post'),
     path('tasks/', views.parse_tasks_list, name='parse_tasks'),
     path('tasks/create/', views.parse_task_create, name='parse_task_create'),

@@ -624,6 +624,18 @@ def item_skip(request, pk):
 
 
 @login_required
+def item_delete(request, pk):
+    """Удалить найденный материал (чтобы при следующем запуске мог появиться заново)."""
+    item = get_object_or_404(_parsed_items_base_qs(request.user), pk=pk)
+    scope = _get_parse_scope(request)
+    if request.method != 'POST':
+        return HttpResponse(status=405)
+    item.delete()
+    messages.success(request, 'Материал удалён. При следующем парсинге может появиться заново.')
+    return redirect(_parse_url('parsing:items', scope))
+
+
+@login_required
 def item_to_post(request, pk):
     """Создать черновик поста из найденного материала (или AI версии) и перейти в редактор поста."""
     item = get_object_or_404(
