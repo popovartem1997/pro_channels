@@ -101,9 +101,19 @@ def execute_parse_task(self, task_id: int):
 
     total_found = 0
 
+    logger.info('ParseTask #%s старт: sources=%s keywords=%s', task_id, task.sources.count(), task.keywords.filter(is_active=True).count())
+
     for source in task.sources.filter(is_active=True):
         max_id_before = ParsedItem.objects.filter(source=source).aggregate(m=Max('pk'))['m'] or 0
         try:
+            logger.info(
+                'ParseTask #%s: source #%s %s platform=%s source_id=%s',
+                task_id,
+                source.pk,
+                source.name,
+                source.platform,
+                (source.source_id or '')[:120],
+            )
             if source.platform == source.PLATFORM_TELEGRAM:
                 found = _parse_telegram(source, keywords, keyword_objects)
             elif source.platform == source.PLATFORM_VK:
@@ -188,6 +198,7 @@ def _parse_telegram(source, keywords, keyword_objects):
         except Exception:
             pass
         session_path = str(session_dir / f'user_{source.owner_id}')
+        logger.info('TG parse: owner_id=%s session=%s', source.owner_id, session_path)
         client = TelegramClient(session_path, int(api_id), api_hash)
         await client.connect()
         if not await client.is_user_authorized():
@@ -198,6 +209,7 @@ def _parse_telegram(source, keywords, keyword_objects):
             except Exception:
                 pass
             default_path = str(session_dir / 'user_default')
+            logger.info('TG parse: fallback session=%s', default_path)
             client = TelegramClient(default_path, int(api_id), api_hash)
             await client.connect()
             if not await client.is_user_authorized():
@@ -209,6 +221,7 @@ def _parse_telegram(source, keywords, keyword_objects):
                 )
         found = 0
         try:
+            logger.info('TG parse: get_entity source_id=%s', (source.source_id or '')[:120])
             channel = await client.get_entity(source.source_id)
             # Берём последние 100 сообщений: 20 часто мало, когда в канале много постов/репостов.
             async for message in client.iter_messages(channel, limit=100):
