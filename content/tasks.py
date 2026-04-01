@@ -900,6 +900,7 @@ def _publish_max(post, channel):
         except Exception:
             udata = {}
         upload_url = udata.get('url') if isinstance(udata, dict) else None
+        upload_token = udata.get('token') if isinstance(udata, dict) else None
         if not upload_url:
             raise ValueError(f'MAX upload: no url (type={upload_type}, http={u.status_code}): {udata or u.text}')
 
@@ -976,7 +977,15 @@ def _publish_max(post, channel):
                 if m:
                     tok = m.group(1)
                 else:
-                    raise ValueError(f'MAX upload: no token (type={upload_type}): {rdata or (rtext[:500] if rtext else None)}')
+                    # Иногда upload endpoint отвечает XML вида <retval>1</retval> без token.
+                    # В таком случае используем token из первого шага (/uploads), если он был возвращён.
+                    if upload_token:
+                        tok = str(upload_token).strip()
+                    else:
+                        raise ValueError(
+                            f'MAX upload: no token (type={upload_type}): '
+                            f'upload_step={udata or None}, upload_resp={(rdata or (rtext[:500] if rtext else None))}'
+                        )
             payload = {'token': tok}
         else:
             # image/file: payload = full response JSON
