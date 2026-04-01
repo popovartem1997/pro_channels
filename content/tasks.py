@@ -735,6 +735,116 @@ def _max_autolink_urls_in_escaped_text(s: str) -> str:
     return re.sub(r'https?://[^\s<]+', _repl, s or '')
 
 
+def _max_strip_inner_html(fragment: str) -> str:
+    import re
+    return re.sub(r'<[^>]+>', '', fragment or '').strip()
+
+
+def _max_html_footer_to_markdown(html_fragment: str) -> str:
+    """Подпись канала хранится в HTML — переводим в Markdown под формат MAX."""
+    import html as html_module
+    import re
+
+    if not (html_fragment or '').strip():
+        return ''
+    text0 = html_module.unescape(html_fragment or '')
+    text0 = text0.replace('\r\n', '\n')
+    text0 = re.sub(r'<\s*br\s*/?\s*>', '\n', text0, flags=re.IGNORECASE)
+
+    def _link_repl(m):
+        url = (m.group(2) or '').strip()
+        inner = m.group(3) or ''
+        label = _max_strip_inner_html(inner) or url
+        label = label.replace('\n', ' ').strip()
+        for ch in ('[', ']', '`'):
+            label = label.replace(ch, '')
+        if not url:
+            return m.group(0)
+        return f'[{label}]({url})'
+
+    text0 = re.sub(
+        r'<a\s[^>]*\bhref\s*=\s*(["\'])([^"\']*)\1[^>]*>(.*?)</a\s*>',
+        _link_repl,
+        text0,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    text0 = re.sub(r'<\s*(b|strong)\s*>', '**', text0, flags=re.IGNORECASE)
+    text0 = re.sub(r'</\s*(b|strong)\s*>', '**', text0, flags=re.IGNORECASE)
+    text0 = re.sub(r'<\s*(i|em)\s*>', '_', text0, flags=re.IGNORECASE)
+    text0 = re.sub(r'</\s*(i|em)\s*>', '_', text0, flags=re.IGNORECASE)
+    text0 = re.sub(r'<\s*u\s*>', '++', text0, flags=re.IGNORECASE)
+    text0 = re.sub(r'</\s*u\s*>', '++', text0, flags=re.IGNORECASE)
+    text0 = re.sub(r'<\s*(s|del|strike)\s*>', '~~', text0, flags=re.IGNORECASE)
+    text0 = re.sub(r'</\s*(s|del|strike)\s*>', '~~', text0, flags=re.IGNORECASE)
+    text0 = re.sub(
+        r'<\s*code\s*>(.*?)</\s*code\s*>',
+        lambda m: '`' + re.sub(r'\s+', ' ', (m.group(1) or '').strip()) + '`',
+        text0,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    def _bq(m):
+        inner = (m.group(1) or '').strip()
+        inner = re.sub(r'<[^>]+>', '', inner)
+        lines = [ln.strip() for ln in inner.splitlines() if ln.strip()]
+        return '\n'.join('> ' + ln for ln in lines) + '\n'
+
+    text0 = re.sub(r'<\s*blockquote\s*>(.*?)</\s*blockquote\s*>', _bq, text0, flags=re.IGNORECASE | re.DOTALL)
+    text0 = re.sub(r'<[^>]+>', '', text0)
+    return text0.strip()
+
+
+def _max_plain_urls_to_markdown_links(text: str) -> str:
+    """Голые http(s) URL → [url](url); скобки в URL пропускаем (ломают markdown)."""
+    import re
+
+    def _repl(m):
+        raw = m.group(0)
+        if '(' in raw or ')' in raw:
+            return raw
+        trail = ''
+        u = raw
+        while u and u[-1] in '.,;:!?*)]':
+            trail = u[-1] + trail
+            u = u[:-1]
+        if not u.startswith(('http://', 'https://')):
+            return raw
+        return f'[{u}]({u}){trail}'
+
+    return re.sub(r'https?://[^\s\[\]<>]+', _repl, text or '')
+
+
+def _max_footer_link_inline_keyboard(footer_html: str):
+    """
+    По документации MAX, кнопка type=link даёт гарантированно кликабельную ссылку
+    (даже если разметка текста в канале отображается плоско).
+    """
+    import html as html_module
+    import re
+
+    if not (footer_html or '').strip():
+        return None
+    m = re.search(
+        r'<a\s[^>]*\bhref\s*=\s*(["\'])([^"\']+)\1[^>]*>(.*?)</a\s*>',
+        footer_html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not m:
+        return None
+    url = (m.group(2) or '').strip()
+    if not url.startswith(('http://', 'https://')):
+        return None
+    label = _max_strip_inner_html(m.group(3) or '')
+    label = html_module.unescape(label).strip() or 'Ссылка'
+    label = label[:200]
+    url = url[:2048]
+    return {
+        'type': 'inline_keyboard',
+        'payload': {'buttons': [[{'type': 'link', 'text': label, 'url': url}]]},
+    }
+
+
 def _publish_max(post, channel):
     """Публикация в MAX (https://dev.max.ru/).
 
@@ -751,8 +861,6 @@ def _publish_max(post, channel):
     if not bot_token or not channel_id:
         raise ValueError('Не настроен токен или channel_id для MAX')
 
-    import html as html_module
-
     media_files = list(post.media_files.order_by('order', 'pk'))
 
     # Пока отправляем стабильно текстом (как тестовая кнопка).
@@ -766,10 +874,9 @@ def _publish_max(post, channel):
     except Exception:
         chat_id = chat_id_raw
 
-    # MAX: в документации для ссылок поддерживаются format=html (<a href>) и markdown.
-    # Подпись канала хранится в HTML (как в редакторе канала). Конвертация в Markdown ломала
-    # часть ссылок (скобки в URL, нюансы парсера). Тело поста — plain text: экранируем и
-    # переводим переносы в <br>; подпись вставляем как доверенный HTML владельца канала.
+    # MAX: в каналах разметка в тексте иногда показывается «плоско»; в доках явно указаны
+    # format=markdown и format=html. Практика: markdown + кнопка type=link из первой <a> в подписи
+    # (пример dev.max.ru для POST /messages) даёт и форматирование, и гарантированную ссылку.
     from channels.models import Channel as Ch
 
     if post.ord_label:
@@ -779,18 +886,23 @@ def _publish_max(post, channel):
         main_raw = post.text or ''
         footer_html = (channel.max_footer or '').strip() if channel.platform == Ch.PLATFORM_MAX else ''
 
-    body_html = html_module.escape(main_raw).replace('\n', '<br>')
-    body_html = _max_autolink_urls_in_escaped_text(body_html)
-    if footer_html:
-        max_text = body_html + '<br><br>' + footer_html
-    else:
-        max_text = body_html
+    main_raw = (main_raw or '').replace('\r\n', '\n')
+    main_md = _max_plain_urls_to_markdown_links(main_raw)
+    footer_md = _max_html_footer_to_markdown(footer_html) if footer_html else ''
+    max_text = '\n\n'.join(p for p in (main_md, footer_md) if p)
+    if len(max_text) > 4000:
+        max_text = max_text[:3997] + '…'
+
+    payload = {'text': max_text, 'format': 'markdown'}
+    link_kb = _max_footer_link_inline_keyboard(footer_html)
+    if link_kb:
+        payload['attachments'] = [link_kb]
 
     resp = requests.post(
         'https://platform-api.max.ru/messages',
         params={'chat_id': chat_id},
-        headers={'Authorization': bot_token},
-        json={'text': max_text, 'format': 'html'},
+        headers={'Authorization': bot_token, 'Content-Type': 'application/json; charset=utf-8'},
+        json=payload,
         timeout=30,
     )
     # MAX API may return non-JSON or plain string error bodies.
