@@ -69,7 +69,7 @@
                   <div style="width:110px;" class="flex-shrink-0">
                     <label class="form-label small text-muted mb-1">Порядок</label>
                     <input type="number" class="form-control form-control-sm" name="media_order_{{ m.pk }}"
-                           value="{{ m.order }}" min="0" step="1">
+                           value="{{ m.order|default:1 }}" min="1" step="1">
                   </div>
                 </div>
                 {% endfor %}

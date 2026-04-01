@@ -175,7 +175,7 @@ class PostMedia(models.Model):
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='media_files', verbose_name='Пост')
     file = models.FileField(upload_to='post_media/%Y/%m/', verbose_name='Файл')
     media_type = models.CharField(max_length=20, choices=TYPE_CHOICES, verbose_name='Тип')
-    order = models.PositiveSmallIntegerField(default=0, verbose_name='Порядок')
+    order = models.PositiveSmallIntegerField(default=1, verbose_name='Порядок')
 
     class Meta:
         verbose_name = 'Медиафайл поста'

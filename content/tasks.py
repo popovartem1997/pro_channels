@@ -3,6 +3,7 @@ Celery задачи для публикации постов.
 """
 import logging
 from celery import shared_task
+from django.db.models import Max
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -58,15 +59,8 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
     if PostMedia.objects.filter(post=post).exists():
         return 0, warnings
 
-    try:
-        current_max = int(
-            PostMedia.objects.filter(post=post)
-            .order_by('-order')
-            .values_list('order', flat=True)
-            .first() or 0
-        )
-    except Exception:
-        current_max = 0
+    max_o = PostMedia.objects.filter(post=post).aggregate(m=Max('order'))['m']
+    current_max = int(max_o) if max_o is not None else 0
 
     # Telegram media import
     if bot.platform == bot.PLATFORM_TELEGRAM and (suggestion.media_file_ids or []):
@@ -493,7 +487,7 @@ def _publish_telegram(post, channel):
     if not bot_token or not chat_id:
         raise ValueError('Не настроен токен бота или chat_id для Telegram')
 
-    media_files = list(post.media_files.all())
+    media_files = list(post.media_files.order_by('order', 'pk'))
     base_url = f'https://api.telegram.org/bot{bot_token}'
 
     text = _build_text(post, channel)
@@ -591,7 +585,7 @@ def _publish_vk(post, channel):
         text = f'{text}\n\nerid:{post.ord_token}'
 
     attachments = []
-    for mf in post.media_files.all()[:10]:
+    for mf in post.media_files.order_by('order', 'pk')[:10]:
         if mf.media_type == 'photo':
             with open(mf.file.path, 'rb') as f:
                 upload = vk_api.upload.VkUpload(session)
@@ -626,7 +620,7 @@ def _publish_max(post, channel):
         raise ValueError('Не настроен токен или channel_id для MAX')
 
     text = _build_text(post, channel)
-    media_files = list(post.media_files.all())
+    media_files = list(post.media_files.order_by('order', 'pk'))
 
     # Пока отправляем стабильно текстом (как тестовая кнопка).
     # MAX attachments отличаются от Telegram/VK, а локальные URLs файлов
@@ -746,7 +740,7 @@ def _publish_instagram(post, channel):
     if not token or not account_id:
         raise ValueError('Не настроен токен или Account ID для Instagram')
 
-    media_files = list(post.media_files.all())
+    media_files = list(post.media_files.order_by('order', 'pk'))
     if not media_files:
         raise ValueError('Instagram не поддерживает публикации без медиафайлов. '
                          'Добавьте хотя бы одно фото или видео.')
