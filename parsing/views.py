@@ -2,9 +2,10 @@
 Парсинг каналов по ключевикам + AI рерайт.
 """
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.db.models import Q
+from django.db.models import Q, Count
 from .models import ParseSource, ParseKeyword, ParsedItem, ParseTask, AIRewriteJob
 from django.http import JsonResponse
 from django.http import HttpResponse
@@ -172,11 +173,17 @@ def sources_list(request):
     selected_channel = _get_selected_channel(request)
     if selected_channel:
         request.session['parsing_channel_id'] = selected_channel.pk
-        sources = _parse_sources_qs(request.user, selected_channel)
-        keywords = _parse_keywords_qs(request.user, selected_channel)
+        sources = (
+            _parse_sources_qs(request.user, selected_channel)
+            .annotate(keyword_count=Count('keywords', distinct=True))
+        )
+        keywords = (
+            _parse_keywords_qs(request.user, selected_channel)
+            .annotate(source_count=Count('sources', distinct=True))
+        )
     else:
-        sources = _parse_sources_qs(request.user)
-        keywords = _parse_keywords_qs(request.user)
+        sources = _parse_sources_qs(request.user).annotate(keyword_count=Count('keywords', distinct=True))
+        keywords = _parse_keywords_qs(request.user).annotate(source_count=Count('sources', distinct=True))
     channels = _parsing_channels_qs(request.user).order_by('-created_at')
     return render(request, 'parsing/sources.html', {
         'channels': channels,
@@ -386,6 +393,46 @@ def keyword_create(request):
     return render(request, 'parsing/keyword_create.html', {
         'sources': sources,
         'selected_channel': selected_channel,
+    })
+
+
+@login_required
+def keyword_edit(request, pk):
+    kw = get_object_or_404(
+        _parse_keywords_qs(request.user).select_related('channel').prefetch_related('sources'),
+        pk=pk,
+    )
+    selected_channel = kw.channel
+    sources = _parse_sources_qs(request.user, selected_channel) if selected_channel else _parse_sources_qs(request.user)
+    selected_source_ids = set(kw.sources.values_list('pk', flat=True))
+
+    if request.method == 'POST':
+        keyword = (request.POST.get('keyword') or '').strip()
+        source_ids = request.POST.getlist('sources')
+        if not keyword:
+            messages.error(request, 'Введите ключевое слово.')
+        else:
+            kw.keyword = keyword
+            kw.save(update_fields=['keyword'])
+            allowed_src = set(sources.values_list('pk', flat=True))
+            safe = [int(x) for x in source_ids if str(x).isdigit() and int(x) in allowed_src]
+            kw.sources.set(safe)
+            if selected_channel:
+                try:
+                    data_owner = _parsing_data_owner(request.user, selected_channel)
+                    _ensure_auto_parse_task(data_owner, selected_channel)
+                except Exception:
+                    pass
+            messages.success(request, 'Ключевое слово обновлено.')
+        if selected_channel:
+            return redirect(f"{reverse('parsing:sources')}?channel={selected_channel.pk}")
+        return redirect('parsing:sources')
+
+    return render(request, 'parsing/keyword_edit.html', {
+        'sources': sources,
+        'keyword_obj': kw,
+        'selected_channel': selected_channel,
+        'selected_source_ids': selected_source_ids,
     })
 
 

@@ -52,9 +52,12 @@
         {% if sources %}
         <ul class="list-group list-group-flush">
           {% for source in sources %}
-          <li class="list-group-item px-4 py-3 d-flex align-items-center justify-content-between">
-            <div>
-              <div class="fw-semibold small">{{ source.name }}</div>
+          <li class="list-group-item px-4 py-3 d-flex align-items-center justify-content-between gap-2">
+            <div class="min-w-0">
+              <div class="fw-semibold small d-flex align-items-center gap-2 flex-wrap">
+                <span class="text-truncate">{{ source.name }}</span>
+                <span class="badge bg-secondary-subtle text-secondary rounded-pill flex-shrink-0">{{ source.keyword_count }}</span>
+              </div>
               <div class="text-muted" style="font-size:.75rem;">{{ source.source_id }}</div>
               <div class="text-muted mt-1" style="font-size:.7rem;">
                 {% if source.last_parsed_at %}
@@ -103,18 +106,25 @@
           {% for kw in keywords %}
           <li class="list-group-item px-4 py-3 d-flex align-items-start justify-content-between gap-3">
             <div class="min-w-0">
-              <div class="fw-semibold small">{{ kw.keyword }}</div>
-              <div class="text-muted small">
-                {% if kw.channel %}Канал: {{ kw.channel.name }}{% else %}Канал: —{% endif %}
-                · Источников: {{ kw.sources.count }}
+              <div class="fw-semibold small d-flex align-items-center gap-2 flex-wrap">
+                <span class="text-break">{{ kw.keyword }}</span>
+                <span class="badge bg-secondary-subtle text-secondary rounded-pill flex-shrink-0">{{ kw.source_count }}</span>
+              </div>
+              <div class="text-muted small mt-1">
+                {% if kw.channel %}{{ kw.channel.name }}{% else %}—{% endif %}
               </div>
             </div>
-            <form method="post" action="{% url 'parsing:keyword_delete' kw.pk %}" class="flex-shrink-0">
-              {% csrf_token %}
-              <button type="submit" class="btn btn-outline-danger btn-sm">
-                <i class="bi bi-trash"></i>
-              </button>
-            </form>
+            <div class="d-flex align-items-center gap-1 flex-shrink-0">
+              <a href="{% url 'parsing:keyword_edit' kw.pk %}{% if kw.channel %}?channel={{ kw.channel.pk }}{% endif %}" class="btn btn-outline-secondary btn-sm" title="Редактировать">
+                <i class="bi bi-pencil"></i>
+              </a>
+              <form method="post" action="{% url 'parsing:keyword_delete' kw.pk %}" class="d-inline">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline-danger btn-sm" title="Удалить">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+            </div>
           </li>
           {% endfor %}
         </ul>

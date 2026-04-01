@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block title %}Редактировать ключевое слово{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'parsing:sources' %}{% if selected_channel %}?channel={{ selected_channel.pk }}{% endif %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К источникам
+  </a>
+  <h1>Редактировать ключевое слово</h1>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-5">
+    <div class="card">
+      <div class="card-body p-4 p-md-5">
+        <form method="post" novalidate>
+          {% csrf_token %}
+          {% if selected_channel %}
+            <input type="hidden" name="channel_id" value="{{ selected_channel.pk }}">
+          {% endif %}
+          <div class="mb-4">
+            <label class="form-label fw-semibold" for="id_word">Ключевое слово или фраза</label>
+            <input type="text" name="keyword" id="id_word"
+                   class="form-control form-control-lg"
+                   value="{{ keyword_obj.keyword }}"
+                   placeholder="Например: нейросеть, ИИ, ChatGPT" required>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Источники</label>
+            <div class="text-muted small mb-2">Можно выбрать один или несколько. Если не выбирать — без привязки к источникам.</div>
+            <div class="d-flex flex-column gap-2">
+              {% for source in sources %}
+              <label class="d-flex align-items-center gap-2">
+                <input type="checkbox" class="form-check-input mt-0" name="sources" value="{{ source.pk }}"
+                  {% if source.pk in selected_source_ids %}checked{% endif %}>
+                <span class="small">{{ source.name }} <span class="text-muted">({{ source.source_id }})</span></span>
+              </label>
+              {% empty %}
+              <div class="text-muted small">Нет источников. Добавьте источник на странице «Парсинг».</div>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-brand px-4 fw-semibold">
+              <i class="bi bi-check-lg me-1"></i> Сохранить
+            </button>
+            <a href="{% url 'parsing:sources' %}{% if selected_channel %}?channel={{ selected_channel.pk }}{% endif %}" class="btn btn-outline-secondary">Отмена</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

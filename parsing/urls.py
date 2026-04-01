@@ -9,6 +9,7 @@ urlpatterns = [
     path('source/add/', views.source_create, name='source_create'),
     path('source/<int:pk>/delete/', views.source_delete, name='source_delete'),
     path('keyword/add/', views.keyword_create, name='keyword_create'),
+    path('keyword/<int:pk>/edit/', views.keyword_edit, name='keyword_edit'),
     path('keyword/<int:pk>/delete/', views.keyword_delete, name='keyword_delete'),
     path('items/', views.parsed_items, name='items'),
     path('items/<int:pk>/skip/', views.item_skip, name='item_skip'),
