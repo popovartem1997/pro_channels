@@ -919,30 +919,64 @@ def _publish_max(post, channel):
         if not filename:
             filename = 'upload.bin'
 
-        # По документации MAX upload URL может не требовать Authorization.
-        # На практике для видео/аудио часто корректнее грузить БЕЗ Authorization header.
-        with open(file_path, 'rb') as f:
-            files = {'data': (filename, f, getattr(mf, 'content_type', None) or 'application/octet-stream')}
-            r = requests.post(
-                upload_url,
-                files=files,
-                timeout=180,
-            )
+        def _guess_mime(name: str) -> str:
+            try:
+                import mimetypes
+                mt_guess, _ = mimetypes.guess_type(name)
+                return mt_guess or 'application/octet-stream'
+            except Exception:
+                return 'application/octet-stream'
+
+        mime = _guess_mime(filename)
+
+        def _try_upload(*, use_auth: bool):
+            with open(file_path, 'rb') as f:
+                files = {'data': (filename, f, mime)}
+                headers = {'Authorization': bot_token} if use_auth else {}
+                return requests.post(
+                    upload_url,
+                    headers=headers,
+                    files=files,
+                    timeout=180,
+                )
+
+        # MAX upload URL в разных случаях может требовать или не требовать Authorization.
+        # Делаем best-effort: сначала без Authorization, затем с ним.
+        r = _try_upload(use_auth=False)
+        if r.status_code >= 400:
+            r = _try_upload(use_auth=True)
 
         # MAX upload endpoints могут возвращать не-JSON (HTML) при ошибке — сохраняем как текст.
+        rtext = ''
+        try:
+            rtext = r.text or ''
+        except Exception:
+            rtext = ''
         try:
             rdata = r.json()
         except Exception:
             rdata = None
+            # Иногда сервер возвращает JSON как text/plain.
+            try:
+                import json as json_module
+                rdata = json_module.loads(rtext) if rtext else None
+            except Exception:
+                rdata = None
         if r.status_code >= 400:
-            body = rdata if rdata is not None else (r.text[:500] if hasattr(r, 'text') else '')
+            body = rdata if rdata is not None else (rtext[:500] if rtext else '')
             raise ValueError(f'MAX upload failed (type={upload_type}, http={r.status_code}): {body}')
 
         # video/audio: payload = {token: "..."}
         if upload_type in ('video', 'audio'):
             tok = rdata.get('token') if isinstance(rdata, dict) else None
             if not tok:
-                raise ValueError(f'MAX upload: no token (type={upload_type}): {rdata}')
+                # Попробуем достать token из текста (на случай странного формата ответа)
+                import re
+                m = re.search(r'"token"\s*:\s*"([^"]+)"', rtext or '')
+                if m:
+                    tok = m.group(1)
+                else:
+                    raise ValueError(f'MAX upload: no token (type={upload_type}): {rdata or (rtext[:500] if rtext else None)}')
             payload = {'token': tok}
         else:
             # image/file: payload = full response JSON
