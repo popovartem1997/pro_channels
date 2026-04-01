@@ -110,6 +110,15 @@
 
             <div class="fw-semibold mb-1">{{ it.title }}</div>
             <div class="text-muted small mb-2">{{ it.meta }}</div>
+            {% if it.kind == 'parsing' and it.channels %}
+              {% with it.channels.0 as ch0 %}
+                {% if ch0 %}
+                  <div class="small mb-2">
+                    Канал: <a href="{% url 'channels:detail' ch0.pk %}">{{ ch0.name }}</a>
+                  </div>
+                {% endif %}
+              {% endwith %}
+            {% endif %}
 
             <div style="white-space:pre-wrap;">{{ it.text|truncatechars:600 }}</div>
 
