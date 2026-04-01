@@ -97,7 +97,22 @@ def _can_moderate_suggestion(user, suggestion) -> bool:
         return True
     if suggestion.bot.owner_id == user.id:
         return True
-    return suggestion.bot.moderators.filter(id=user.id).exists()
+    if suggestion.bot.moderators.filter(id=user.id).exists():
+        return True
+    # Менеджер команды: доступ по каналу бота (как в ленте / suggestions_all)
+    if getattr(user, 'role', '') in ('manager', 'assistant_admin') and suggestion.bot.channel_id:
+        try:
+            from managers.models import TeamMember
+
+            return TeamMember.objects.filter(
+                member=user,
+                is_active=True,
+                can_moderate=True,
+                channels__pk=suggestion.bot.channel_id,
+            ).exists()
+        except Exception:
+            return False
+    return False
 
 
 def _get_bot_or_404(bot_id: int, platform: str) -> SuggestionBot:

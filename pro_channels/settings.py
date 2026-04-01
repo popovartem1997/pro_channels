@@ -162,6 +162,7 @@ DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='ProChannels <noreply@
 
 # ─── Celery ───────────────────────────────────────────────────────────────────
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://127.0.0.1:6379/0')
+CELERY_BROKER_TRANSPORT_OPTIONS = {'socket_connect_timeout': 5, 'socket_timeout': 5}
 CELERY_RESULT_BACKEND = 'django-db'
 CELERY_CACHE_BACKEND = 'django-cache'
 CELERY_TIMEZONE = 'Europe/Moscow'

@@ -12,7 +12,27 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse
 import secrets
 from django.core.files.base import ContentFile
-from django.db.models import Max
+from django.db.models import Max, Q
+
+
+def _manager_content_channel_ids(user):
+    """
+    Каналы, где менеджер может работать с постами из предложки / черновиками:
+    публикация или модерация предложек.
+    """
+    from managers.models import TeamMember
+
+    if getattr(user, 'role', '') not in ('manager', 'assistant_admin'):
+        return []
+    return list(
+        TeamMember.objects.filter(
+            member=user,
+            is_active=True,
+        )
+        .filter(Q(can_publish=True) | Q(can_moderate=True))
+        .values_list('channels__pk', flat=True)
+        .distinct()
+    )
 
 
 def _fix_mislabeled_post_media(post):
@@ -36,12 +56,7 @@ def _fix_mislabeled_post_media(post):
 def post_list(request):
     from channels.models import Channel
     if request.user.role in ('manager', 'assistant_admin'):
-        from managers.models import TeamMember
-        allowed_channel_ids = TeamMember.objects.filter(
-            member=request.user,
-            is_active=True,
-            can_publish=True,
-        ).values_list('channels__pk', flat=True)
+        allowed_channel_ids = _manager_content_channel_ids(request.user)
         posts = Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct().order_by('-created_at')
     else:
         posts = Post.objects.filter(author=request.user).order_by('-created_at')
@@ -202,9 +217,8 @@ def post_create_from_suggestion(request, tracking_id):
                 allowed = TeamMember.objects.filter(
                     member=request.user,
                     is_active=True,
-                    can_publish=True,
                     channels__pk=bot.channel_id,
-                ).exists()
+                ).filter(Q(can_publish=True) | Q(can_moderate=True)).exists()
             except Exception:
                 allowed = False
     if not allowed:
@@ -262,12 +276,7 @@ def post_create_from_suggestion(request, tracking_id):
 @login_required
 def post_detail(request, pk):
     if request.user.role in ('manager', 'assistant_admin'):
-        from managers.models import TeamMember
-        allowed_channel_ids = TeamMember.objects.filter(
-            member=request.user,
-            is_active=True,
-            can_publish=True,
-        ).values_list('channels__pk', flat=True)
+        allowed_channel_ids = _manager_content_channel_ids(request.user)
         post = get_object_or_404(
             Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct(),
             pk=pk,
@@ -285,18 +294,13 @@ def post_detail(request, pk):
 def post_edit(request, pk):
     from channels.models import Channel
     if request.user.role in ('manager', 'assistant_admin'):
-        from managers.models import TeamMember
-        allowed_channel_ids = TeamMember.objects.filter(
-            member=request.user, is_active=True, can_publish=True
-        ).values_list('channels__pk', flat=True)
+        allowed_channel_ids = _manager_content_channel_ids(request.user)
         post = get_object_or_404(
             Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct(),
             pk=pk,
         )
         user_channels = Channel.objects.filter(
-            pk__in=TeamMember.objects.filter(
-                member=request.user, is_active=True, can_publish=True
-            ).values_list('channels__pk', flat=True),
+            pk__in=allowed_channel_ids,
             is_active=True,
         ).distinct()
     else:
