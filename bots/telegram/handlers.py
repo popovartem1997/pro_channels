@@ -36,6 +36,129 @@ TELEGRAM_ALBUM_CACHE_PREFIX = 'tg_album:'
 ALBUM_FLUSH_INLINE = 'inline'
 
 
+def _album_user_activity_cache_key(bot_id: int, user_id: int) -> str:
+    """Пользователь недавно добавлял части альбома — отдельный текст можно приклеить."""
+    return f'{TELEGRAM_ALBUM_CACHE_PREFIX}active:{int(bot_id)}:{int(user_id)}'
+
+
+def _album_extra_caption_cache_key(bot_id: int, user_id: int) -> str:
+    """Текст, пришедший отдельным сообщением до сохранения альбома в БД."""
+    return f'{TELEGRAM_ALBUM_CACHE_PREFIX}xcaption:{int(bot_id)}:{int(user_id)}'
+
+
+def _touch_album_activity(bot_id: int, user_id: int) -> None:
+    from django.core.cache import cache
+
+    cache.set(_album_user_activity_cache_key(bot_id, user_id), time.time(), timeout=120)
+
+
+def _clear_album_activity(bot_id: int, user_id: int) -> None:
+    from django.core.cache import cache
+
+    cache.delete(_album_user_activity_cache_key(bot_id, user_id))
+
+
+def _user_has_recent_album_activity(bot_id: int, user_id: int) -> bool:
+    from django.core.cache import cache
+
+    return cache.get(_album_user_activity_cache_key(bot_id, user_id)) is not None
+
+
+def _buffer_album_extra_caption(bot_id: int, user_id: int, text: str) -> None:
+    from django.core.cache import cache
+
+    key = _album_extra_caption_cache_key(bot_id, user_id)
+    prev = cache.get(key)
+    if isinstance(prev, str) and prev.strip():
+        text = (prev.strip() + '\n\n' + text.strip()).strip()
+    cache.set(key, text.strip(), timeout=120)
+
+
+def _read_album_extra_caption(bot_id: int, user_id: int) -> str:
+    from django.core.cache import cache
+
+    v = cache.get(_album_extra_caption_cache_key(bot_id, user_id))
+    return (v or '').strip() if isinstance(v, str) else ''
+
+
+def _delete_album_extra_caption(bot_id: int, user_id: int) -> None:
+    from django.core.cache import cache
+
+    cache.delete(_album_extra_caption_cache_key(bot_id, user_id))
+
+
+async def _handle_standalone_text_as_album_caption(bot_config, user, message) -> bool:
+    """
+    Telegram часто шлёт подпись к альбому отдельным сообщением (без media_group_id).
+    Либо дописываем в уже сохранённую заявку с album_parts, либо кладём в буфер до flush альбома.
+    """
+    txt = (message.text or '').strip()
+    if not txt or str(txt).startswith('/'):
+        return False
+
+    @sync_to_async
+    def _decide():
+        sug = _merge_text_into_recent_album_suggestion(bot_config, str(user.id), txt)
+        if sug:
+            return ('db', sug)
+        if _user_has_recent_album_activity(bot_config.id, user.id):
+            _buffer_album_extra_caption(bot_config.id, user.id, txt)
+            return ('buf', None)
+        return ('', None)
+
+    kind, sug = await _decide()
+    if kind == 'db' and sug:
+        try:
+            await message.reply_text(f'Текст добавлен к заявке #{sug.short_tracking_id}.')
+        except Exception:
+            pass
+        return True
+    if kind == 'buf':
+        try:
+            await message.reply_text('Текст будет добавлен к отправленным фото.')
+        except Exception:
+            pass
+        return True
+    return False
+
+
+def _merge_text_into_recent_album_suggestion(bot_config, platform_user_id: str, new_text: str):
+    """
+    Текст пришёл отдельным сообщением после того, как альбом уже сохранён в БД.
+    Приклеиваем к последней pending-заявке с album_parts (до ~120 с).
+    """
+    from bots.models import Suggestion
+    from django.utils import timezone as tz
+    from datetime import timedelta
+
+    new_text = (new_text or '').strip()
+    if not new_text:
+        return None
+
+    window = tz.now() - timedelta(seconds=120)
+    qs = (
+        Suggestion.objects.filter(
+            bot=bot_config,
+            platform_user_id=str(platform_user_id),
+            status=Suggestion.STATUS_PENDING,
+            submitted_at__gte=window,
+        )
+        .order_by('-submitted_at')[:8]
+    )
+    for sug in qs:
+        raw = sug.raw_data if isinstance(sug.raw_data, dict) else {}
+        parts = raw.get('album_parts')
+        if not isinstance(parts, list) or not parts:
+            continue
+        old = (sug.text or '').strip()
+        sug.text = (old + '\n\n' + new_text).strip() if old else new_text
+        if sug.media_file_ids and (sug.text or ''):
+            sug.content_type = Suggestion.CONTENT_MIXED
+        sug.save(update_fields=['text', 'content_type'])
+        return sug
+    return None
+
+
 def _telegram_album_cache_key(mg_key: str) -> str:
     return f'{TELEGRAM_ALBUM_CACHE_PREFIX}{mg_key}'
 
@@ -73,6 +196,13 @@ def _telegram_album_cache_append(full_key: str, part: dict, meta: dict, *, timeo
                 prev_parts.append(part)
                 data = {'parts': prev_parts, 'meta': merged_meta}
                 cache.set(full_key, data, timeout)
+                try:
+                    bid = merged_meta.get('bot_id')
+                    uid = merged_meta.get('user_id')
+                    if bid is not None and uid is not None:
+                        _touch_album_activity(int(bid), int(uid))
+                except Exception:
+                    pass
             finally:
                 cache.delete(lock_k)
             return
@@ -585,6 +715,9 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
             media_ids = [message.voice.file_id]
             text = ''
         elif message.text:
+            if not context.user_data.get('contact_mode'):
+                if await _handle_standalone_text_as_album_caption(bot_config, user, message):
+                    return
             content_type = Suggestion.CONTENT_TEXT
             media_ids = []
             text = message.text
@@ -913,6 +1046,15 @@ async def flush_collected_telegram_album(
 
     media_ids, text = _album_items_to_media_and_text(msgs)
 
+    @sync_to_async
+    def _read_extra_cap():
+        return _read_album_extra_caption(int(bot_config.id), int(user_id))
+
+    extra_cap = await _read_extra_cap()
+    if extra_cap:
+        base = (text or '').strip()
+        text = (base + '\n\n' + extra_cap).strip() if base else extra_cap
+
     uname = (meta.get('platform_username') or '').strip()
     fname = (meta.get('platform_first_name') or '').strip()
     lname = (meta.get('platform_last_name') or '').strip()
@@ -920,7 +1062,7 @@ async def flush_collected_telegram_album(
 
     @sync_to_async
     def save_album_suggestion():
-        from bots.models import SuggestionUserStats
+        from bots.models import Suggestion, SuggestionUserStats
         from django.utils import timezone as tz
         from datetime import timedelta
 
@@ -995,7 +1137,18 @@ async def flush_collected_telegram_album(
         suggestion = await save_album_suggestion()
     except Exception as e:
         logger.exception('[TG] album save failed: %s', e)
+        try:
+            await sync_to_async(_clear_album_activity)(int(bot_config.id), int(user_id))
+            await sync_to_async(_delete_album_extra_caption)(int(bot_config.id), int(user_id))
+        except Exception:
+            pass
         return
+
+    try:
+        await sync_to_async(_clear_album_activity)(int(bot_config.id), int(user_id))
+        await sync_to_async(_delete_album_extra_caption)(int(bot_config.id), int(user_id))
+    except Exception:
+        pass
 
     try:
         confirm = bot_config.success_message.replace('{tracking_id}', suggestion.short_tracking_id)
