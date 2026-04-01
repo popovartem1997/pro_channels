@@ -4,37 +4,50 @@
 {% block content %}
 <div class="page-header">
   <h1><i class="bi bi-shield-check me-2" style="color:var(--brand)"></i>Новая регистрация ОРД</h1>
-  <p class="text-muted small mb-0">Зарегистрируйте рекламный материал в ВК ОРД</p>
+  <p class="text-muted small mb-0">Зарегистрируйте рекламный материал в ВК ОРД для опубликованного поста.</p>
 </div>
 
 <div class="row justify-content-center">
   <div class="col-12 col-lg-7">
     <div class="card">
       <div class="card-body p-4">
-        <form method="post">
+        <form method="post" id="ord-create-form">
           {% csrf_token %}
 
           <div class="mb-3">
             <label class="form-label fw-semibold">Пост <span class="text-danger">*</span></label>
-            <select name="post_id" class="form-select" required>
+            <select name="post_id" id="id_post_id" class="form-select" required>
               <option value="">— Выберите опубликованный пост —</option>
               {% for post in posts %}
-              <option value="{{ post.pk }}">{{ post.text|truncatechars:80 }}</option>
+              <option value="{{ post.pk }}">#{{ post.pk }} · {{ post.text|truncatechars:70 }}
+                {% if post.channels.all %}
+                  — {% for c in post.channels.all %}{{ c.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                {% endif %}
+              </option>
               {% endfor %}
             </select>
             {% if not posts %}
             <div class="form-text text-warning">Нет опубликованных постов. Сначала опубликуйте пост.</div>
+            {% else %}
+            <div class="form-text">В подписи к посту перечислены каналы публикации (ваши).</div>
             {% endif %}
           </div>
 
           <div class="mb-3">
-            <label class="form-label fw-semibold">Канал <span class="text-danger">*</span></label>
-            <select name="channel_id" class="form-select" required>
-              <option value="">— Выберите канал —</option>
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="all_post_channels" id="id_all_post_channels" value="on">
+              <label class="form-check-label fw-semibold" for="id_all_post_channels">
+                Зарегистрировать для всех каналов этого поста
+              </label>
+            </div>
+            <label class="form-label fw-semibold">Канал <span class="text-danger">*</span> <span class="text-muted fw-normal small">(если не отмечено «все»)</span></label>
+            <select name="channel_id" id="id_channel_id" class="form-select">
+              <option value="">— Сначала выберите пост —</option>
               {% for channel in channels %}
-              <option value="{{ channel.pk }}">{{ channel.name }}</option>
+              <option value="{{ channel.pk }}" data-platform="{{ channel.platform }}">{{ channel.name }} — {{ channel.get_platform_display }}</option>
               {% endfor %}
             </select>
+            <div class="form-text">После выбора поста остаются только каналы, в которые этот пост публиковался.</div>
           </div>
 
           <div class="mb-3">
@@ -65,4 +78,50 @@
     </div>
   </div>
 </div>
+{{ post_channels_map|json_script:"ord-post-channels-json" }}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var el = document.getElementById('ord-post-channels-json');
+  var map = {};
+  try { map = JSON.parse(el ? el.textContent : '{}'); } catch (e) {}
+  var postSel = document.getElementById('id_post_id');
+  var chSel = document.getElementById('id_channel_id');
+  var allCh = document.getElementById('id_all_post_channels');
+  if (!postSel || !chSel) return;
+
+  function rebuildChannels() {
+    var pid = postSel.value;
+    var list = map[pid] || [];
+    var prev = chSel.value;
+    chSel.innerHTML = '';
+    var opt0 = document.createElement('option');
+    opt0.value = '';
+    opt0.textContent = list.length ? '— Выберите канал —' : '— Нет каналов у поста —';
+    chSel.appendChild(opt0);
+    list.forEach(function (c) {
+      var o = document.createElement('option');
+      o.value = c.id;
+      o.textContent = c.name + ' — ' + c.platform;
+      o.dataset.platform = c.code;
+      chSel.appendChild(o);
+    });
+    if (prev && [].some.call(chSel.options, function (o) { return o.value === prev; })) {
+      chSel.value = prev;
+    }
+    chSel.disabled = allCh && allCh.checked;
+  }
+
+  postSel.addEventListener('change', rebuildChannels);
+  if (allCh) {
+    allCh.addEventListener('change', function () {
+      chSel.disabled = allCh.checked;
+      if (!allCh.checked) rebuildChannels();
+    });
+  }
+  rebuildChannels();
+})();
+</script>
 {% endblock %}

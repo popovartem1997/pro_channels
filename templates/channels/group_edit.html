@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}Редактировать группу{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'channels:list' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К списку каналов
+  </a>
+  <h1>Группа: {{ group.name }}</h1>
+  <p class="text-muted small mb-0">Измените название. Каналы в группе назначаются на карточке канала или списком ниже.</p>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-6">
+    <div class="card">
+      <div class="card-body p-4 p-md-5">
+        <form method="post" novalidate>
+          {% csrf_token %}
+          <div class="mb-4">
+            <label class="form-label fw-semibold" for="id_group_name">Название группы</label>
+            <input type="text" name="name" id="id_group_name" class="form-control" value="{{ group.name }}" required autofocus>
+          </div>
+          <div class="d-flex gap-2 flex-wrap">
+            <button type="submit" class="btn btn-brand">Сохранить</button>
+            <a href="{% url 'channels:list' %}" class="btn btn-outline-secondary">Отмена</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

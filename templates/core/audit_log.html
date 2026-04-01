@@ -107,6 +107,19 @@
         {% else %}
         <div class="p-4 text-muted">Пока нет записей</div>
         {% endif %}
+        {% if audit_paginator.num_pages > 1 %}
+        <div class="card-footer bg-transparent border-top py-2 px-4">
+          <nav class="d-flex flex-wrap align-items-center gap-2 small">
+            <span class="text-muted">Стр. {{ audit_page_obj.number }} / {{ audit_paginator.num_pages }}</span>
+            {% if audit_page_obj.has_previous %}
+            <a class="btn btn-sm btn-outline-secondary" href="?{% if audit_base_qs %}{{ audit_base_qs }}&amp;{% endif %}audit_page={{ audit_page_obj.previous_page_number }}&amp;visit_page={{ visit_page_obj.number }}&amp;audit_per_page={{ audit_per_page }}&amp;visit_per_page={{ visit_per_page }}">Назад</a>
+            {% endif %}
+            {% if audit_page_obj.has_next %}
+            <a class="btn btn-sm btn-outline-secondary" href="?{% if audit_base_qs %}{{ audit_base_qs }}&amp;{% endif %}audit_page={{ audit_page_obj.next_page_number }}&amp;visit_page={{ visit_page_obj.number }}&amp;audit_per_page={{ audit_per_page }}&amp;visit_per_page={{ visit_per_page }}">Вперёд</a>
+            {% endif %}
+          </nav>
+        </div>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -146,6 +159,19 @@
         </ul>
         {% else %}
         <div class="p-4 text-muted">Пока нет посещений</div>
+        {% endif %}
+        {% if visit_paginator.num_pages > 1 %}
+        <div class="card-footer bg-transparent border-top py-2 px-4">
+          <nav class="d-flex flex-wrap align-items-center gap-2 small">
+            <span class="text-muted">Стр. {{ visit_page_obj.number }} / {{ visit_paginator.num_pages }}</span>
+            {% if visit_page_obj.has_previous %}
+            <a class="btn btn-sm btn-outline-secondary" href="?{% if audit_base_qs %}{{ audit_base_qs }}&amp;{% endif %}visit_page={{ visit_page_obj.previous_page_number }}&amp;audit_page={{ audit_page_obj.number }}&amp;audit_per_page={{ audit_per_page }}&amp;visit_per_page={{ visit_per_page }}">Назад</a>
+            {% endif %}
+            {% if visit_page_obj.has_next %}
+            <a class="btn btn-sm btn-outline-secondary" href="?{% if audit_base_qs %}{{ audit_base_qs }}&amp;{% endif %}visit_page={{ visit_page_obj.next_page_number }}&amp;audit_page={{ audit_page_obj.number }}&amp;audit_per_page={{ audit_per_page }}&amp;visit_per_page={{ visit_per_page }}">Вперёд</a>
+            {% endif %}
+          </nav>
+        </div>
         {% endif %}
       </div>
     </div>

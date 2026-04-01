@@ -21,13 +21,38 @@ def catalog(request):
     return render(request, 'advertisers/catalog.html', {'channels': channels})
 
 
+def _advertiser_register_next(request):
+    if request.method == 'POST':
+        return (request.POST.get('next') or '').strip()
+    return (request.GET.get('next') or '').strip()
+
+
+_REG_PREFILL_KEYS = (
+    'email', 'password1', 'password2', 'first_name', 'phone', 'company_name', 'inn',
+    'legal_address', 'contact_person', 'contact_phone', 'kpp', 'ogrn',
+)
+
+
+def _advertiser_register_context(request, next_redirect=None):
+    ctx = {'next_redirect': next_redirect if next_redirect is not None else _advertiser_register_next(request)}
+    prefill = {k: '' for k in _REG_PREFILL_KEYS}
+    if request.method == 'POST':
+        for k in _REG_PREFILL_KEYS:
+            prefill[k] = (request.POST.get(k) or '').strip()
+        prefill['password1'] = ''
+        prefill['password2'] = ''
+    ctx['prefill'] = prefill
+    return ctx
+
+
 def advertiser_register(request):
     """Регистрация профиля рекламодателя."""
     if request.user.is_authenticated and hasattr(request.user, 'advertiser_profile'):
         return redirect('advertisers:dashboard')
 
     if request.method == 'POST':
-        next_url = request.POST.get('next') or request.GET.get('next') or ''
+        next_redirect = (request.POST.get('next') or '').strip()
+        next_url = next_redirect
         # Если пользователь не залогинен — создаём аккаунт рекламодателя сразу здесь,
         # чтобы путь /advertisers/order/new/ не упирался в 404.
         if not request.user.is_authenticated:
@@ -41,13 +66,13 @@ def advertiser_register(request):
 
             if not email or '@' not in email:
                 messages.error(request, 'Укажите корректный email.')
-                return render(request, 'advertisers/register.html')
+                return render(request, 'advertisers/register.html', _advertiser_register_context(request, next_redirect))
             if not password1 or password1 != password2 or len(password1) < 8:
                 messages.error(request, 'Проверьте пароль (минимум 8 символов) и совпадение паролей.')
-                return render(request, 'advertisers/register.html')
+                return render(request, 'advertisers/register.html', _advertiser_register_context(request, next_redirect))
             if User.objects.filter(email=email).exists():
                 messages.error(request, 'Пользователь с таким email уже существует. Войдите в аккаунт.')
-                return render(request, 'advertisers/register.html')
+                return render(request, 'advertisers/register.html', _advertiser_register_context(request, next_redirect))
 
             user = User(
                 email=email,
@@ -76,28 +101,29 @@ def advertiser_register(request):
 
         if not all([company_name, inn, legal_address, contact_person]):
             messages.error(request, 'Заполните все обязательные поля.')
-        elif not inn.isdigit() or len(inn) not in (10, 12):
+            return render(request, 'advertisers/register.html', _advertiser_register_context(request, next_redirect))
+        if not inn.isdigit() or len(inn) not in (10, 12):
             messages.error(request, 'ИНН должен состоять из 10 или 12 цифр.')
-        else:
-            Advertiser.objects.create(
-                user=request.user,
-                company_name=company_name,
-                inn=inn,
-                kpp=request.POST.get('kpp', '').strip(),
-                ogrn=request.POST.get('ogrn', '').strip(),
-                legal_address=legal_address,
-                contact_person=contact_person,
-                contact_phone=request.POST.get('contact_phone', '').strip(),
-            )
-            if getattr(request.user, 'role', '') != request.user.ROLE_ADVERTISER:
-                request.user.role = request.user.ROLE_ADVERTISER
-                request.user.save(update_fields=['role'])
-            messages.success(request, 'Профиль рекламодателя создан.')
-            if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
-                return redirect(next_url)
-            return redirect('advertisers:dashboard')
+            return render(request, 'advertisers/register.html', _advertiser_register_context(request, next_redirect))
+        Advertiser.objects.create(
+            user=request.user,
+            company_name=company_name,
+            inn=inn,
+            kpp=request.POST.get('kpp', '').strip(),
+            ogrn=request.POST.get('ogrn', '').strip(),
+            legal_address=legal_address,
+            contact_person=contact_person,
+            contact_phone=request.POST.get('contact_phone', '').strip(),
+        )
+        if getattr(request.user, 'role', '') != request.user.ROLE_ADVERTISER:
+            request.user.role = request.user.ROLE_ADVERTISER
+            request.user.save(update_fields=['role'])
+        messages.success(request, 'Профиль рекламодателя создан.')
+        if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+            return redirect(next_url)
+        return redirect('advertisers:dashboard')
 
-    return render(request, 'advertisers/register.html')
+    return render(request, 'advertisers/register.html', _advertiser_register_context(request))
 
 
 @login_required

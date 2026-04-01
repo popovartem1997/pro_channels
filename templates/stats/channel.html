@@ -8,8 +8,8 @@
       <i class="bi bi-arrow-left me-1"></i> К статистике
     </a>
     <h1>{{ channel.name }}</h1>
+    <p class="text-muted small mb-0">Период: {{ period }} дн. Наведите на <abbr title="Сокращения с пояснением">ER, RR…</abbr> в таблице.</p>
   </div>
-  <!-- Period selector -->
   <div class="btn-group">
     <a href="?period=7" class="btn btn-sm {% if period == 7 %}btn-brand{% else %}btn-outline-secondary{% endif %}">7 дн.</a>
     <a href="?period=30" class="btn btn-sm {% if period == 30 %}btn-brand{% else %}btn-outline-secondary{% endif %}">30 дн.</a>
@@ -17,35 +17,60 @@
   </div>
 </div>
 
-<!-- KPI cards -->
 <div class="row g-3 mb-4">
-  <div class="col-6 col-md-3">
-    <div class="card-stat card">
-      <div class="text-muted small mb-1"><i class="bi bi-eye me-1"></i>Просмотры</div>
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="card-stat card h-100">
+      <div class="text-muted small mb-1" title="Сумма дневных просмотров (агрегат канала) за выбранный период">
+        <i class="bi bi-eye me-1"></i>Просмотры <span class="text-muted">(сумма)</span>
+      </div>
       <div class="value">{{ total_views|default:"—" }}</div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
-    <div class="card-stat card">
-      <div class="text-muted small mb-1"><i class="bi bi-people me-1"></i>Подписчики</div>
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="card-stat card h-100">
+      <div class="text-muted small mb-1" title="Текущее число подписчиков (последняя синхронизация)">
+        <i class="bi bi-people me-1"></i>Подписчики
+      </div>
       <div class="value">{{ channel.subscribers_count|default:"—" }}</div>
+      {% if subs_delta is not None %}
+      <div class="small {% if subs_delta >= 0 %}text-success{% else %}text-danger{% endif %} mt-1">за период: {% if subs_delta >= 0 %}+{% endif %}{{ subs_delta }}</div>
+      {% endif %}
     </div>
   </div>
-  <div class="col-6 col-md-3">
-    <div class="card-stat card">
-      <div class="text-muted small mb-1"><i class="bi bi-graph-up me-1"></i>Средний ER</div>
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="card-stat card h-100">
+      <div class="text-muted small mb-1">
+        <abbr title="Engagement Rate — средняя вовлечённость по дням, взвешенная по дневным просмотрам канала (поле ER в снимках).">ER</abbr> канала
+      </div>
       <div class="value">{{ avg_er|default:"—" }}{% if avg_er %}%{% endif %}</div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
-    <div class="card-stat card">
-      <div class="text-muted small mb-1"><i class="bi bi-pencil me-1"></i>Постов</div>
-      <div class="value">{{ post_stats|length|default:"—" }}</div>
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="card-stat card h-100">
+      <div class="text-muted small mb-1">
+        <abbr title="По опубликованным постам за период: реакции + комментарии + репосты к сумме просмотров постов (если есть строки в статистике постов).">ER</abbr> постов
+      </div>
+      <div class="value">{% if engagement_rate_posts is not None %}{{ engagement_rate_posts }}%{% else %}—{% endif %}</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="card-stat card h-100">
+      <div class="text-muted small mb-1" title="Записей статистики по постам за период (связка пост+канал)">
+        <i class="bi bi-pencil me-1"></i>Постов (строк)
+      </div>
+      <div class="value">{{ stat_agg_post_rows|default:"0" }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="card-stat card h-100">
+      <div class="text-muted small mb-1">
+        <abbr title="Сумма реакций по постам канала за период">RR</abbr> / <abbr title="Сумма комментариев">КМ</abbr> / <abbr title="Сумма репостов">RP</abbr>
+      </div>
+      <div class="value small lh-sm">{{ stat_agg_reactions|default:"—" }} · {{ stat_agg_comments|default:"—" }} · {{ stat_agg_forwards|default:"—" }}</div>
     </div>
   </div>
 </div>
 
-<!-- Charts -->
 <div class="row g-4 mb-4">
   <div class="col-12 col-lg-7">
     <div class="card">
@@ -63,9 +88,24 @@
       </div>
     </div>
   </div>
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3">Публикаций за день (по снимкам канала)</h6>
+        <div id="chart-posts" style="min-height:220px;"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3">Вовлечённость за период (сумма по постам)</h6>
+        <div id="chart-engage" style="min-height:240px;"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
-<!-- Post stats table -->
 {% if post_stats %}
 <div class="card">
   <div class="card-header bg-transparent border-bottom py-3">
@@ -77,22 +117,26 @@
         <tr>
           <th class="ps-4">Пост</th>
           <th>Просмотры</th>
-          <th>Реакции</th>
-          <th>ER</th>
+          <th><abbr title="Реакции">RR</abbr></th>
+          <th><abbr title="Комментарии">КМ</abbr></th>
+          <th><abbr title="Репосты (пересылки)">RP</abbr></th>
+          <th><abbr title="Engagement Rate: (реакции+комментарии)/просмотры×100%">ER</abbr></th>
           <th>Дата</th>
         </tr>
       </thead>
       <tbody>
         {% for ps in post_stats %}
         <tr>
-          <td class="ps-4" style="max-width:300px;">
+          <td class="ps-4" style="max-width:280px;">
             <p class="mb-0 small text-truncate">{{ ps.post.text|truncatechars:80 }}</p>
           </td>
           <td><span class="fw-semibold">{{ ps.views|default:"—" }}</span></td>
           <td>{{ ps.reactions|default:"—" }}</td>
+          <td>{{ ps.comments|default:"—" }}</td>
+          <td>{{ ps.forwards|default:"—" }}</td>
           <td>
             {% if ps.er %}
-            <span class="badge {% if ps.er >= 5 %}bg-success-subtle text-success{% else %}bg-secondary-subtle text-secondary{% endif %}">
+            <span class="badge {% if ps.er >= 5 %}bg-success-subtle text-success{% else %}bg-secondary-subtle text-secondary{% endif %}" title="Вовлечённость по этому посту">
               {{ ps.er }}%
             </span>
             {% else %}—{% endif %}
@@ -113,6 +157,8 @@
 var labels = {{ labels|safe|default:"[]" }};
 var viewsData = {{ views_data|safe|default:"[]" }};
 var subsData = {{ subs_data|safe|default:"[]" }};
+var postsPerDay = {{ posts_per_day|safe|default:"[]" }};
+var engageSeries = [{{ stat_agg_reactions|default:0 }}, {{ stat_agg_comments|default:0 }}, {{ stat_agg_forwards|default:0 }}];
 
 new ApexCharts(document.getElementById('chart-views'), {
   series: [{ name: 'Просмотры', data: viewsData }],
@@ -133,6 +179,28 @@ new ApexCharts(document.getElementById('chart-subs'), {
   stroke: { curve: 'smooth', width: 2.5 },
   colors: ['#22c55e'],
   dataLabels: { enabled: false },
+  grid: { borderColor: '#f1f5f9' },
+  tooltip: { theme: 'light' },
+}).render();
+
+new ApexCharts(document.getElementById('chart-posts'), {
+  series: [{ name: 'Постов', data: postsPerDay }],
+  chart: { type: 'bar', height: 220, toolbar: { show: false } },
+  xaxis: { categories: labels, labels: { style: { fontSize: '11px' } } },
+  colors: ['#94a3b8'],
+  dataLabels: { enabled: false },
+  plotOptions: { bar: { borderRadius: 4, columnWidth: '55%' } },
+  grid: { borderColor: '#f1f5f9' },
+  tooltip: { theme: 'light' },
+}).render();
+
+new ApexCharts(document.getElementById('chart-engage'), {
+  series: [{ name: 'Действия', data: engageSeries }],
+  chart: { type: 'bar', height: 240, toolbar: { show: false } },
+  xaxis: { categories: ['Реакции (RR)', 'Комментарии (КМ)', 'Репосты (RP)'], labels: { style: { fontSize: '11px' } } },
+  colors: ['#5b6ef5'],
+  dataLabels: { enabled: true },
+  plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '55%' } },
   grid: { borderColor: '#f1f5f9' },
   tooltip: { theme: 'light' },
 }).render();

@@ -53,11 +53,28 @@ def channel_list(request):
         ids = _team_member_channel_ids(request.user)
         channels = Channel.objects.filter(pk__in=ids, is_active=True).select_related('channel_group').order_by('-created_at')
         team_channel_list = True
+        all_groups = []
     else:
         channels = Channel.objects.filter(owner=request.user).select_related('channel_group').order_by('-created_at')
         team_channel_list = False
+        all_groups = list(
+            ChannelGroup.objects.filter(owner=request.user).prefetch_related('channels').order_by('name', 'pk')
+        )
+    ch_list = list(channels)
+    grouped_channels = []
+    ungrouped_channels = []
+    if not team_channel_list and all_groups:
+        in_group_ids = set()
+        for g in all_groups:
+            members = [c for c in ch_list if c.channel_group_id == g.pk]
+            grouped_channels.append({'group': g, 'channels': members})
+            in_group_ids.update(c.pk for c in members)
+        ungrouped_channels = [c for c in ch_list if c.pk not in in_group_ids]
     return render(request, 'channels/list.html', {
-        'channels': channels,
+        'channels': ch_list,
+        'grouped_channels': grouped_channels,
+        'ungrouped_channels': ungrouped_channels,
+        'all_groups': all_groups,
         'team_channel_list': team_channel_list,
     })
 
@@ -441,6 +458,61 @@ def channel_group_create(request):
             return redirect('channels:list')
 
     return render(request, 'channels/group_create.html', {'next': next_url})
+
+
+@login_required
+def channel_group_edit(request, pk):
+    if _team_channel_editor_user(request.user):
+        messages.error(request, 'Редактировать группы может только владелец аккаунта.')
+        return redirect('channels:list')
+    group = get_object_or_404(ChannelGroup, pk=pk, owner=request.user)
+    if request.method == 'POST':
+        name = (request.POST.get('name') or '').strip()
+        if not name:
+            messages.error(request, 'Укажите название группы.')
+        else:
+            group.name = name
+            group.save(update_fields=['name'])
+            messages.success(request, f'Группа «{name}» сохранена.')
+            return redirect('channels:list')
+    return render(request, 'channels/group_edit.html', {'group': group})
+
+
+@login_required
+@require_POST
+def channel_group_delete(request, pk):
+    if _team_channel_editor_user(request.user):
+        messages.error(request, 'Удалять группы может только владелец аккаунта.')
+        return redirect('channels:list')
+    group = get_object_or_404(ChannelGroup, pk=pk, owner=request.user)
+    if group.channels.exists():
+        messages.error(
+            request,
+            'Нельзя удалить группу, пока в неё входят каналы. Сначала переназначьте или снимите группу у каждого канала.',
+        )
+        return redirect('channels:list')
+    name = group.name
+    group.delete()
+    messages.success(request, f'Группа «{name}» удалена.')
+    return redirect('channels:list')
+
+
+@login_required
+@require_POST
+def channel_set_group(request, pk):
+    if _team_channel_editor_user(request.user):
+        messages.error(request, 'Назначать группу может только владелец аккаунта.')
+        return redirect('channels:list')
+    channel = get_object_or_404(Channel, pk=pk, owner=request.user)
+    cg_raw = (request.POST.get('channel_group_id') or '').strip()
+    if cg_raw == '' or cg_raw == '__none__':
+        channel.channel_group = None
+    elif cg_raw.isdigit():
+        cg = ChannelGroup.objects.filter(pk=int(cg_raw), owner=request.user).first()
+        channel.channel_group = cg
+    channel.save(update_fields=['channel_group'])
+    messages.success(request, f'Группа для «{channel.name}» обновлена.')
+    return redirect('channels:list')
 
 
 @login_required

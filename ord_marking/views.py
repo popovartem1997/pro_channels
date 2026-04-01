@@ -21,38 +21,81 @@ def ord_create(request):
 
     if request.method == 'POST':
         post_id = request.POST.get('post_id')
-        channel_id = request.POST.get('channel_id')
+        channel_id = (request.POST.get('channel_id') or '').strip()
+        all_post_channels = request.POST.get('all_post_channels') == 'on'
         advertiser_id = request.POST.get('advertiser_id')
         label_text = request.POST.get('label_text', 'Реклама').strip() or 'Реклама'
 
-        post = get_object_or_404(Post, pk=post_id, author=request.user)
-        channel = get_object_or_404(Channel, pk=channel_id, owner=request.user)
+        post = get_object_or_404(
+            Post.objects.prefetch_related('channels'),
+            pk=post_id,
+            author=request.user,
+        )
+        post_channel_list = [c for c in post.channels.all() if c.owner_id == request.user.id]
+
         advertiser = None
         if advertiser_id:
             advertiser = Advertiser.objects.filter(pk=advertiser_id).first()
 
-        reg = ORDRegistration.objects.create(
-            post=post,
-            channel=channel,
-            advertiser=advertiser,
-            label_text=label_text,
-            status=ORDRegistration.STATUS_PENDING,
-        )
-        _try_register_ord(reg)
+        if all_post_channels:
+            targets = post_channel_list
+            if not targets:
+                messages.error(request, 'У поста нет привязанных каналов с вашим аккаунтом.')
+                return redirect('ord_marking:create')
+        else:
+            if not channel_id.isdigit():
+                messages.error(request, 'Выберите канал.')
+                return redirect('ord_marking:create')
+            channel = get_object_or_404(Channel, pk=int(channel_id), owner=request.user)
+            if channel not in post_channel_list:
+                messages.error(request, 'Выбранный канал не входит в этот пост. Сначала опубликуйте пост в нужный канал или выберите другой пост.')
+                return redirect('ord_marking:create')
+            targets = [channel]
 
-        messages.success(request, 'Регистрация ОРД создана.')
+        created = 0
+        for ch in targets:
+            if ORDRegistration.objects.filter(post=post, channel=ch).exists():
+                continue
+            reg = ORDRegistration.objects.create(
+                post=post,
+                channel=ch,
+                advertiser=advertiser,
+                label_text=label_text,
+                status=ORDRegistration.STATUS_PENDING,
+            )
+            _try_register_ord(reg)
+            created += 1
+
+        if created:
+            messages.success(request, f'Создано регистраций ОРД: {created}.')
+        else:
+            messages.info(request, 'Для выбранных каналов регистрации уже существуют.')
         return redirect('ord_marking:list')
 
-    from content.models import Post
-    from channels.models import Channel
-    from advertisers.models import Advertiser
-    posts = Post.objects.filter(author=request.user, status='published').order_by('-created_at')[:100]
-    channels = Channel.objects.filter(owner=request.user)
+    posts = (
+        Post.objects.filter(author=request.user, status=Post.STATUS_PUBLISHED)
+        .prefetch_related('channels')
+        .order_by('-created_at')[:100]
+    )
+    post_channels_map = {}
+    for p in posts:
+        post_channels_map[str(p.pk)] = [
+            {
+                'id': c.pk,
+                'name': c.name,
+                'platform': c.get_platform_display(),
+                'code': c.platform,
+            }
+            for c in p.channels.all().order_by('name')
+            if c.owner_id == request.user.id
+        ]
+    channels = Channel.objects.filter(owner=request.user).order_by('name')
     advertisers = Advertiser.objects.all()
     return render(request, 'ord_marking/create.html', {
         'posts': posts,
         'channels': channels,
         'advertisers': advertisers,
+        'post_channels_map': post_channels_map,
     })
 
 

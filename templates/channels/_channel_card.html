@@ -1,0 +1,56 @@
+{% load platform_icons %}
+<div class="col-12 col-md-6 col-xl-4">
+  <div class="card h-100">
+    <div class="card-body p-4 d-flex flex-column">
+      <div class="d-flex align-items-start justify-content-between mb-3">
+        <div class="d-flex align-items-center gap-2">
+          {% platform_badge channel.platform %}
+        </div>
+        <div class="d-flex align-items-center gap-1">
+          <span class="status-dot {% if channel.is_active %}published{% else %}draft{% endif %}"></span>
+          <span class="small text-muted">{% if channel.is_active %}Активен{% else %}Неактивен{% endif %}</span>
+        </div>
+      </div>
+
+      <h5 class="fw-bold mb-1">{{ channel.name }}</h5>
+      {% if channel.channel_group %}
+      <p class="small text-muted mb-2 mb-md-1">
+        <i class="bi bi-diagram-3 me-1"></i>{{ channel.channel_group.name }}
+      </p>
+      {% endif %}
+      <p class="text-muted small mb-3">
+        <i class="bi bi-people me-1"></i>
+        {{ channel.subscribers_count|default:"—" }}
+        {% if channel.subscribers_count %} подписчиков{% endif %}
+      </p>
+
+      <div class="d-flex gap-2 mt-auto flex-wrap">
+        <a href="{% url 'channels:detail' channel.pk %}" class="btn btn-outline-secondary btn-sm flex-grow-1">
+          <i class="bi bi-eye me-1"></i> Открыть
+        </a>
+        <a href="{% url 'channels:edit' channel.pk %}" class="btn btn-outline-primary btn-sm" title="{% if team_channel_list %}Подпись{% else %}Редактировать{% endif %}">
+          <i class="bi bi-pencil"></i>
+        </a>
+        {% if not team_channel_list %}
+        <a href="{% url 'channels:delete' channel.pk %}" class="btn btn-outline-danger btn-sm">
+          <i class="bi bi-trash"></i>
+        </a>
+        {% endif %}
+      </div>
+
+      {% if not team_channel_list and all_groups %}
+      <form method="post" action="{% url 'channels:set_group' channel.pk %}" class="mt-3 pt-3 border-top">
+        {% csrf_token %}
+        <label class="form-label small text-muted mb-1">Группа паблика</label>
+        <select name="channel_group_id" class="form-select form-select-sm" aria-label="Группа для {{ channel.name }}" onchange="this.form.submit()">
+          <option value="__none__" {% if not channel.channel_group_id %}selected{% endif %}>— без группы —</option>
+          {% for g in all_groups %}
+          <option value="{{ g.pk }}" {% if channel.channel_group_id == g.pk %}selected{% endif %}>{{ g.name }}</option>
+          {% endfor %}
+        </select>
+        <div class="form-text small">Сохраняется сразу при выборе</div>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>

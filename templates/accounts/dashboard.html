@@ -157,7 +157,7 @@
             <i class="bi bi-search me-2"></i> Настроить парсинг
           </a>
           {% if pending_count %}
-          <a href="{% url 'bots:list' %}" class="btn btn-warning btn-sm text-start">
+          <a href="{% url 'core:feed' %}?kind=subscriber&amp;status=pending" class="btn btn-warning btn-sm text-start">
             <i class="bi bi-hourglass-split me-2"></i>
             Модерировать предложения ({{ pending_count }})
           </a>

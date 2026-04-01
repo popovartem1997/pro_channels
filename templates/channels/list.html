@@ -7,7 +7,7 @@
   <div>
     <h1><i class="bi bi-broadcast me-2" style="color:var(--brand)"></i>Каналы</h1>
     <p class="text-muted small mb-0">
-      {% if team_channel_list %}Каналы вашей команды: можно менять только подпись к постам.{% else %}Управляйте подключёнными каналами и страницами{% endif %}
+      {% if team_channel_list %}Каналы вашей команды: можно менять только подпись к постам.{% else %}Управляйте подключёнными каналами и страницами. Группы объединяют один паблик в разных соцсетях.{% endif %}
     </p>
   </div>
   {% if not team_channel_list %}
@@ -23,52 +23,55 @@
 </div>
 
 {% if channels %}
-<div class="row g-3">
-  {% for channel in channels %}
-  <div class="col-12 col-md-6 col-xl-4">
-    <div class="card h-100">
-      <div class="card-body p-4">
-        <div class="d-flex align-items-start justify-content-between mb-3">
-          <div class="d-flex align-items-center gap-2">
-            {% platform_badge channel.platform %}
-          </div>
-          <div class="d-flex align-items-center gap-1">
-            <span class="status-dot {% if channel.is_active %}published{% else %}draft{% endif %}"></span>
-            <span class="small text-muted">{% if channel.is_active %}Активен{% else %}Неактивен{% endif %}</span>
-          </div>
-        </div>
-
-        <h5 class="fw-bold mb-1">{{ channel.name }}</h5>
-        {% if channel.channel_group %}
-        <p class="small text-muted mb-2 mb-md-1">
-          <i class="bi bi-diagram-3 me-1"></i>{{ channel.channel_group.name }}
-        </p>
-        {% endif %}
-        <p class="text-muted small mb-3">
-          <i class="bi bi-people me-1"></i>
-          {{ channel.subscribers_count|default:"—" }}
-          {% if channel.subscribers_count %} подписчиков{% endif %}
-        </p>
-
-        <div class="d-flex gap-2 mt-auto">
-          <a href="{% url 'channels:detail' channel.pk %}" class="btn btn-outline-secondary btn-sm flex-grow-1">
-            <i class="bi bi-eye me-1"></i> Открыть
+  {% if not team_channel_list and grouped_channels %}
+    {% for block in grouped_channels %}
+    <div class="mb-4">
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+        <h6 class="fw-bold mb-0"><i class="bi bi-diagram-3 me-2 text-secondary"></i>{{ block.group.name }}</h6>
+        <div class="d-flex flex-wrap gap-2">
+          <a href="{% url 'channels:group_edit' block.group.pk %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-pencil me-1"></i> Изменить название
           </a>
-          <a href="{% url 'channels:edit' channel.pk %}" class="btn btn-outline-primary btn-sm" title="{% if team_channel_list %}Подпись{% else %}Редактировать{% endif %}">
-            <i class="bi bi-pencil"></i>
-          </a>
-          {% if not team_channel_list %}
-          <a href="{% url 'channels:delete' channel.pk %}" class="btn btn-outline-danger btn-sm">
-            <i class="bi bi-trash"></i>
-          </a>
+          {% if not block.channels %}
+          <form method="post" action="{% url 'channels:group_delete' block.group.pk %}" class="d-inline"
+                onsubmit="return confirm('Удалить пустую группу «{{ block.group.name }}»?');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline-danger">
+              <i class="bi bi-trash me-1"></i> Удалить группу
+            </button>
+          </form>
           {% endif %}
         </div>
       </div>
+      <div class="row g-3">
+        {% for channel in block.channels %}
+          {% include 'channels/_channel_card.html' %}
+        {% empty %}
+        <div class="col-12">
+          <p class="text-muted small mb-0">В группе пока нет каналов — выберите эту группу в выпадающем списке на карточке канала ниже.</p>
+        </div>
+        {% endfor %}
+      </div>
     </div>
-  </div>
-  {% endfor %}
-</div>
+    {% endfor %}
 
+    {% if ungrouped_channels %}
+    <div class="mb-2">
+      <h6 class="fw-bold mb-3"><i class="bi bi-grid me-2 text-secondary"></i>Без группы</h6>
+      <div class="row g-3">
+        {% for channel in ungrouped_channels %}
+          {% include 'channels/_channel_card.html' %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  {% else %}
+  <div class="row g-3">
+    {% for channel in channels %}
+      {% include 'channels/_channel_card.html' %}
+    {% endfor %}
+  </div>
+  {% endif %}
 {% else %}
 <div class="card">
   <div class="card-body text-center py-5">

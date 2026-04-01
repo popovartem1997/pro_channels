@@ -731,10 +731,14 @@ def item_skip(request, pk):
     """Отметить найденный материал как пропущенный/игнорируемый."""
     item = get_object_or_404(_parsed_items_base_qs(request.user), pk=pk)
     scope = _get_parse_scope(request)
-    if request.method == 'POST':
-        item.status = ParsedItem.STATUS_IGNORED
-        item.save(update_fields=['status'])
-        messages.info(request, 'Материал помечен как пропущенный.')
+    if request.method != 'POST':
+        return redirect(_parse_url('parsing:items', scope))
+    item.status = ParsedItem.STATUS_IGNORED
+    item.save(update_fields=['status'])
+    wants_json = request.POST.get('ajax') == '1' or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    if wants_json:
+        return JsonResponse({'ok': True, 'id': item.pk})
+    messages.info(request, 'Материал помечен как пропущенный.')
     return redirect(_parse_url('parsing:items', scope))
 
 

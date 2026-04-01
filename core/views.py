@@ -165,8 +165,28 @@ def audit_log(request):
         .order_by('ip')[:200]
     )
 
-    audit = audit_qs.order_by('-created_at')[:500]
-    visits = visits_qs.order_by('-created_at')[:500]
+    audit_qs = audit_qs.order_by('-created_at')
+    visits_qs = visits_qs.order_by('-created_at')
+
+    try:
+        audit_per_page = int((request.GET.get('audit_per_page') or '').strip() or 40)
+    except Exception:
+        audit_per_page = 40
+    audit_per_page = max(10, min(audit_per_page, 200))
+    try:
+        visit_per_page = int((request.GET.get('visit_per_page') or '').strip() or 40)
+    except Exception:
+        visit_per_page = 40
+    visit_per_page = max(10, min(visit_per_page, 200))
+
+    audit_page = (request.GET.get('audit_page') or '').strip() or '1'
+    visit_page = (request.GET.get('visit_page') or '').strip() or '1'
+    audit_paginator = Paginator(audit_qs, audit_per_page)
+    visit_paginator = Paginator(visits_qs, visit_per_page)
+    audit_page_obj = audit_paginator.get_page(audit_page)
+    visit_page_obj = visit_paginator.get_page(visit_page)
+    audit = list(audit_page_obj.object_list)
+    visits = list(visit_page_obj.object_list)
 
     # Enrich page visits with resolved route name (best effort)
     from django.urls import resolve, Resolver404
@@ -189,6 +209,18 @@ def audit_log(request):
             'view_name': _resolve_name(v.path),
         })
 
+    def _audit_base_qs():
+        q = {}
+        for k, v in request.GET.items():
+            if k in ('audit_page', 'visit_page', 'audit_per_page', 'visit_per_page'):
+                continue
+            if v is None or str(v).strip() == '':
+                continue
+            q[k] = v
+        return urlencode(q)
+
+    audit_base_qs = _audit_base_qs()
+
     return render(request, 'core/audit_log.html', {
         'audit': audit,
         'visits_enriched': visits_enriched,
@@ -197,6 +229,13 @@ def audit_log(request):
         'object_type_choices': object_type_choices,
         'path_choices': path_choices,
         'ip_choices': ip_choices,
+        'audit_page_obj': audit_page_obj,
+        'audit_paginator': audit_paginator,
+        'visit_page_obj': visit_page_obj,
+        'visit_paginator': visit_paginator,
+        'audit_per_page': audit_per_page,
+        'visit_per_page': visit_per_page,
+        'audit_base_qs': audit_base_qs,
         'filters': {
             'action': q_action,
             'actor': q_actor,
