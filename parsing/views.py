@@ -381,8 +381,14 @@ def source_create(request):
                 messages.error(request, 'Группа не найдена.')
                 return redirect(_parse_url('parsing:source_create', scope))
 
-            # группа должна пересекаться с текущей видимостью
-            anchor = allowed_channels.filter(channel_group=group).order_by('pk').first()
+            # группа должна пересекаться с текущей видимостью.
+            # MAX/Instagram не парсим — якорный канал берём только из поддерживаемых для парсинга публикаций.
+            anchor = (
+                allowed_channels.filter(channel_group=group)
+                .exclude(platform__in=(Channel.PLATFORM_MAX, Channel.PLATFORM_INSTAGRAM))
+                .order_by('pk')
+                .first()
+            )
             if not anchor:
                 messages.error(request, 'Эта группа недоступна в текущем фильтре.')
                 return redirect(_parse_url('parsing:source_create', scope))
@@ -453,9 +459,12 @@ def keyword_create(request):
                 messages.error(request, 'Группа не найдена.')
                 return redirect(_parse_url('parsing:keyword_create', scope))
 
+            # Ключевики создаём только для каналов, которые реально участвуют в парсинге
+            # (MAX/Instagram не парсим, но при создании поста всё равно выделим всю группу).
             group_channels = list(
                 channels_in_scope.select_related('channel_group')
                 .filter(channel_group=group)
+                .exclude(platform__in=(Channel.PLATFORM_MAX, Channel.PLATFORM_INSTAGRAM))
                 .values_list('pk', flat=True)
             )
             if not group_channels:
