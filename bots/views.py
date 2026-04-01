@@ -433,7 +433,63 @@ def bot_detail(request, bot_id):
     return render(request, 'bots/detail.html', {
         'bot': bot,
         'recent_suggestions': recent_suggestions,
+        'can_manage_bot': _can_manage_bot_by_channel(request.user, bot),
     })
+
+
+@login_required
+@require_POST
+def telegram_webhook_setup(request, bot_id: int):
+    """
+    Настраивает webhook для конкретного Telegram-бота клиента.
+    Клиенту достаточно нажать кнопку в интерфейсе — сервер сам вызовет setWebhook.
+    """
+    from django.conf import settings
+    from django.urls import reverse
+    import secrets
+    import requests
+
+    bot = get_object_or_404(SuggestionBot, pk=bot_id)
+    if not _can_manage_bot_by_channel(request.user, bot):
+        return HttpResponse(status=403)
+    if bot.platform != SuggestionBot.PLATFORM_TELEGRAM:
+        return HttpResponse(status=400)
+
+    site_url = (getattr(settings, 'SITE_URL', '') or '').rstrip('/')
+    if not site_url:
+        messages.error(request, 'SITE_URL не задан. Укажите публичный https URL сайта в настройках сервера.')
+        return redirect('bots:detail', bot_id=bot.pk)
+    if not site_url.startswith('https://'):
+        messages.error(request, 'SITE_URL должен начинаться с https:// (Telegram требует HTTPS для webhook).')
+        return redirect('bots:detail', bot_id=bot.pk)
+
+    webhook_url = site_url + reverse('bots:telegram_webhook', kwargs={'bot_id': bot.pk})
+    secret = secrets.token_urlsafe(32)
+
+    try:
+        token = bot.get_token()
+        resp = requests.post(
+            f'https://api.telegram.org/bot{token}/setWebhook',
+            json={
+                'url': webhook_url,
+                'secret_token': secret,
+                'drop_pending_updates': True,
+            },
+            timeout=15,
+        )
+        data = resp.json()
+        if not data.get('ok'):
+            raise ValueError(data.get('description', 'Telegram error'))
+    except Exception as e:
+        messages.error(request, f'Не удалось установить webhook: {e}')
+        return redirect('bots:detail', bot_id=bot.pk)
+
+    # Save secret only after successful setWebhook
+    bot.webhook_secret = secret
+    bot.save(update_fields=['webhook_secret'])
+
+    messages.success(request, 'Webhook установлен. Теперь напишите боту любое сообщение для проверки.')
+    return redirect('bots:detail', bot_id=bot.pk)
 
 
 @login_required

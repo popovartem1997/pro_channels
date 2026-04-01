@@ -17,6 +17,9 @@ urlpatterns = [
     path('conversations/', views.conversations_list, name='conversations'),
     path('conversations/<int:pk>/', views.conversation_detail, name='conversation_detail'),
 
+    # Telegram webhook setup (server-side)
+    path('<int:bot_id>/telegram/setup-webhook/', views.telegram_webhook_setup, name='telegram_webhook_setup'),
+
     # Webhooks
     path('webhook/telegram/<int:bot_id>/', views.telegram_webhook, name='telegram_webhook'),
     path('webhook/vk/<int:bot_id>/', views.vk_webhook, name='vk_webhook'),

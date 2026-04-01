@@ -56,6 +56,12 @@ class SuggestionBot(models.Model):
         verbose_name='ID чата для модерации (Telegram)',
         help_text='Chat ID группы или канала, куда будут приходить заявки с кнопками'
     )
+    webhook_secret = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name='Webhook secret (Telegram)',
+        help_text='Секретный токен для заголовка X-Telegram-Bot-Api-Secret-Token (настраивается при setWebhook).',
+    )
     notify_owner = models.BooleanField(
         default=True,
         verbose_name='Уведомлять владельца (если привязан Telegram ID)',

@@ -57,6 +57,17 @@
             Чтобы бот начал принимать сообщения, Telegram должен отправлять обновления на наш webhook.
             На локальном <code>127.0.0.1</code> это не работает — нужен публичный домен/туннель.
           </p>
+          {% if can_manage_bot %}
+          <form method="post" action="{% url 'bots:telegram_webhook_setup' bot.pk %}" class="mb-3">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-brand w-100">
+              <i class="bi bi-link-45deg me-1"></i> Подключить webhook
+            </button>
+            <div class="form-text">
+              Нажмите один раз после того как домен и HTTPS работают. Токен бота в браузер не отправляется.
+            </div>
+          </form>
+          {% endif %}
           <div class="small mb-2"><b>Webhook URL</b></div>
           <div class="font-monospace small p-2 rounded border bg-light">
             {{ SITE_URL }}{% url 'bots:telegram_webhook' bot.pk %}
