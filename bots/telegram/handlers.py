@@ -13,6 +13,7 @@ Callback data формат (не более 64 байт — ограничени
   reject|<uuid>           — выбрать причину отклонения
   rr|<uuid>|<idx>         — подтвердить отклонение с причиной (rr = reject_reason)
 """
+import asyncio
 import html
 import logging
 import time
@@ -75,6 +76,93 @@ def _telegram_album_cache_append(full_key: str, part: dict, meta: dict, *, timeo
             return
         time.sleep(0.02)
     logger.warning('[TG] album cache append lock timeout key=%s', full_key)
+
+
+@sync_to_async
+def _django_cache_get(key: str):
+    from django.core.cache import cache
+
+    return cache.get(key)
+
+
+@sync_to_async
+def _django_cache_delete(key: str) -> None:
+    from django.core.cache import cache
+
+    cache.delete(key)
+
+
+@sync_to_async
+def _django_cache_add(key: str, val, timeout: int) -> bool:
+    from django.core.cache import cache
+
+    return bool(cache.add(key, val, timeout))
+
+
+async def _wait_and_flush_telegram_album(
+    context: ContextTypes.DEFAULT_TYPE,
+    bot_config,
+    full_key: str,
+    *,
+    fallback_chat_id: int,
+    fallback_user_id: int,
+    fallback_send_mode: bool,
+):
+    """
+    Webhook обрабатывается несколькими задачами Celery параллельно — ждём тишину после последнего
+    фото и оформляем одну заявку в ЭТОМ ЖЕ async-контексте (без отдельной отложенной задачи).
+    """
+    t0 = time.time()
+    while True:
+        await asyncio.sleep(0.45)
+        data = await _django_cache_get(full_key)
+        if not isinstance(data, dict):
+            return
+        meta = data.get('meta') or {}
+        last_ts = float(meta.get('_last_append_ts') or 0)
+        idle = time.time() - last_ts
+        elapsed = time.time() - t0
+        if idle >= 1.35 and elapsed >= 2.75:
+            break
+        if elapsed >= 12.0:
+            break
+
+    proc_key = full_key + ':processing'
+    got = await _django_cache_add(proc_key, 1, 180)
+    if not got:
+        logger.info('[TG] album: flush уже выполняет другой воркер %s', full_key)
+        return
+
+    try:
+        await asyncio.sleep(0.55)
+        data = await _django_cache_get(full_key)
+        if not isinstance(data, dict):
+            return
+        parts = data.get('parts') or data.get('messages') or []
+        meta = data.get('meta') or {}
+        if not isinstance(parts, list) or not parts:
+            logger.warning('[TG] album: после ожидания пустой буфер %s', full_key)
+            return
+
+        await _django_cache_delete(full_key)
+        await _django_cache_delete(full_key + ':sched')
+
+        chat_id = int(meta.get('chat_id') or fallback_chat_id)
+        user_id = int(meta.get('user_id') or fallback_user_id)
+        send_mode = bool(meta.get('send_mode', fallback_send_mode))
+
+        logger.info('[TG] album inline flush key=%s parts=%s', full_key, len(parts))
+        await flush_collected_telegram_album(
+            context.bot,
+            bot_config,
+            chat_id=chat_id,
+            user_id=user_id,
+            send_mode=send_mode,
+            msgs=list(parts),
+            meta=meta,
+        )
+    finally:
+        await _django_cache_delete(proc_key)
 
 
 def _schedule_telegram_album_flush(full_key: str, bot_id: int) -> None:
@@ -427,7 +515,20 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await message.reply_text('Не удалось принять фото. Попробуйте отправить ещё раз.')
                 return
             _telegram_album_cache_append(full_key, part, meta)
-            _schedule_telegram_album_flush(full_key, bot_config.id)
+            # run_polling: нельзя долго sleep в хендлере — вторая часть альбома не обработается.
+            # Webhook+Celery: апдейты параллельны — ждём тишину и flush здесь.
+            app = context.application
+            if getattr(app, 'running', False) and getattr(app, 'job_queue', None) is not None:
+                _schedule_telegram_album_flush(full_key, bot_config.id)
+            else:
+                await _wait_and_flush_telegram_album(
+                    context,
+                    bot_config,
+                    full_key,
+                    fallback_chat_id=int(update.effective_chat.id) if update.effective_chat else 0,
+                    fallback_user_id=int(user.id) if user else 0,
+                    fallback_send_mode=bool(send_mode),
+                )
             return
 
         # Определяем тип контента и собираем медиа-ID
