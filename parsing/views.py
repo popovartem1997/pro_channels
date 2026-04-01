@@ -174,6 +174,11 @@ def _parsing_template_extra(request, scope):
         'channel_groups': _parsing_groups_qs(request.user),
         'parse_scope': scope,
         'channels_in_scope': _channels_in_scope(request.user, scope),
+        'channel_groups_in_scope': _channels_in_scope(request.user, scope)
+        .exclude(channel_group__isnull=True)
+        .values('channel_group__pk', 'channel_group__name')
+        .distinct()
+        .order_by('channel_group__name'),
         'has_ungrouped_channels': _parsing_has_ungrouped_channels(request.user),
         'parse_chgroup_query_prefix': qprefix,
         'parsing_scope_query': scope_q,
@@ -354,32 +359,44 @@ def source_create(request):
         name = request.POST.get('name', '').strip()
         platform = request.POST.get('platform', '')
         source_id = request.POST.get('source_id', '').strip()
-        target_cid = (request.POST.get('channel_id') or '').strip()
+        target_gid = (request.POST.get('channel_group_id') or '').strip()
         if not all([name, platform, source_id]):
             messages.error(request, 'Заполните все поля.')
         else:
-            allowed_ids = set(channels_in_scope.values_list('pk', flat=True))
+            allowed_channels = channels_in_scope.select_related('channel_group')
+            allowed_ids = set(allowed_channels.values_list('pk', flat=True))
             if not allowed_ids:
                 messages.error(request, 'Нет доступных каналов в текущем фильтре.')
                 return redirect('parsing:sources')
-            if len(allowed_ids) == 1:
-                target_cid = str(next(iter(allowed_ids)))
-            if not target_cid.isdigit() or int(target_cid) not in allowed_ids:
-                messages.error(request, 'Выберите канал, к которому привязать источник.')
-                return redirect(_parse_url('parsing:source_create', scope))
             from channels.models import Channel
+            from channels.models import ChannelGroup
 
-            target_channel = Channel.objects.get(pk=int(target_cid))
-            data_owner = _parsing_data_owner(request.user, target_channel)
+            if not target_gid.isdigit():
+                messages.error(request, 'Выберите группу каналов (проект) для источника.')
+                return redirect(_parse_url('parsing:source_create', scope))
+
+            group = ChannelGroup.objects.filter(pk=int(target_gid)).first()
+            if not group:
+                messages.error(request, 'Группа не найдена.')
+                return redirect(_parse_url('parsing:source_create', scope))
+
+            # группа должна пересекаться с текущей видимостью
+            anchor = allowed_channels.filter(channel_group=group).order_by('pk').first()
+            if not anchor:
+                messages.error(request, 'Эта группа недоступна в текущем фильтре.')
+                return redirect(_parse_url('parsing:source_create', scope))
+
+            data_owner = _parsing_data_owner(request.user, anchor)
             ParseSource.objects.create(
                 owner=data_owner,
-                channel=target_channel,
+                channel=anchor,
+                channel_group=group,
                 name=name,
                 platform=platform,
                 source_id=source_id,
             )
             try:
-                _ensure_auto_parse_task(data_owner, target_channel)
+                _ensure_auto_parse_task(data_owner, anchor)
             except Exception:
                 pass
             messages.success(request, f'Источник "{name}" добавлен.')

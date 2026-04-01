@@ -57,6 +57,18 @@ PLATFORM_SVGS = {
         '1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>'
         '</svg>'
     ),
+    'dzen': (
+        '<svg width="14" height="14" viewBox="0 0 24 24">'
+        '<circle cx="12" cy="12" r="12" fill="#111827"/>'
+        '<text x="12" y="16.2" text-anchor="middle" font-family="Arial" font-weight="900" '
+        'font-size="12" fill="white">D</text>'
+        '</svg>'
+    ),
+    'rss': (
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="#F97316">'
+        '<path d="M6.18 17.82a1.64 1.64 0 1 1 0-3.28 1.64 1.64 0 0 1 0 3.28zM4 4.01v3.23c7.1 0 12.86 5.76 12.86 12.86h3.23C20.09 11.22 12.88 4.01 4 4.01zm0 6.46v3.23c3.53 0 6.4 2.87 6.4 6.4h3.23c0-5.32-4.31-9.63-9.63-9.63z"/>'
+        '</svg>'
+    ),
 }
 
 PLATFORM_NAMES = {
@@ -64,6 +76,8 @@ PLATFORM_NAMES = {
     'vk': 'ВКонтакте',
     'max': 'MAX',
     'instagram': 'Instagram',
+    'dzen': 'Дзен',
+    'rss': 'RSS',
 }
 
 PLATFORM_BADGE_COLORS = {
@@ -71,6 +85,8 @@ PLATFORM_BADGE_COLORS = {
     'vk': ('e8eaf6', '3949ab'),
     'max': ('fff3e0', 'e65100'),
     'instagram': ('fce4ec', 'c62828'),
+    'dzen': ('eef2ff', '111827'),
+    'rss': ('fff7ed', 'c2410c'),
 }
 
 

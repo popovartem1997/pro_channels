@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load platform_icons %}
 {% block title %}Парсинг — источники{% endblock %}
 
 {% block content %}
@@ -43,13 +44,16 @@
               <div class="fw-semibold small d-flex align-items-center gap-2 flex-wrap">
                 <span class="text-truncate">{{ source.name }}</span>
                 <span class="badge bg-secondary-subtle text-secondary rounded-pill flex-shrink-0">{{ source.keyword_count }}</span>
-                {% if source.channel %}
-                <span class="badge bg-light text-dark border flex-shrink-0">{{ source.channel.get_platform_display }}</span>
+                {% platform_badge source.platform %}
+                {% if source.channel_group %}
+                <span class="badge bg-light text-dark border flex-shrink-0"><i class="bi bi-diagram-3 me-1"></i>{{ source.channel_group.name }}</span>
                 {% endif %}
               </div>
               <div class="text-muted" style="font-size:.75rem;">{{ source.source_id }}</div>
-              {% if source.channel %}
-              <div class="text-muted small mt-1">Канал: {{ source.channel.name }}</div>
+              {% if source.channel_group %}
+              <div class="text-muted small mt-1">Публикация: {{ source.channel_group.name }}</div>
+              {% elif source.channel %}
+              <div class="text-muted small mt-1">Публикация: {{ source.channel.name }}</div>
               {% endif %}
               <div class="text-muted mt-1" style="font-size:.7rem;">
                 {% if source.last_parsed_at %}

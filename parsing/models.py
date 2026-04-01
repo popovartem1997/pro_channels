@@ -31,6 +31,14 @@ class ParseSource(models.Model):
         null=True, blank=True,
         related_name='parse_sources', verbose_name='Канал (куда парсим)'
     )
+    channel_group = models.ForeignKey(
+        'channels.ChannelGroup',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='parse_sources',
+        verbose_name='Группа каналов (проект)',
+    )
     platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES, verbose_name='Платформа')
     name = models.CharField(max_length=255, verbose_name='Название')
     source_id = models.CharField(max_length=255, verbose_name='ID / URL источника',

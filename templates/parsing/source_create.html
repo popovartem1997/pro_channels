@@ -19,14 +19,16 @@
           {% csrf_token %}
 
           <div class="mb-3">
-            <label class="form-label fw-semibold" for="id_channel_id">Канал публикации</label>
-            <select name="channel_id" id="id_channel_id" class="form-select" required>
-              <option value="">— Выберите канал —</option>
-              {% for ch in channels_in_scope %}
-              <option value="{{ ch.pk }}">{{ ch.name }} ({{ ch.get_platform_display }})</option>
+            <label class="form-label fw-semibold" for="id_channel_group_id">Проект (группа каналов)</label>
+            <select name="channel_group_id" id="id_channel_group_id" class="form-select" required>
+              <option value="">— Выберите группу —</option>
+              {% for g in channel_groups_in_scope %}
+              <option value="{{ g.channel_group__pk }}" {% if request.POST.channel_group_id == g.channel_group__pk|stringformat:"d" %}selected{% endif %}>
+                {{ g.channel_group__name }}
+              </option>
               {% endfor %}
             </select>
-            <div class="form-text">Источник привязывается к конкретному подключению (TG / VK / MAX и т.д.).</div>
+            <div class="form-text">Источник привязывается к проекту (группе), чтобы парсинг и фильтры работали для паблика целиком.</div>
           </div>
 
           <div class="mb-3">
@@ -78,14 +80,12 @@
   var hints = {
     telegram: 'Telegram: укажите <code>@username</code> канала (как в ссылке t.me/username) или публичную ссылку на канал. Нужна однократная авторизация Telethon в разделе «Парсинг» (владелец аккаунта).',
     vk: 'ВКонтакте: <code>club12345678</code>, короткое имя сообщества или числовой ID (с минусом для групп). В «Ключи API» должен быть токен парсинга VK.',
-    max: 'MAX: укажите <strong>числовой chat_id</strong> чата или канала, откуда читать сообщения. Бот предложки MAX должен быть <strong>добавлен в этот чат</strong> и привязан к тому же каналу публикации, что выбран для парсинга. Достаточно вставить строку, где есть этот номер (например из ссылки).',
     dzen: 'Дзен: полный URL страницы ленты или канала (как в браузере).',
     rss: 'RSS: полный URL файла ленты (<code>https://…/feed.xml</code>).'
   };
   var placeholders = {
     telegram: '@channel_name или https://t.me/channel_name',
     vk: 'club12345',
-    max: 'например 12345678901234',
     dzen: 'https://dzen.ru/…',
     rss: 'https://example.com/rss.xml'
   };
