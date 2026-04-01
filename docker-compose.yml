@@ -26,7 +26,8 @@ services:
     build: .
     env_file: .env
     ports:
-      - "127.0.0.1:8001:8000"
+      # Временно открываем web наружу по IP:8001 (пока домен/HTTPS в процессе настройки)
+      - "8001:8000"
     depends_on:
       db:
         condition: service_healthy
