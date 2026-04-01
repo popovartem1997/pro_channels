@@ -863,6 +863,7 @@ def _publish_max(post, channel):
     - Отправка сообщения: POST /messages?chat_id=...
     """
     import requests
+    import time
     bot_token = channel.get_max_token()
     channel_id = channel.max_channel_id
 
@@ -871,10 +872,72 @@ def _publish_max(post, channel):
 
     media_files = list(post.media_files.order_by('order', 'pk'))
 
-    # Пока отправляем стабильно текстом (как тестовая кнопка).
-    # MAX attachments отличаются от Telegram/VK, а локальные URLs файлов
-    # не всегда доступны MAX-серверам. Медиа добавим отдельным этапом.
-    _ = media_files  # silence "unused" intent-wise
+    def _upload_attachment(mf):
+        """
+        Загружает файл в MAX и возвращает attachment dict для /messages.
+        Документация: https://dev.max.ru/docs-api/methods/POST/uploads
+        """
+        mt = (getattr(mf, 'media_type', '') or '').strip().lower()
+        if mt == 'photo':
+            upload_type = 'image'
+            attachment_type = 'image'
+        elif mt == 'video':
+            upload_type = 'video'
+            attachment_type = 'video'
+        else:
+            upload_type = 'file'
+            attachment_type = 'file'
+
+        # 1) URL для загрузки
+        u = requests.post(
+            'https://platform-api.max.ru/uploads',
+            params={'type': upload_type},
+            headers={'Authorization': bot_token},
+            timeout=30,
+        )
+        try:
+            udata = u.json()
+        except Exception:
+            udata = {}
+        upload_url = udata.get('url') if isinstance(udata, dict) else None
+        if not upload_url:
+            raise ValueError(f'MAX upload: no url (type={upload_type}, http={u.status_code}): {udata or u.text}')
+
+        # 2) Multipart upload файла
+        try:
+            file_path = mf.file.path
+        except Exception:
+            file_path = ''
+        if not file_path:
+            raise ValueError('MAX upload: file path is empty')
+
+        with open(file_path, 'rb') as f:
+            r = requests.post(
+                upload_url,
+                headers={'Authorization': bot_token},
+                files={'data': f},
+                timeout=120,
+            )
+        try:
+            rdata = r.json()
+        except Exception:
+            rdata = {}
+        if r.status_code >= 400:
+            raise ValueError(f'MAX upload failed (type={upload_type}, http={r.status_code}): {rdata or r.text}')
+
+        # video/audio: payload = {token: "..."}
+        if upload_type in ('video', 'audio'):
+            tok = rdata.get('token') if isinstance(rdata, dict) else None
+            if not tok:
+                raise ValueError(f'MAX upload: no token (type={upload_type}): {rdata}')
+            payload = {'token': tok}
+        else:
+            # image/file: payload = full response JSON
+            if not isinstance(rdata, dict) or not rdata:
+                raise ValueError(f'MAX upload: empty payload (type={upload_type}): {rdata}')
+            payload = rdata
+
+        return {'type': attachment_type, 'payload': payload}
 
     chat_id_raw = str(channel_id).strip()
     try:
@@ -900,18 +963,33 @@ def _publish_max(post, channel):
 
     payload = {'text': max_text}
 
-    resp = requests.post(
-        'https://platform-api.max.ru/messages',
-        params={'chat_id': chat_id},
-        headers={'Authorization': bot_token, 'Content-Type': 'application/json; charset=utf-8'},
-        json=payload,
-        timeout=30,
-    )
-    # MAX API may return non-JSON or plain string error bodies.
-    try:
-        data = resp.json()
-    except Exception:
-        data = resp.text
+    # Медиа: загружаем в MAX и добавляем attachments (до 10)
+    attachments = []
+    for mf in media_files[:10]:
+        attachments.append(_upload_attachment(mf))
+    if attachments:
+        payload['attachments'] = attachments
+
+    # Отправка. В MAX вложения могут быть "не готовы" сразу после upload -> retry.
+    resp = None
+    data = None
+    for attempt in range(6):
+        resp = requests.post(
+            'https://platform-api.max.ru/messages',
+            params={'chat_id': chat_id},
+            headers={'Authorization': bot_token, 'Content-Type': 'application/json; charset=utf-8'},
+            json=payload,
+            timeout=30,
+        )
+        try:
+            data = resp.json()
+        except Exception:
+            data = resp.text
+
+        if isinstance(data, dict) and data.get('code') == 'attachment.not.ready':
+            time.sleep(min(10, 1 + attempt * 2))
+            continue
+        break
 
     if isinstance(data, dict):
         # Ошибка обычно имеет вид {"code":"...","message":"..."} + http>=400
