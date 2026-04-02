@@ -565,9 +565,63 @@ def _build_text(post, channel):
     return text
 
 
+def _tg_utf16_len(s: str) -> int:
+    """Длина строки в UTF-16 code units (как offset/length в Telegram MessageEntity)."""
+    if not s:
+        return 0
+    return len(s.encode('utf-16-le')) // 2
+
+
+def _tg_normalize_entities(entities) -> list:
+    """Приводим типы полей к ожиданиям Bot API (int / str)."""
+    out = []
+    for e in entities or []:
+        if not isinstance(e, dict):
+            continue
+        ne = {}
+        for k, v in e.items():
+            if k in ('offset', 'length'):
+                try:
+                    ne[k] = int(v)
+                except (TypeError, ValueError):
+                    ne[k] = 0
+            elif k == 'custom_emoji_id' and v is not None:
+                ne[k] = str(v)
+            else:
+                ne[k] = v
+        out.append(ne)
+    return out
+
+
+def _tg_shift_entities(entities: list, delta: int) -> list:
+    if not delta or not entities:
+        return list(entities)
+    out = []
+    for e in entities:
+        if not isinstance(e, dict):
+            continue
+        ne = dict(e)
+        ne['offset'] = int(ne.get('offset', 0)) + int(delta)
+        out.append(ne)
+    return out
+
+
+def _tg_footer_plain_from_html(tg_footer_html: str) -> str:
+    """Подпись канала для режима entities — только plain, без HTML-тегов в чате."""
+    from django.utils.html import strip_tags
+
+    t = (tg_footer_html or '').strip()
+    if not t:
+        return ''
+    plain = strip_tags(t).replace('\xa0', ' ')
+    return plain.strip()
+
+
 def _publish_telegram(post, channel):
     """Публикация в Telegram через Bot API."""
+    import json as json_module
     import requests
+
     bot_token = channel.get_tg_token()
     chat_id = channel.tg_chat_id
 
@@ -577,23 +631,37 @@ def _publish_telegram(post, channel):
     media_files = list(post.media_files.order_by('order', 'pk'))
     base_url = f'https://api.telegram.org/bot{bot_token}'
 
-    text = _build_text(post, channel)
+    raw_entities = getattr(post, 'tg_entities', None)
+    tg_entities_list = raw_entities if isinstance(raw_entities, list) else []
+    use_entities = bool(getattr(post, 'has_premium_emoji', False) and tg_entities_list)
 
-    kwargs = {
-        'chat_id': chat_id,
-        'disable_notification': post.disable_notification,
-        # По запросу: отключаем превью ссылок (web page preview) в Telegram
-        'disable_web_page_preview': True,
-    }
-
-    # TG Premium Emoji: если есть entities — отправляем их вместо parse_mode
-    if post.has_premium_emoji and post.tg_entities:
-        kwargs['entities'] = post.tg_entities
+    if use_entities:
+        # ВАЖНО: смещения entities привязаны к post.text из импорта, не к text_html.
+        # Если слать text_html + entities, API игнорирует custom_emoji / показывает «сырой» HTML.
+        text = post.text if post.text is not None else ''
+        entities = _tg_normalize_entities(tg_entities_list)
+        if post.ord_label:
+            prefix = f"{(post.ord_label or '').strip()}\n\n"
+            text = prefix + text
+            entities = _tg_shift_entities(entities, _tg_utf16_len(prefix))
+        elif (channel.tg_footer or '').strip():
+            footer = _tg_footer_plain_from_html(channel.tg_footer)
+            if footer:
+                text = f'{text}\n\n{footer}'
+        kwargs = {
+            'chat_id': chat_id,
+            'disable_notification': post.disable_notification,
+            'disable_web_page_preview': True,
+            'entities': entities,
+        }
     else:
-        kwargs['parse_mode'] = 'HTML'
-
-    import json as json_module
-    use_entities = post.has_premium_emoji and post.tg_entities
+        text = _build_text(post, channel)
+        kwargs = {
+            'chat_id': chat_id,
+            'disable_notification': post.disable_notification,
+            'disable_web_page_preview': True,
+            'parse_mode': 'HTML',
+        }
 
     if media_files:
         if len(media_files) == 1:
@@ -601,7 +669,7 @@ def _publish_telegram(post, channel):
             with open(mf.file.path, 'rb') as f:
                 send_data = {**kwargs, 'caption': text}
                 if use_entities:
-                    send_data['caption_entities'] = json_module.dumps(post.tg_entities)
+                    send_data['caption_entities'] = json_module.dumps(kwargs['entities'])
                     send_data.pop('entities', None)
                 if mf.media_type == 'photo':
                     resp = requests.post(f'{base_url}/sendPhoto', data=send_data, files={'photo': f})
@@ -622,7 +690,7 @@ def _publish_telegram(post, channel):
                         'caption': text if i == 0 else '',
                     }
                     if i == 0 and use_entities:
-                        item['caption_entities'] = post.tg_entities
+                        item['caption_entities'] = kwargs['entities']
                     elif i == 0:
                         item['parse_mode'] = 'HTML'
                     media.append(item)
@@ -635,13 +703,10 @@ def _publish_telegram(post, channel):
                     files=files
                 )
             finally:
-                for f in files.values():
-                    f.close()
+                for fp in files.values():
+                    fp.close()
     else:
-        if use_entities:
-            resp = requests.post(f'{base_url}/sendMessage', json={**kwargs, 'text': text})
-        else:
-            resp = requests.post(f'{base_url}/sendMessage', json={**kwargs, 'text': text})
+        resp = requests.post(f'{base_url}/sendMessage', json={**kwargs, 'text': text})
 
     data = resp.json()
     if not data.get('ok'):
