@@ -12,6 +12,30 @@ from . import vk_ord_client
 from .models import ORDRegistration
 
 
+def load_ord_catalog(bearer: str, *, use_sandbox: bool) -> dict:
+    """
+    Списки внешних id из кабинета ОРД (те же данные, что в ЛК ord.vk.com), по API.
+    """
+    out: dict = {'person_ids': [], 'contract_ids': [], 'pad_ids': [], 'catalog_error': None}
+    if not (bearer or '').strip():
+        return out
+    try:
+        out['person_ids'] = vk_ord_client.list_v1_entity_external_ids(
+            bearer, 'person', limit=400, use_sandbox=use_sandbox
+        )
+        out['contract_ids'] = vk_ord_client.list_v1_entity_external_ids(
+            bearer, 'contract', limit=400, use_sandbox=use_sandbox
+        )
+        out['pad_ids'] = vk_ord_client.list_v1_entity_external_ids(
+            bearer, 'pad', limit=400, use_sandbox=use_sandbox
+        )
+    except vk_ord_client.OrdVkApiError as e:
+        out['catalog_error'] = str(e)
+    except Exception as e:
+        out['catalog_error'] = str(e)
+    return out
+
+
 def creative_external_id_for(post_id: int, channel_id: int) -> str:
     return f'pc-p{post_id}-c{channel_id}'
 

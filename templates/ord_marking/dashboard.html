@@ -33,8 +33,9 @@
         <p class="small text-muted mb-0">Площадка по умолчанию: <code>{{ pad_hint }}</code></p>
         {% endif %}
         <p class="small text-muted mt-2 mb-0">
-          У рекламодателя можно указать <b>внешний ID контрагента</b> в ОРД при регистрации или вручную в форме.
-          У канала — <b>ID площадки</b> для отправки статистики показов.
+          Контрагенты и договоры из ЛК ОРД подгружаются в формы (API <code>GET /v1/person</code>, <code>/v1/contract</code>, <code>/v1/pad</code>).
+          В карточке маркировки есть кнопка <b>«Редактировать договор и контрагента»</b>.
+          У рекламодателя в нашей базе можно хранить <b>внешний ID person</b>; у канала — <b>pad</b> для статистики.
         </p>
       </div>
     </div>
@@ -90,7 +91,10 @@
             </span>
           </td>
           <td class="text-end pe-4">
-            <a href="{% url 'ord_marking:detail' r.pk %}" class="btn btn-sm btn-outline-primary">Открыть</a>
+            <div class="btn-group btn-group-sm">
+              <a href="{% url 'ord_marking:detail' r.pk %}" class="btn btn-outline-primary">Открыть</a>
+              <a href="{% url 'ord_marking:edit' r.pk %}" class="btn btn-outline-secondary" title="Договор, контрагент, площадка">Правка ОРД</a>
+            </div>
           </td>
         </tr>
         {% empty %}

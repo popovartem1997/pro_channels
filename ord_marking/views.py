@@ -11,6 +11,7 @@ from .services import (
     refresh_erid_from_api,
     submit_statistics_for_month,
     creative_external_id_for,
+    load_ord_catalog,
 )
 
 
@@ -144,6 +145,8 @@ def ord_create(request):
     channels = Channel.objects.filter(owner=request.user).order_by('name')
     advertisers = Advertiser.objects.all().order_by('company_name')
     keys, sandbox = _ord_keys_flags()
+    bearer = (keys.get_vk_ord_access_token() or '').strip()
+    catalog = load_ord_catalog(bearer, use_sandbox=sandbox) if bearer else {}
     return render(
         request,
         'ord_marking/create.html',
@@ -155,6 +158,63 @@ def ord_create(request):
             'default_contract': (keys.vk_ord_contract_external_id or '').strip(),
             'default_pad': (keys.vk_ord_pad_external_id or '').strip(),
             'sandbox': sandbox,
+            'token_set': bool(bearer),
+            **catalog,
+        },
+    )
+
+
+@login_required
+def ord_edit(request, pk):
+    """Изменить договор / контрагента / площадку и при необходимости снова отправить креатив в ОРД."""
+    from advertisers.models import Advertiser
+
+    reg = get_object_or_404(
+        ORDRegistration.objects.select_related('post', 'channel', 'advertiser'),
+        pk=pk,
+        post__author=request.user,
+    )
+    keys, sandbox = _ord_keys_flags()
+    bearer = (keys.get_vk_ord_access_token() or '').strip()
+    catalog = load_ord_catalog(bearer, use_sandbox=sandbox) if bearer else {}
+
+    if request.method == 'POST':
+        reg.contract_external_id = (request.POST.get('contract_external_id') or '').strip()
+        reg.person_external_id = (request.POST.get('person_external_id') or '').strip()
+        reg.pad_external_id = (request.POST.get('pad_external_id') or '').strip()
+        reg.label_text = (request.POST.get('label_text') or reg.label_text or 'Реклама').strip() or 'Реклама'
+        aid = (request.POST.get('advertiser_id') or '').strip()
+        if aid.isdigit():
+            reg.advertiser = Advertiser.objects.filter(pk=int(aid)).first()
+        else:
+            reg.advertiser = None
+        reg.save()
+
+        if request.POST.get('reregister') == 'on':
+            if not bearer:
+                messages.error(request, 'Нет ключа API ОРД — повторная регистрация невозможна.')
+            else:
+                register_creative_for_registration(reg, use_sandbox=sandbox)
+                if reg.status == ORDRegistration.STATUS_REGISTERED:
+                    messages.success(request, f'Креатив обновлён в ОРД. ERID: {reg.erid or reg.ord_token}')
+                else:
+                    messages.error(request, reg.error_message or 'Ошибка регистрации в ОРД')
+        else:
+            messages.success(request, 'Параметры маркировки сохранены.')
+        return redirect('ord_marking:detail', pk=pk)
+
+    advertisers = Advertiser.objects.all().order_by('company_name')
+    return render(
+        request,
+        'ord_marking/edit.html',
+        {
+            'reg': reg,
+            'sandbox': sandbox,
+            'token_set': bool(bearer),
+            'default_contract': (keys.vk_ord_contract_external_id or '').strip(),
+            'default_pad': (keys.vk_ord_pad_external_id or '').strip(),
+            'advertisers': advertisers,
+            **catalog,
         },
     )
 
@@ -168,6 +228,21 @@ def ord_detail(request, pk):
     )
     keys, sandbox = _ord_keys_flags()
     ext = (reg.creative_external_id or '').strip() or creative_external_id_for(reg.post_id, reg.channel_id)
+    person_eff = (reg.person_external_id or '').strip()
+    if not person_eff and reg.advertiser_id:
+        from advertisers.models import Advertiser
+
+        try:
+            adv = Advertiser.objects.get(pk=reg.advertiser_id)
+            person_eff = (adv.ord_person_external_id or '').strip()
+        except Advertiser.DoesNotExist:
+            pass
+    contract_eff = (reg.contract_external_id or '').strip() or (keys.vk_ord_contract_external_id or '').strip()
+    pad_eff = (
+        (reg.pad_external_id or '').strip()
+        or (reg.channel.ord_pad_external_id or '').strip()
+        or (keys.vk_ord_pad_external_id or '').strip()
+    )
     return render(
         request,
         'ord_marking/detail.html',
@@ -176,6 +251,9 @@ def ord_detail(request, pk):
             'creative_external_id': ext,
             'sandbox': sandbox,
             'token_set': bool((keys.get_vk_ord_access_token() or '').strip()),
+            'person_effective': person_eff,
+            'contract_effective': contract_eff,
+            'pad_effective': pad_eff,
         },
     )
 

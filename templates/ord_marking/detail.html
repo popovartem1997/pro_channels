@@ -6,8 +6,15 @@
   <a href="{% url 'ord_marking:dashboard' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
     <i class="bi bi-arrow-left me-1"></i> К маркировке
   </a>
-  <h1>Маркировка · пост #{{ reg.post.pk }}</h1>
-  <p class="text-muted small mb-0">{{ reg.channel.name }} · {{ reg.channel.get_platform_display }}</p>
+  <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+    <div>
+      <h1 class="mb-0">Маркировка · пост #{{ reg.post.pk }}</h1>
+      <p class="text-muted small mb-0">{{ reg.channel.name }} · {{ reg.channel.get_platform_display }}</p>
+    </div>
+    <a href="{% url 'ord_marking:edit' reg.pk %}" class="btn btn-outline-primary btn-sm flex-shrink-0">
+      <i class="bi bi-pencil-square me-1"></i> Редактировать договор и контрагента
+    </a>
+  </div>
 </div>
 
 <div class="row g-3">
@@ -28,6 +35,16 @@
         {% endif %}
 
         <hr class="my-4">
+        <h6 class="fw-bold mb-2">Договор и контрагент (для ОРД)</h6>
+        <p class="small text-muted mb-2">Итоговые значения для регистрации креатива (с учётом ключей API и карточки рекламодателя).</p>
+        <dl class="row small mb-3">
+          <dt class="col-sm-4 text-muted">Контрагент (person)</dt>
+          <dd class="col-sm-8 font-monospace">{% if person_effective %}{{ person_effective }}{% else %}<span class="text-warning">не задан</span>{% endif %}</dd>
+          <dt class="col-sm-4 text-muted">Договор (contract)</dt>
+          <dd class="col-sm-8 font-monospace">{% if contract_effective %}{{ contract_effective }}{% else %}—{% endif %}</dd>
+          <dt class="col-sm-4 text-muted">Площадка (pad)</dt>
+          <dd class="col-sm-8 font-monospace">{% if pad_effective %}{{ pad_effective }}{% else %}<span class="text-warning">не задан</span>{% endif %}</dd>
+        </dl>
         <h6 class="fw-bold mb-2">Технические идентификаторы</h6>
         <dl class="row small mb-0">
           <dt class="col-sm-4 text-muted">Внешний ID креатива</dt>

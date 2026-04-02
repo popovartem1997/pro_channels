@@ -7,6 +7,7 @@ urlpatterns = [
     path('', views.ord_dashboard, name='list'),
     path('dashboard/', views.ord_dashboard, name='dashboard'),
     path('create/', views.ord_create, name='create'),
+    path('<int:pk>/edit/', views.ord_edit, name='edit'),
     path('<int:pk>/', views.ord_detail, name='detail'),
     path('<int:pk>/retry/', views.ord_retry, name='retry'),
     path('<int:pk>/refresh-erid/', views.ord_refresh_erid, name='refresh_erid'),

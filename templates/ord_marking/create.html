@@ -17,6 +17,17 @@
         <form method="post" id="ord-create-form">
           {% csrf_token %}
 
+          {% if catalog_error %}
+          <div class="alert alert-warning small">
+            <b>Списки из ОРД не загрузились:</b> {{ catalog_error }}
+            <div class="mb-0 mt-1">Введите внешние id вручную — как в <a href="https://ord.vk.com" target="_blank" rel="noopener">ord.vk.com</a>.</div>
+          </div>
+          {% elif token_set %}
+          <div class="alert alert-info small py-2">
+            В полях договора / контрагента / площадки доступны <b>подсказки</b> из API ОРД (<code>GET /v1/person</code>, <code>/v1/contract</code>, <code>/v1/pad</code>).
+          </div>
+          {% endif %}
+
           <div class="mb-3">
             <label class="form-label fw-semibold">Пост <span class="text-danger">*</span></label>
             <select name="post_id" id="id_post_id" class="form-select" required>
@@ -67,15 +78,18 @@
           <h6 class="fw-bold small text-muted text-uppercase mt-4 mb-2">Переопределение ОРД (необязательно)</h6>
           <div class="mb-2">
             <label class="form-label small fw-semibold">Внешний ID договора</label>
-            <input type="text" name="contract_external_id" class="form-control form-control-sm font-monospace" value="{{ default_contract }}" placeholder="Из кабинета ord.vk.com">
+            <input list="ord-contract-ids" type="text" name="contract_external_id" class="form-control form-control-sm font-monospace" value="{{ default_contract }}" placeholder="Из кабинета ord.vk.com">
+            <datalist id="ord-contract-ids">{% for x in contract_ids %}<option value="{{ x }}">{% endfor %}</datalist>
           </div>
           <div class="mb-2">
             <label class="form-label small fw-semibold">Внешний ID площадки (для статистики)</label>
-            <input type="text" name="pad_external_id" class="form-control form-control-sm font-monospace" value="{{ default_pad }}" placeholder="Или задайте в канале">
+            <input list="ord-pad-ids" type="text" name="pad_external_id" class="form-control form-control-sm font-monospace" value="{{ default_pad }}" placeholder="Или задайте в канале">
+            <datalist id="ord-pad-ids">{% for x in pad_ids %}<option value="{{ x }}">{% endfor %}</datalist>
           </div>
           <div class="mb-3">
             <label class="form-label small fw-semibold">Внешний ID контрагента (person)</label>
-            <input type="text" name="person_external_id" class="form-control form-control-sm font-monospace" placeholder="Если не берём из карточки рекламодателя">
+            <input list="ord-person-ids" type="text" name="person_external_id" class="form-control form-control-sm font-monospace" placeholder="Если не берём из карточки рекламодателя">
+            <datalist id="ord-person-ids">{% for x in person_ids %}<option value="{{ x }}">{% endfor %}</datalist>
           </div>
 
           <div class="mb-4">

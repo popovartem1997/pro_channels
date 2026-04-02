@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+{% block title %}Редактировать маркировку · пост #{{ reg.post.pk }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'ord_marking:detail' reg.pk %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К карточке маркировки
+  </a>
+  <h1>Редактировать маркировку</h1>
+  <p class="text-muted small mb-0">Пост #{{ reg.post.pk }} · {{ reg.channel.name }} · {{ reg.channel.get_platform_display }}
+    {% if sandbox %}<span class="badge bg-warning text-dark ms-1">Песочница</span>{% endif %}
+  </p>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-8">
+    {% if catalog_error %}
+    <div class="alert alert-warning small">
+      <b>Не удалось загрузить списки из ОРД:</b> {{ catalog_error }}
+      <div class="mt-1 mb-0">Можно ввести внешние ID вручную (как в кабинете <a href="https://ord.vk.com" target="_blank" rel="noopener">ord.vk.com</a>).</div>
+    </div>
+    {% elif token_set and not catalog_error %}
+    <div class="alert alert-info small py-2 mb-3">
+      Подсказки в полях — это <b>внешние id</b> из вашего кабинета ОРД VK (<code>GET /v1/person</code>, <code>/v1/contract</code>, <code>/v1/pad</code>). Если списки пустые, объекты ещё не созданы в ОРД или ключ привязан к другому кабинету.
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <div class="card-body p-4">
+        <form method="post">
+          {% csrf_token %}
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Рекламодатель (наш каталог)</label>
+            <select name="advertiser_id" class="form-select">
+              <option value="">— Не указан —</option>
+              {% for adv in advertisers %}
+              <option value="{{ adv.pk }}" {% if reg.advertiser_id == adv.pk %}selected{% endif %}>{{ adv.company_name }} (ИНН {{ adv.inn }})</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Если в карточке рекламодателя задан внешний ID person в ОРД — он используется, пока поле «Контрагент ОРД» ниже пустое.</div>
+          </div>
+
+          <h6 class="fw-bold small text-muted text-uppercase mt-4 mb-2">Связь с ОРД VK</h6>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_contract_external_id">Внешний ID договора (contract)</label>
+            <input list="ord-contract-ids" type="text" name="contract_external_id" id="id_contract_external_id"
+                   class="form-control font-monospace" value="{{ reg.contract_external_id }}"
+                   placeholder="{% if default_contract %}По умолчанию из ключей: {{ default_contract }}{% else %}Например id из ЛК ОРД{% endif %}">
+            <datalist id="ord-contract-ids">
+              {% for x in contract_ids %}<option value="{{ x }}">{% endfor %}
+            </datalist>
+            <div class="form-text">Для креатива через договор. Если указан <b>контрагент (person)</b>, в теле креатива уходит он (логика API ОРД).</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_person_external_id">Внешний ID контрагента (person)</label>
+            <input list="ord-person-ids" type="text" name="person_external_id" id="id_person_external_id"
+                   class="form-control font-monospace" value="{{ reg.person_external_id }}"
+                   placeholder="Из списка контрагентов в ЛК ОРД">
+            <datalist id="ord-person-ids">
+              {% for x in person_ids %}<option value="{{ x }}">{% endfor %}
+            </datalist>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_pad_external_id">Внешний ID площадки (pad), статистика</label>
+            <input list="ord-pad-ids" type="text" name="pad_external_id" id="id_pad_external_id"
+                   class="form-control font-monospace" value="{{ reg.pad_external_id }}"
+                   placeholder="{% if default_pad %}Из ключей: {{ default_pad }}{% else %}Для отправки показов в ОРД{% endif %}">
+            <datalist id="ord-pad-ids">
+              {% for x in pad_ids %}<option value="{{ x }}">{% endfor %}
+            </datalist>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold" for="id_label_text">Текст метки в посте</label>
+            <input type="text" name="label_text" id="id_label_text" class="form-control" value="{{ reg.label_text }}">
+          </div>
+
+          {% if token_set %}
+          <div class="form-check mb-4">
+            <input class="form-check-input" type="checkbox" name="reregister" value="on" id="id_reregister">
+            <label class="form-check-label" for="id_reregister">
+              Сразу отправить креатив в ОРД ещё раз (PUT /v2/creative/…) с новыми параметрами
+            </label>
+          </div>
+          {% endif %}
+
+          <div class="d-flex gap-2 flex-wrap">
+            <button type="submit" class="btn btn-brand px-4">
+              <i class="bi bi-check-lg me-1"></i> Сохранить
+            </button>
+            <a href="{% url 'ord_marking:detail' reg.pk %}" class="btn btn-outline-secondary">Отмена</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

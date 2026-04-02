@@ -10,6 +10,7 @@ import json
 import urllib.error
 import urllib.request
 from typing import Any
+from urllib.parse import quote, urlencode
 
 
 class OrdVkApiError(Exception):
@@ -106,6 +107,70 @@ def fetch_erid_map(
         raise OrdVkApiError(status, json.dumps(data, ensure_ascii=False), data if isinstance(data, dict) else {})
     items = (data or {}).get('items') if isinstance(data, dict) else None
     return list(items or [])
+
+
+def _parse_external_id_items(data: Any) -> list[str]:
+    """Ответ GET /v1/person|contract|pad: обычно {\"items\": [\"id\", ...]}."""
+    if not isinstance(data, dict):
+        return []
+    raw = data.get('items')
+    if raw is None:
+        raw = data.get('external_ids')
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for x in raw:
+        if isinstance(x, str) and x.strip():
+            out.append(x.strip())
+        elif isinstance(x, dict):
+            eid = (x.get('external_id') or x.get('id') or '').strip()
+            if eid:
+                out.append(eid)
+    return out
+
+
+def list_v1_entity_external_ids(
+    bearer: str,
+    entity: str,
+    *,
+    limit: int = 300,
+    offset: int = 0,
+    use_sandbox: bool = False,
+) -> list[str]:
+    """
+    GET /v1/person | /v1/contract | /v1/pad — списки внешних id из кабинета ОРД.
+    См. Swagger ОРД VK и darkdarin/vk-ord-sdk.
+    """
+    ent = (entity or '').strip().lower().rstrip('/')
+    if ent not in ('person', 'contract', 'pad'):
+        raise ValueError('entity must be person, contract or pad')
+    q: dict[str, Any] = {'limit': max(1, min(int(limit), 1000))}
+    if offset:
+        q['offset'] = max(0, int(offset))
+    path = f'/v1/{ent}?{urlencode(q)}'
+    status, data = ord_request(bearer, 'GET', path, use_sandbox=use_sandbox)
+    if status != 200:
+        raise OrdVkApiError(status, json.dumps(data, ensure_ascii=False), data if isinstance(data, dict) else {})
+    return _parse_external_id_items(data)
+
+
+def get_v1_entity_json(
+    bearer: str,
+    entity: str,
+    external_id: str,
+    *,
+    use_sandbox: bool = False,
+) -> dict:
+    """GET /v1/person/{id} | /v1/contract/{id} | /v1/pad/{id} — карточка объекта."""
+    ent = (entity or '').strip().lower()
+    eid = quote(str(external_id).strip(), safe='')
+    if ent not in ('person', 'contract', 'pad') or not eid:
+        raise ValueError('bad entity or external_id')
+    path = f'/v1/{ent}/{eid}'
+    status, data = ord_request(bearer, 'GET', path, use_sandbox=use_sandbox)
+    if status != 200:
+        raise OrdVkApiError(status, json.dumps(data, ensure_ascii=False), data if isinstance(data, dict) else {})
+    return data if isinstance(data, dict) else {}
 
 
 def post_statistics_v1(
