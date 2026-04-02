@@ -1256,7 +1256,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Обрабатывает нажатия кнопок ✅ и ❌ в чате модерации.
     """
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass
 
     bot_config = context.bot_data['bot_config']
     data = query.data
@@ -1275,69 +1278,86 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         if data == 'menu_contact':
-            bot_config = context.bot_data['bot_config']
-            channel = getattr(bot_config, 'channel', None)
-            owner = getattr(bot_config, 'owner', None)
-
-            site_nick = ''
-            tg_nick = ''
-            vk_nick = ''
-            max_phone = ''
             try:
-                if channel:
-                    site_nick = (channel.admin_contact_site or '').strip()
-                    tg_nick = (channel.admin_contact_tg or '').strip()
-                    vk_nick = (channel.admin_contact_vk or '').strip()
-                    max_phone = (channel.admin_contact_max_phone or '').strip()
-            except Exception:
-                pass
+                bot_config = context.bot_data['bot_config']
+                channel = getattr(bot_config, 'channel', None)
+                owner = getattr(bot_config, 'owner', None)
 
-            if tg_nick and not tg_nick.startswith('@') and 't.me/' not in tg_nick:
-                tg_nick = '@' + tg_nick
+                site_nick = ''
+                tg_nick = ''
+                vk_nick = ''
+                max_phone = ''
+                try:
+                    if channel:
+                        site_nick = (channel.admin_contact_site or '').strip()
+                        tg_nick = (channel.admin_contact_tg or '').strip()
+                        vk_nick = (channel.admin_contact_vk or '').strip()
+                        max_phone = (channel.admin_contact_max_phone or '').strip()
+                except Exception:
+                    pass
 
-            lines = ['Контакты админа канала:']
-            if site_nick:
-                lines.append(f'— Сайт: {site_nick}')
-            if tg_nick:
-                lines.append(f'— Telegram: {tg_nick}')
-            if vk_nick:
-                lines.append(f'— VK: {vk_nick}')
-            if max_phone:
-                lines.append(f'— MAX (телефон): {max_phone}')
-            if len(lines) == 1:
-                lines.append('— Контакты не заполнены. Админ может добавить их в настройках канала.')
+                if tg_nick and not tg_nick.startswith('@') and 't.me/' not in tg_nick:
+                    tg_nick = '@' + tg_nick
 
-            # Log on site
-            try:
-                from asgiref.sync import sync_to_async
+                lines = ['Контакты админа канала:']
+                if site_nick:
+                    lines.append(f'— Сайт: {site_nick}')
+                if tg_nick:
+                    lines.append(f'— Telegram: {tg_nick}')
+                if vk_nick:
+                    lines.append(f'— VK: {vk_nick}')
+                if max_phone:
+                    lines.append(f'— MAX (телефон): {max_phone}')
+                if len(lines) == 1:
+                    lines.append('— Контакты не заполнены. Админ может добавить их в настройках канала.')
 
-                @sync_to_async
-                def log_press():
-                    from bots.models import AuditLog
-                    AuditLog.objects.create(
-                        actor=None,
-                        owner=owner,
-                        action='bot.contact_pressed',
-                        object_type='SuggestionBot',
-                        object_id=str(getattr(bot_config, 'id', '')),
-                        data={
-                            'channel_id': getattr(channel, 'id', None),
-                            'platform': 'telegram',
-                            'platform_user_id': str(update.effective_user.id) if update and update.effective_user else '',
-                            'platform_username': getattr(update.effective_user, 'username', '') if update and update.effective_user else '',
-                        },
-                    )
-                await log_press()
-            except Exception:
-                pass
+                # Log on site (best-effort)
+                try:
+                    from asgiref.sync import sync_to_async
 
-            context.user_data['contact_mode'] = True
-            await query.message.reply_text('\n'.join(lines))
-            await query.message.reply_text(
-                'Напишите сообщение админу одним сообщением (текст).',
-                reply_markup=_menu_keyboard(),
-            )
-            return
+                    @sync_to_async
+                    def log_press():
+                        from bots.models import AuditLog
+                        AuditLog.objects.create(
+                            actor=None,
+                            owner=owner,
+                            action='bot.contact_pressed',
+                            object_type='SuggestionBot',
+                            object_id=str(getattr(bot_config, 'id', '')),
+                            data={
+                                'channel_id': getattr(channel, 'id', None),
+                                'platform': 'telegram',
+                                'platform_user_id': str(update.effective_user.id) if update and update.effective_user else '',
+                                'platform_username': getattr(update.effective_user, 'username', '') if update and update.effective_user else '',
+                            },
+                        )
+                    await log_press()
+                except Exception:
+                    pass
+
+                context.user_data['contact_mode'] = True
+                chat_id = update.effective_chat.id if update and update.effective_chat else None
+                if chat_id is None:
+                    return
+                try:
+                    await query.answer('Открываю контакты…')
+                except Exception:
+                    pass
+                await context.bot.send_message(chat_id=chat_id, text='\n'.join(lines))
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text='Напишите сообщение админу одним сообщением (текст).',
+                    reply_markup=_menu_keyboard(),
+                )
+                return
+            except Exception as e:
+                try:
+                    chat_id = update.effective_chat.id if update and update.effective_chat else None
+                    if chat_id is not None:
+                        await context.bot.send_message(chat_id=chat_id, text=f'Не удалось открыть контакты: {e}')
+                except Exception:
+                    pass
+                return
         if data == 'menu_my':
             await _send_my_news(update, context)
             return
