@@ -1291,8 +1291,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     max_phone = (channel.admin_contact_max_phone or '').strip()
             except Exception:
                 pass
-            if not site_nick:
-                site_nick = getattr(owner, 'username', '') or ''
 
             if tg_nick and not tg_nick.startswith('@') and 't.me/' not in tg_nick:
                 tg_nick = '@' + tg_nick

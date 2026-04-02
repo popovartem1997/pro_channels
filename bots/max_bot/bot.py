@@ -800,13 +800,16 @@ class MAXSuggestionBot:
         channel = getattr(self.config, 'channel', None)
         owner = getattr(self.config, 'owner', None)
         site_nick = (getattr(channel, 'admin_contact_site', '') or '').strip()
+        tg_nick = (getattr(channel, 'admin_contact_tg', '') or '').strip()
         vk_nick = (getattr(channel, 'admin_contact_vk', '') or '').strip()
         max_phone = (getattr(channel, 'admin_contact_max_phone', '') or '').strip()
-        if not site_nick:
-            site_nick = getattr(owner, 'username', '') or ''
+        if tg_nick and not tg_nick.startswith('@') and 't.me/' not in tg_nick:
+            tg_nick = '@' + tg_nick
         lines = ['Контакты админа канала:']
         if site_nick:
             lines.append(f'— Сайт: {site_nick}')
+        if tg_nick:
+            lines.append(f'— Telegram: {tg_nick}')
         if vk_nick:
             lines.append(f'— VK: {vk_nick}')
         if max_phone:
