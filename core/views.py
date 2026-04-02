@@ -263,6 +263,12 @@ def feed(request):
     kind = (request.GET.get('kind') or 'all').strip()  # all|post|subscriber|parsing
     # unified status filter (one select in UI)
     status_filter = (request.GET.get('status') or '').strip()
+    status_kind = ''
+    status_value = status_filter
+    if ':' in status_filter:
+        status_kind, status_value = status_filter.split(':', 1)
+        status_kind = (status_kind or '').strip()
+        status_value = (status_value or '').strip()
     channel_id = (request.GET.get('channel') or '').strip()
 
     # Visibility scopes
@@ -346,53 +352,69 @@ def feed(request):
     feed_quick_links = []
     n_mod = sug_qs.filter(status=Suggestion.STATUS_PENDING).count()
     if n_mod:
-        feed_quick_links.append({'label': f'На модерации · {n_mod}', 'url': _feed_qs(kind='subscriber', status='pending')})
+        feed_quick_links.append({'label': f'На модерации · {n_mod}', 'url': _feed_qs(kind='subscriber', status='subscriber:pending')})
     n_draft = post_qs.filter(status=Post.STATUS_DRAFT).count()
     if n_draft:
-        feed_quick_links.append({'label': f'Черновики · {n_draft}', 'url': _feed_qs(kind='post', status=Post.STATUS_DRAFT)})
+        feed_quick_links.append({'label': f'Черновики · {n_draft}', 'url': _feed_qs(kind='post', status=f'post:{Post.STATUS_DRAFT}')})
     n_sch = post_qs.filter(status=Post.STATUS_SCHEDULED).count()
     if n_sch:
-        feed_quick_links.append({'label': f'Запланированы · {n_sch}', 'url': _feed_qs(kind='post', status=Post.STATUS_SCHEDULED)})
+        feed_quick_links.append({'label': f'Запланированы · {n_sch}', 'url': _feed_qs(kind='post', status=f'post:{Post.STATUS_SCHEDULED}')})
     n_fail = post_qs.filter(status=Post.STATUS_FAILED).count()
     if n_fail:
-        feed_quick_links.append({'label': f'Ошибки · {n_fail}', 'url': _feed_qs(kind='post', status=Post.STATUS_FAILED)})
+        feed_quick_links.append({'label': f'Ошибки · {n_fail}', 'url': _feed_qs(kind='post', status=f'post:{Post.STATUS_FAILED}')})
     n_parse = parsed_qs.filter(status=ParsedItem.STATUS_NEW).count()
     if n_parse:
-        feed_quick_links.append({'label': f'Парсинг (новые) · {n_parse}', 'url': _feed_qs(kind='parsing', status='pending')})
+        feed_quick_links.append({'label': f'Парсинг (новые) · {n_parse}', 'url': _feed_qs(kind='parsing', status='parsing:pending')})
 
     # Apply unified status filter depending on kind.
     if status_filter:
+        # Backward-compat: old unprefixed values from old UI
+        if status_kind in ('', None):
+            if status_filter in {Post.STATUS_DRAFT, Post.STATUS_SCHEDULED, Post.STATUS_PUBLISHING, Post.STATUS_PUBLISHED, Post.STATUS_FAILED}:
+                status_kind, status_value = 'post', status_filter
+            elif status_filter in {Suggestion.STATUS_PENDING, Suggestion.STATUS_APPROVED, Suggestion.STATUS_REJECTED, Suggestion.STATUS_PUBLISHED}:
+                status_kind, status_value = 'subscriber', status_filter
+            elif status_filter in {'pending', 'rejected', 'published'}:
+                status_kind, status_value = 'parsing', status_filter
+
         if kind == 'post':
-            post_qs = post_qs.filter(status=status_filter)
+            v = status_value if status_kind in ('', 'post') else status_filter
+            if ':' in v:
+                v = v.split(':', 1)[1]
+            post_qs = post_qs.filter(status=v)
         elif kind == 'subscriber':
-            sug_qs = sug_qs.filter(status=status_filter)
+            v = status_value if status_kind in ('', 'subscriber') else status_filter
+            if ':' in v:
+                v = v.split(':', 1)[1]
+            sug_qs = sug_qs.filter(status=v)
         elif kind == 'parsing':
-            if status_filter == 'pending':
+            v = status_value if status_kind in ('', 'parsing') else status_filter
+            if ':' in v:
+                v = v.split(':', 1)[1]
+            if v == 'pending':
                 parsed_qs = parsed_qs.filter(status=ParsedItem.STATUS_NEW)
-            elif status_filter == 'rejected':
+            elif v == 'rejected':
                 parsed_qs = parsed_qs.filter(status=ParsedItem.STATUS_IGNORED)
-            elif status_filter == 'published':
+            elif v == 'published':
                 parsed_qs = parsed_qs.filter(status=ParsedItem.STATUS_USED)
         else:
-            # kind=all: filter each queryset by compatible statuses
-            if status_filter in {Post.STATUS_DRAFT, Post.STATUS_SCHEDULED, Post.STATUS_PUBLISHING, Post.STATUS_PUBLISHED, Post.STATUS_FAILED}:
-                post_qs = post_qs.filter(status=status_filter)
-                # hide others for clarity
+            # kind=all: now disambiguate by status_kind
+            if status_kind == 'post':
+                post_qs = post_qs.filter(status=status_value)
                 sug_qs = sug_qs.none()
                 parsed_qs = parsed_qs.none()
-            elif status_filter in {Suggestion.STATUS_PENDING, Suggestion.STATUS_APPROVED, Suggestion.STATUS_REJECTED, Suggestion.STATUS_PUBLISHED}:
-                sug_qs = sug_qs.filter(status=status_filter)
+            elif status_kind == 'subscriber':
+                sug_qs = sug_qs.filter(status=status_value)
                 post_qs = post_qs.none()
                 parsed_qs = parsed_qs.none()
-            elif status_filter in {'pending', 'rejected', 'published'}:
-                # parsing-like
+            elif status_kind == 'parsing':
                 post_qs = post_qs.none()
                 sug_qs = sug_qs.none()
-                if status_filter == 'pending':
+                if status_value == 'pending':
                     parsed_qs = parsed_qs.filter(status=ParsedItem.STATUS_NEW)
-                elif status_filter == 'rejected':
+                elif status_value == 'rejected':
                     parsed_qs = parsed_qs.filter(status=ParsedItem.STATUS_IGNORED)
-                elif status_filter == 'published':
+                elif status_value == 'published':
                     parsed_qs = parsed_qs.filter(status=ParsedItem.STATUS_USED)
 
     if kind in ('all', 'post'):

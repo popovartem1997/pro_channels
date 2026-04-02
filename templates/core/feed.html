@@ -54,22 +54,22 @@
         <select class="form-select form-select-sm" name="status">
           <option value="" {% if not status_filter %}selected{% endif %}>Все</option>
           <optgroup label="Посты">
-            <option value="draft" {% if status_filter == 'draft' %}selected{% endif %}>Черновик</option>
-            <option value="scheduled" {% if status_filter == 'scheduled' %}selected{% endif %}>Запланирован</option>
-            <option value="publishing" {% if status_filter == 'publishing' %}selected{% endif %}>Публикуется</option>
-            <option value="published" {% if status_filter == 'published' %}selected{% endif %}>Опубликован</option>
-            <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>Ошибка</option>
+            <option value="post:draft" {% if status_filter == 'post:draft' %}selected{% endif %}>Черновик</option>
+            <option value="post:scheduled" {% if status_filter == 'post:scheduled' %}selected{% endif %}>Запланирован</option>
+            <option value="post:publishing" {% if status_filter == 'post:publishing' %}selected{% endif %}>Публикуется</option>
+            <option value="post:published" {% if status_filter == 'post:published' %}selected{% endif %}>Опубликован</option>
+            <option value="post:failed" {% if status_filter == 'post:failed' %}selected{% endif %}>Ошибка</option>
           </optgroup>
           <optgroup label="Предложка">
-            <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>На модерации</option>
-            <option value="approved" {% if status_filter == 'approved' %}selected{% endif %}>Одобрено</option>
-            <option value="rejected" {% if status_filter == 'rejected' %}selected{% endif %}>Отклонено</option>
-            <option value="published" {% if status_filter == 'published' %}selected{% endif %}>Опубликовано</option>
+            <option value="subscriber:pending" {% if status_filter == 'subscriber:pending' %}selected{% endif %}>На модерации</option>
+            <option value="subscriber:approved" {% if status_filter == 'subscriber:approved' %}selected{% endif %}>Одобрено</option>
+            <option value="subscriber:rejected" {% if status_filter == 'subscriber:rejected' %}selected{% endif %}>Отклонено</option>
+            <option value="subscriber:published" {% if status_filter == 'subscriber:published' %}selected{% endif %}>Опубликовано</option>
           </optgroup>
           <optgroup label="Парсинг">
-            <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>Новые</option>
-            <option value="published" {% if status_filter == 'published' %}selected{% endif %}>Использованы</option>
-            <option value="rejected" {% if status_filter == 'rejected' %}selected{% endif %}>Пропущены</option>
+            <option value="parsing:pending" {% if status_filter == 'parsing:pending' %}selected{% endif %}>Новые</option>
+            <option value="parsing:published" {% if status_filter == 'parsing:published' %}selected{% endif %}>Использованы</option>
+            <option value="parsing:rejected" {% if status_filter == 'parsing:rejected' %}selected{% endif %}>Пропущены</option>
           </optgroup>
         </select>
       </div>
@@ -256,9 +256,28 @@
           </div>
 
           {% if it.kind == 'post' and it.url %}
-            <a href="{{ it.url }}" class="btn btn-outline-secondary btn-sm flex-shrink-0">
-              <i class="bi bi-eye"></i>
-            </a>
+            <div class="d-flex flex-column gap-2 flex-shrink-0">
+              <a href="{{ it.url }}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-eye"></i>
+              </a>
+              {% if request.user.is_staff or request.user.is_superuser or request.user.role == 'owner' %}
+                <button type="button"
+                        class="btn btn-outline-danger btn-sm js-feed-post-delete"
+                        data-post-id="{{ it.obj.pk }}"
+                        data-post-title="{{ it.text|truncatechars:80|escape }}">
+                  <i class="bi bi-trash"></i>
+                </button>
+              {% elif request.user.role == 'manager' or request.user.role == 'assistant_admin' %}
+                {% if it.obj and it.obj.author_id == request.user.id %}
+                  <button type="button"
+                          class="btn btn-outline-danger btn-sm js-feed-post-delete"
+                          data-post-id="{{ it.obj.pk }}"
+                          data-post-title="{{ it.text|truncatechars:80|escape }}">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                {% endif %}
+              {% endif %}
+            </div>
           {% elif it.url and it.kind != 'parsing' %}
             <a href="{{ it.url }}" class="btn btn-outline-secondary btn-sm flex-shrink-0" target="_blank" rel="noopener">
               <i class="bi bi-box-arrow-up-right"></i>
@@ -352,6 +371,51 @@
           }
         })
         .catch(function () { btn.disabled = false; });
+    });
+  });
+})();
+</script>
+<div class="modal fade" id="pcDeletePostModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Удалить пост?</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="small text-muted">Вы точно хотите удалить этот пост? Действие необратимо.</div>
+        <div class="mt-2 small fw-semibold" id="pcDeletePostTitle" style="white-space:pre-wrap;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+        <form id="pcDeletePostForm" method="post" action="#">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          <button type="submit" class="btn btn-danger">
+            <i class="bi bi-trash me-1"></i> Удалить
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function() {
+  const modalEl = document.getElementById('pcDeletePostModal');
+  if (!modalEl) return;
+  const modal = new bootstrap.Modal(modalEl);
+  const form = document.getElementById('pcDeletePostForm');
+  const titleEl = document.getElementById('pcDeletePostTitle');
+  function actionFor(postId) {
+    return '{% url "content:delete" 0 %}'.replace('/0/', `/${postId}/`);
+  }
+  document.querySelectorAll('.js-feed-post-delete').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const postId = btn.getAttribute('data-post-id');
+      const t = btn.getAttribute('data-post-title') || '';
+      form.setAttribute('action', actionFor(postId));
+      titleEl.textContent = t;
+      modal.show();
     });
   });
 })();

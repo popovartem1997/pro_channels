@@ -685,11 +685,17 @@ def post_delete(request, pk):
             Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct(),
             pk=pk,
         )
+        # Менеджер/помощник может удалять только свои посты (не посты владельца/админа).
+        if getattr(post, 'author_id', None) != request.user.id:
+            return HttpResponse(status=403)
     else:
         post = get_object_or_404(Post, pk=pk, author=request.user)
     if request.method == 'POST':
         post.delete()
         messages.success(request, 'Пост удалён.')
+        next_url = (request.POST.get('next') or request.GET.get('next') or '').strip()
+        if next_url.startswith('/') and not next_url.startswith('//'):
+            return redirect(next_url)
         return redirect('content:list')
     return render(request, 'content/delete_confirm.html', {'post': post})
 
