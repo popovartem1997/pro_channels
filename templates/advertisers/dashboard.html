@@ -12,6 +12,30 @@
   </a>
 </div>
 
+{% if advertiser.ord_person_external_id %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+      <div>
+        <h6 class="fw-bold mb-1">VK ОРД</h6>
+        <div class="small text-muted">Контрагент (person external_id): <span class="font-monospace">{{ advertiser.ord_person_external_id }}</span></div>
+      </div>
+    </div>
+    {% if advertiser.ord_contracts.all %}
+    <hr class="my-3">
+    <div class="small fw-semibold mb-2">Договоры (из синхронизации ОРД)</div>
+    <ul class="small mb-0">
+      {% for c in advertiser.ord_contracts.all|slice:":20" %}
+        <li><span class="font-monospace">{{ c.external_id }}</span>{% if c.serial %} — № {{ c.serial }}{% endif %}{% if c.date %} от {{ c.date }}{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="small text-muted mt-2">Договоры ещё не подтянуты. Попросите владельца нажать «Синхронизировать контрагентов/договоры» в разделе ВК ОРД.</div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 <!-- Stats -->
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-3">

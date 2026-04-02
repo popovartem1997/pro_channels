@@ -82,6 +82,23 @@
   </div>
 </div>
 
+<div class="card mb-4">
+  <div class="card-header bg-transparent border-bottom py-3">
+    <h6 class="fw-bold mb-0">Подпись канала</h6>
+  </div>
+  <div class="card-body">
+    {% if channel.platform == 'telegram' %}
+      {% if channel.tg_footer %}<pre class="small bg-light border rounded p-3 mb-0" style="white-space:pre-wrap;">{{ channel.tg_footer }}</pre>{% else %}<div class="text-muted small">Подпись не задана.</div>{% endif %}
+    {% elif channel.platform == 'max' %}
+      {% if channel.max_footer %}<pre class="small bg-light border rounded p-3 mb-0" style="white-space:pre-wrap;">{{ channel.max_footer }}</pre>{% else %}<div class="text-muted small">Подпись не задана.</div>{% endif %}
+    {% elif channel.platform == 'vk' %}
+      {% if channel.vk_footer %}<pre class="small bg-light border rounded p-3 mb-0" style="white-space:pre-wrap;">{{ channel.vk_footer }}</pre>{% else %}<div class="text-muted small">Подпись не задана.</div>{% endif %}
+    {% else %}
+      <div class="text-muted small">Для этой платформы подпись не поддерживается.</div>
+    {% endif %}
+  </div>
+</div>
+
 <!-- Recent posts -->
 <div class="card">
   <div class="card-header bg-transparent border-bottom d-flex align-items-center justify-content-between py-3">

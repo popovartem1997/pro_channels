@@ -43,6 +43,35 @@ class Advertiser(models.Model):
         return f'{self.company_name} (ИНН: {self.inn})'
 
 
+class OrdContract(models.Model):
+    """Зеркало договоров из кабинета VK ОРД (для удобства выбора/сопоставления)."""
+    external_id = models.CharField('Внешний ID договора (ОРД)', max_length=220, unique=True, db_index=True)
+    type = models.CharField('Тип договора (ОРД)', max_length=60, blank=True)
+    client_external_id = models.CharField('Клиент (person external_id)', max_length=220, blank=True)
+    contractor_external_id = models.CharField('Исполнитель (person external_id)', max_length=220, blank=True)
+    date = models.CharField('Дата договора', max_length=20, blank=True)
+    serial = models.CharField('Номер/серия', max_length=120, blank=True)
+    raw = models.JSONField('RAW из ОРД', default=dict)
+    advertiser = models.ForeignKey(
+        Advertiser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='ord_contracts',
+        verbose_name='Рекламодатель (сопоставленный)',
+    )
+    updated_at = models.DateTimeField('Обновлён', auto_now=True)
+    created_at = models.DateTimeField('Создан', auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'ОРД договор'
+        verbose_name_plural = 'ОРД договоры'
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return self.external_id
+
+
 class AdvertisingOrder(models.Model):
     """Заказ на размещение рекламы."""
     STATUS_DRAFT = 'draft'

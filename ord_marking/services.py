@@ -30,7 +30,14 @@ def load_ord_catalog(bearer: str, *, use_sandbox: bool) -> dict:
             bearer, 'pad', limit=400, use_sandbox=use_sandbox
         )
     except vk_ord_client.OrdVkApiError as e:
-        out['catalog_error'] = str(e)
+        if getattr(e, 'status', None) == 401:
+            out['catalog_error'] = (
+                '401 Unauthorized. Проверьте токен ОРД VK в «Ключи API» '
+                '(вставляйте только сам токен, без слова "Bearer") '
+                'и режим песочницы (sandbox должен соответствовать месту, где вы создавали токен).'
+            )
+        else:
+            out['catalog_error'] = str(e)
     except Exception as e:
         out['catalog_error'] = str(e)
     return out

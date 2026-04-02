@@ -94,9 +94,6 @@ class GlobalApiKeys(models.Model):
     def set_tbank_secret_key(self, value: str):
         self.tbank_secret_key_enc = encrypt_token((value or '').strip())
 
-    def set_vk_ord_access_token(self, value: str):
-        self.vk_ord_access_token_enc = encrypt_token((value or '').strip())
-
     def set_telegram_api_hash(self, value: str):
         self.telegram_api_hash_enc = encrypt_token((value or '').strip())
 
@@ -105,6 +102,13 @@ class GlobalApiKeys(models.Model):
 
     def set_tg_import_bot_token(self, value: str):
         self.tg_import_bot_token_enc = encrypt_token((value or '').strip())
+
+    def set_vk_ord_access_token(self, value: str):
+        # Пользователи часто вставляют строку целиком "Bearer xxx".
+        v = (value or '').strip()
+        if v.lower().startswith('bearer '):
+            v = v.split(' ', 1)[1].strip()
+        self.vk_ord_access_token_enc = encrypt_token(v)
 
 
 def get_global_api_keys() -> GlobalApiKeys:

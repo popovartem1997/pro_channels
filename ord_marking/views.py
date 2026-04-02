@@ -46,6 +46,29 @@ def ord_dashboard(request):
 
 
 @login_required
+@require_POST
+def ord_sync_catalog(request):
+    """Подтянуть контрагентов/договоры из ЛК ОРД в нашу БД."""
+    if not (request.user.is_staff or request.user.is_superuser or getattr(request.user, 'role', '') == 'owner'):
+        return HttpResponseForbidden('Forbidden')
+    _, sandbox = _ord_keys_flags()
+    from advertisers.services import sync_advertisers_and_contracts_from_ord
+
+    try:
+        res = sync_advertisers_and_contracts_from_ord(use_sandbox=sandbox)
+        if not res.get('ok'):
+            messages.error(request, res.get('error') or 'Ошибка синхронизации')
+        else:
+            messages.success(
+                request,
+                f"Синхронизация ОРД: рекламодатели +{res.get('created', 0)}, обновлено {res.get('updated', 0)}, договоров {res.get('contracts', 0)}.",
+            )
+    except Exception as e:
+        messages.error(request, f'Ошибка синхронизации ОРД: {e}')
+    return redirect('ord_marking:dashboard')
+
+
+@login_required
 def ord_list(request):
     return redirect('ord_marking:dashboard')
 

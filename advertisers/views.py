@@ -134,6 +134,7 @@ def advertiser_dashboard(request):
         messages.info(request, 'Чтобы создавать заявки на рекламу, заполните профиль рекламодателя.')
         return redirect('advertisers:register')
     orders = AdvertisingOrder.objects.filter(advertiser=adv).select_related('invoice').order_by('-created_at')
+    adv = Advertiser.objects.select_related('user').prefetch_related('ord_contracts').get(pk=adv.pk)
     orders_total_count = orders.count()
     active_orders_count = orders.filter(
         status__in=[AdvertisingOrder.STATUS_APPROVED, AdvertisingOrder.STATUS_ACTIVE]

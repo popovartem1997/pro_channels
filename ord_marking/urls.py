@@ -6,6 +6,7 @@ app_name = 'ord_marking'
 urlpatterns = [
     path('', views.ord_dashboard, name='list'),
     path('dashboard/', views.ord_dashboard, name='dashboard'),
+    path('sync/', views.ord_sync_catalog, name='sync'),
     path('create/', views.ord_create, name='create'),
     path('<int:pk>/edit/', views.ord_edit, name='edit'),
     path('<int:pk>/', views.ord_detail, name='detail'),

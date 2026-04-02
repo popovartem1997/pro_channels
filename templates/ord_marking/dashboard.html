@@ -11,9 +11,19 @@
       {% if sandbox %}<span class="badge bg-warning text-dark ms-1">Песочница</span>{% endif %}
     </p>
   </div>
-  <a href="{% url 'ord_marking:create' %}" class="btn btn-brand">
-    <i class="bi bi-plus-lg me-1"></i> Новая регистрация
-  </a>
+  <div class="d-flex gap-2 flex-wrap">
+    {% if user.is_staff or user.is_superuser or user.role == 'owner' %}
+    <form method="post" action="{% url 'ord_marking:sync' %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-repeat me-1"></i> Синхронизировать контрагентов/договоры
+      </button>
+    </form>
+    {% endif %}
+    <a href="{% url 'ord_marking:create' %}" class="btn btn-brand">
+      <i class="bi bi-plus-lg me-1"></i> Новая регистрация
+    </a>
+  </div>
 </div>
 
 <div class="row g-3 mb-4">
