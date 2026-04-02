@@ -556,10 +556,20 @@ def channel_import_history(request, pk: int):
     recent_runs = list(
         HistoryImportRun.objects.filter(created_by=request.user, target_channel=target).select_related('source_channel')[:10]
     )
+    active_run = (
+        HistoryImportRun.objects.filter(
+            created_by=request.user,
+            target_channel=target,
+            status__in=[HistoryImportRun.STATUS_PENDING, HistoryImportRun.STATUS_RUNNING],
+        )
+        .order_by('-created_at')
+        .first()
+    )
     return render(request, 'channels/import_history.html', {
         'target_channel': target,
         'tg_channels': tg_channels,
         'recent_runs': recent_runs,
+        'active_import_run_id': active_run.pk if active_run else None,
     })
 
 
@@ -657,9 +667,36 @@ def import_history_status(request, pk: int):
 @login_required
 @require_POST
 def import_history_stop(request, pk: int):
-    run = get_object_or_404(HistoryImportRun, pk=pk, created_by=request.user)
-    if run.status not in (HistoryImportRun.STATUS_PENDING, HistoryImportRun.STATUS_RUNNING):
-        return JsonResponse({'ok': True, 'message': 'Импорт уже завершён.'})
-    run.cancel_requested = True
-    run.save(update_fields=['cancel_requested'])
-    return JsonResponse({'ok': True})
+    """
+    Сразу переводим run в cancelled в БД — иначе после рестарта Celery запись
+    вечно «running», новый импорт заблокирован, а флаг cancel не увидит мёртвый воркер.
+    """
+    now = timezone.now()
+    updated = HistoryImportRun.objects.filter(
+        pk=pk,
+        created_by=request.user,
+        status__in=(HistoryImportRun.STATUS_PENDING, HistoryImportRun.STATUS_RUNNING),
+    ).update(
+        cancel_requested=True,
+        status=HistoryImportRun.STATUS_CANCELLED,
+        finished_at=now,
+        updated_at=now,
+    )
+    if not updated:
+        run = get_object_or_404(HistoryImportRun, pk=pk, created_by=request.user)
+        return JsonResponse({'ok': True, 'message': 'Импорт уже завершён.', 'run': {
+            'id': run.pk,
+            'status': run.status,
+            'cancel_requested': bool(run.cancel_requested),
+            'progress': run.progress_json or {},
+            'error_message': run.error_message or '',
+        }})
+    run = HistoryImportRun.objects.get(pk=pk)
+    return JsonResponse({'ok': True, 'message': 'Остановка зафиксирована.', 'run': {
+        'id': run.pk,
+        'status': run.status,
+        'cancel_requested': bool(run.cancel_requested),
+        'finished_at': run.finished_at.isoformat() if run.finished_at else None,
+        'progress': run.progress_json or {},
+        'error_message': run.error_message or '',
+    }})

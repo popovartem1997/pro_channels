@@ -457,7 +457,10 @@ def import_tg_history_to_max_task(self, run_id: int):
     try:
         lock_last_err = None
         for lock_attempt in range(40):  # ~40 * 30s = 20 минут ожидания
-            if run.cancel_requested:
+            # Не полагаемся на run в памяти — отмена из UI пишется в БД.
+            if HistoryImportRun.objects.filter(pk=run_id, cancel_requested=True).exists():
+                raise asyncio.CancelledError()
+            if HistoryImportRun.objects.filter(pk=run_id, status=HistoryImportRun.STATUS_CANCELLED).exists():
                 raise asyncio.CancelledError()
             try:
                 with _telethon_session_lock(source.owner_id):
@@ -478,10 +481,24 @@ def import_tg_history_to_max_task(self, run_id: int):
         if lock_last_err:
             raise RuntimeError(lock_last_err)
 
-        run.status = HistoryImportRun.STATUS_DONE
-        run.finished_at = timezone.now()
-        run.progress_json = {'sent': sent, 'errors': errors, 'last_tg_message_id': last_tg_message_id}
-        run.save(update_fields=['status', 'finished_at', 'progress_json'])
+        # Пользователь мог нажать «Остановить» — не перезаписать cancelled обратно в done.
+        fresh = HistoryImportRun.objects.get(pk=run_id)
+        final_progress = {'sent': sent, 'errors': errors, 'last_tg_message_id': last_tg_message_id}
+        now = timezone.now()
+        if fresh.cancel_requested or fresh.status == HistoryImportRun.STATUS_CANCELLED:
+            fresh.status = HistoryImportRun.STATUS_CANCELLED
+            fresh.finished_at = now
+            pj = dict(fresh.progress_json or {})
+            pj.update(final_progress)
+            fresh.progress_json = pj
+            fresh.updated_at = now
+            fresh.save(update_fields=['status', 'finished_at', 'progress_json', 'updated_at'])
+        else:
+            fresh.status = HistoryImportRun.STATUS_DONE
+            fresh.finished_at = now
+            fresh.progress_json = final_progress
+            fresh.updated_at = now
+            fresh.save(update_fields=['status', 'finished_at', 'progress_json', 'updated_at'])
     except asyncio.CancelledError:
         run.status = HistoryImportRun.STATUS_CANCELLED
         run.finished_at = timezone.now()

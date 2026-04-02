@@ -147,9 +147,14 @@
     confirmStart: document.getElementById('pcConfirmStartBtn'),
   };
 
-  let currentRunId = null;
+  let currentRunId = {% if active_import_run_id %}{{ active_import_run_id }}{% else %}null{% endif %};
   let pollTimer = null;
   const confirmModal = new bootstrap.Modal(document.getElementById('pcConfirmImportModal'));
+
+  if (currentRunId) {
+    setRunningUi(true);
+    poll();
+  }
 
   function setStatus(status) {
     const map = {
@@ -263,7 +268,10 @@
       body,
     })
     .then(r => r.json())
-    .then(() => { /* next poll tick will update */ })
+    .then((data) => {
+      if (data && data.run) updateProgress(data.run);
+      else poll();
+    })
     .finally(() => { els.stop.disabled = false; });
   });
 
