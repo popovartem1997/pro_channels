@@ -46,6 +46,9 @@
             <button type="button" class="fmt-btn" data-action="quote" title="Цитата"><i class="bi bi-quote"></i></button>
             <button type="button" class="fmt-btn" data-action="code" title="Код"><i class="bi bi-code"></i></button>
             <button type="button" class="fmt-btn text-danger" data-action="clear" title="Очистить"><i class="bi bi-x-lg"></i></button>
+            <button type="button" class="fmt-btn" id="pcBtnTgImportPicker" title="Вставить текст и Premium emoji из импорт-бота">
+              <i class="bi bi-telegram"></i> Из Telegram
+            </button>
             <button type="button" class="btn btn-outline-secondary btn-sm ms-auto" id="btn-preview-post">
               <i class="bi bi-eye me-1"></i> Предпросмотр
             </button>
@@ -57,8 +60,10 @@
           <textarea name="text" id="id_text" class="d-none">{{ request.POST.text|default:'' }}</textarea>
           <input type="hidden" name="text_html" id="id_text_html" value="{{ request.POST.text_html|default:'' }}">
           <input type="hidden" name="tg_entities" id="id_tg_entities_hidden" value="">
+          {{ tg_entities_initial|json_script:"pc-tg-entities-initial" }}
           <div class="form-text">
-            Premium/Custom emoji: используйте <a href="{% url 'content:tg_import_link' %}">импорт из Telegram</a>.
+            Premium / custom emoji: перешлите сообщение в <a href="{% url 'content:tg_import_link' %}">импорт-бота</a>,
+            затем нажмите «Из Telegram» и выберите запись — текст и emoji подставятся в пост (для канала Telegram).
           </div>
         </div>
       </div>
@@ -185,7 +190,7 @@
                    placeholder="erid:2VfnxyXxxx">
           </div>
           <div class="text-muted small">
-            Telegram emoji вставляются автоматически. Premium/Custom emoji через entities временно скрыты.
+            Обычный текст и оформление — в поле выше. Premium emoji — через кнопку «Из Telegram».
           </div>
         </div>
       </div>
@@ -211,6 +216,7 @@
     </div>
   </div>
 </form>
+{% include "content/_tg_import_picker_modal.html" %}
 {% endblock %}
 
 {% block extra_js %}

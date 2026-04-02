@@ -9,7 +9,7 @@ import json
 from django.utils import timezone
 from .models import Post, PostMedia, PublishResult, normalize_post_media_orders
 from django.views.decorators.csrf import csrf_exempt
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 import secrets
 from django.core.files.base import ContentFile
 from django.db.models import Max, Q
@@ -33,6 +33,24 @@ def _manager_content_channel_ids(user):
         .values_list('channels__pk', flat=True)
         .distinct()
     )
+
+
+def _ctx_post_create(user_channels, preselected, **extra):
+    ctx = {'user_channels': user_channels, 'preselected': preselected, 'tg_entities_initial': []}
+    ctx.update(extra)
+    return ctx
+
+
+def _ctx_post_edit(post, user_channels, selected_channels, **extra):
+    te = post.tg_entities if isinstance(getattr(post, 'tg_entities', None), list) else []
+    ctx = {
+        'post': post,
+        'user_channels': user_channels,
+        'selected_channels': selected_channels,
+        'tg_entities_initial': te,
+    }
+    ctx.update(extra)
+    return ctx
 
 
 def _fix_mislabeled_post_media(post):
@@ -107,11 +125,11 @@ def post_create(request):
 
         if not text:
             messages.error(request, 'Введите текст поста.')
-            return render(request, 'content/create.html', {'user_channels': user_channels, 'preselected': channel_ids})
+            return render(request, 'content/create.html', _ctx_post_create(user_channels, channel_ids))
 
         if not channel_ids:
             messages.error(request, 'Выберите хотя бы один канал.')
-            return render(request, 'content/create.html', {'user_channels': user_channels, 'preselected': channel_ids})
+            return render(request, 'content/create.html', _ctx_post_create(user_channels, channel_ids))
 
         # TG Premium/Custom emoji: entities приходят только из "импорта из Telegram"
         has_premium_emoji = False
@@ -123,9 +141,7 @@ def post_create(request):
                 has_premium_emoji = True if tg_entities else False
             except json.JSONDecodeError:
                 messages.error(request, 'Импорт Telegram: неверный формат entities.')
-                return render(request, 'content/create.html', {
-                    'user_channels': user_channels, 'preselected': preselected,
-                })
+                return render(request, 'content/create.html', _ctx_post_create(user_channels, preselected))
 
         post = Post(
             author=request.user,
@@ -152,18 +168,12 @@ def post_create(request):
                         pass
                 if scheduled_at <= timezone.now():
                     messages.error(request, 'Время публикации уже прошло. Выберите время в будущем или нажмите «Опубликовать сейчас».')
-                    return render(request, 'content/create.html', {
-                        'user_channels': user_channels,
-                        'preselected': preselected,
-                    })
+                    return render(request, 'content/create.html', _ctx_post_create(user_channels, preselected))
                 post.scheduled_at = scheduled_at
                 post.status = Post.STATUS_SCHEDULED
             else:
                 messages.error(request, 'Неверный формат даты.')
-                return render(request, 'content/create.html', {
-        'user_channels': user_channels,
-        'preselected': preselected,
-    })
+                return render(request, 'content/create.html', _ctx_post_create(user_channels, preselected))
         else:
             post.status = Post.STATUS_DRAFT
 
@@ -174,7 +184,7 @@ def post_create(request):
         if not selected_ids:
             messages.error(request, 'Нет доступа к выбранным каналам.')
             post.delete()
-            return render(request, 'content/create.html', {'user_channels': user_channels, 'preselected': channel_ids})
+            return render(request, 'content/create.html', _ctx_post_create(user_channels, channel_ids))
         post.channels.set(selected_ids)
 
         # Загрузка медиафайлов (порядок с 1: 1, 2, 3…)
@@ -201,10 +211,7 @@ def post_create(request):
 
         return redirect('content:list')
 
-    return render(request, 'content/create.html', {
-        'user_channels': user_channels,
-        'preselected': preselected,
-    })
+    return render(request, 'content/create.html', _ctx_post_create(user_channels, preselected))
 
 
 @login_required
@@ -418,11 +425,11 @@ def post_edit(request, pk):
                         pass
                 if scheduled_at <= timezone.now():
                     messages.error(request, 'Время публикации уже прошло. Выберите время в будущем или очистите поле планирования.')
-                    return render(request, 'content/edit.html', {
-                        'post': post,
-                        'user_channels': user_channels,
-                        'selected_channels': [int(x) for x in channel_ids if str(x).isdigit()],
-                    })
+                    return render(
+                        request,
+                        'content/edit.html',
+                        _ctx_post_edit(post, user_channels, [int(x) for x in channel_ids if str(x).isdigit()]),
+                    )
                 post.scheduled_at = scheduled_at
                 post.status = Post.STATUS_SCHEDULED
         else:
@@ -432,29 +439,21 @@ def post_edit(request, pk):
                 post.status = Post.STATUS_DRAFT
         if not post.text:
             messages.error(request, 'Введите текст поста.')
-            return render(request, 'content/edit.html', {
-                'post': post,
-                'user_channels': user_channels,
-                'selected_channels': [int(x) for x in channel_ids if str(x).isdigit()],
-            })
+            return render(
+                request,
+                'content/edit.html',
+                _ctx_post_edit(post, user_channels, [int(x) for x in channel_ids if str(x).isdigit()]),
+            )
         if not channel_ids:
             messages.error(request, 'Выберите хотя бы один канал.')
-            return render(request, 'content/edit.html', {
-                'post': post,
-                'user_channels': user_channels,
-                'selected_channels': [],
-            })
+            return render(request, 'content/edit.html', _ctx_post_edit(post, user_channels, []))
 
         post.save()
         allowed_ids = set(user_channels.values_list('pk', flat=True))
         selected_ids = [int(x) for x in channel_ids if str(x).isdigit() and int(x) in allowed_ids]
         if not selected_ids:
             messages.error(request, 'Нет доступа к выбранным каналам.')
-            return render(request, 'content/edit.html', {
-                'post': post,
-                'user_channels': user_channels,
-                'selected_channels': [],
-            })
+            return render(request, 'content/edit.html', _ctx_post_edit(post, user_channels, []))
         post.channels.set(selected_ids)
         # Publish now from edit page (same behavior as on detail page)
         if request.POST.get('publish_now'):
@@ -486,11 +485,31 @@ def post_edit(request, pk):
         messages.success(request, 'Пост обновлён.')
         return redirect('content:detail', pk=pk)
 
-    return render(request, 'content/edit.html', {
-        'post': post,
-        'user_channels': user_channels,
-        'selected_channels': list(post.channels.values_list('pk', flat=True)),
-    })
+    return render(
+        request,
+        'content/edit.html',
+        _ctx_post_edit(post, user_channels, list(post.channels.values_list('pk', flat=True))),
+    )
+
+
+@login_required
+def tg_import_messages_json(request):
+    """Список последних сообщений, пересланных в импорт-бот (текст + entities для поста)."""
+    from .models_imports import TelegramImportedMessage
+
+    qs = TelegramImportedMessage.objects.filter(user=request.user).order_by('-created_at')[:30]
+    items = []
+    for m in qs:
+        ent = m.entities if isinstance(m.entities, list) else []
+        items.append(
+            {
+                'id': m.pk,
+                'text': m.text or '',
+                'entities': ent,
+                'created_at': m.created_at.isoformat() if m.created_at else '',
+            }
+        )
+    return JsonResponse({'ok': True, 'items': items})
 
 
 def _tg_import_webhook_action_redirect(request):
@@ -676,7 +695,7 @@ def tg_import_webhook(request):
                     token,
                     int(tg_user_id),
                     'Аккаунт привязан. Перешлите сюда сообщение с Premium emoji (Forward), '
-                    'затем на сайте в редакторе поста нажмите «Вставить из Telegram».',
+                    'затем на сайте в редакторе поста нажмите кнопку «Из Telegram».',
                 )
             except TelegramImportLink.DoesNotExist:
                 _tg_import_bot_reply(
@@ -730,7 +749,7 @@ def tg_import_webhook(request):
     _tg_import_bot_reply(
         token,
         int(tg_user_id),
-        'Сохранено. Откройте редактор поста на сайте и нажмите «Вставить из Telegram».',
+        'Сохранено. В редакторе поста нажмите кнопку «Из Telegram» и выберите эту запись.',
     )
     return HttpResponse('ok', status=200)
 

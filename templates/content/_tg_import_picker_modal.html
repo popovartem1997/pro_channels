@@ -1,0 +1,102 @@
+{# Модалка выбора последнего импорта из служебного TG-бота (текст + entities) #}
+<div class="modal fade" id="pcTgImportModal" tabindex="-1" aria-labelledby="pcTgImportModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="pcTgImportModalLabel">Вставить из Telegram</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted">
+          Сначала перешлите сообщение с Premium emoji в <a href="{% url 'content:tg_import_link' %}" target="_blank" rel="noopener">импорт-бота</a>,
+          затем выберите запись ниже — подставятся текст и разметка для публикации в Telegram.
+        </p>
+        <div id="pcTgImportLoading" class="small text-muted d-none">Загрузка…</div>
+        <div id="pcTgImportError" class="alert alert-danger small d-none py-2"></div>
+        <div id="pcTgImportEmpty" class="text-muted small d-none">Пока нет сохранённых импортов. Перешлите сообщение боту и обновите список.</div>
+        <div id="pcTgImportList" class="list-group list-group-flush border rounded overflow-hidden"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var url = '{% url "content:tg_import_messages" %}';
+  var modalEl = document.getElementById('pcTgImportModal');
+  var btn = document.getElementById('pcBtnTgImportPicker');
+  if (!modalEl || !btn) return;
+
+  function applyItem(item) {
+    var ed = document.getElementById('id_text_editor');
+    var plain = document.getElementById('id_text');
+    var html = document.getElementById('id_text_html');
+    var hid = document.getElementById('id_tg_entities_hidden');
+    if (!ed || !plain || !html || !hid) return;
+    var text = (item && item.text) != null ? String(item.text) : '';
+    var entities = (item && item.entities && Array.isArray(item.entities)) ? item.entities : [];
+    ed.textContent = text;
+    html.value = '';
+    plain.value = text.trim();
+    hid.value = JSON.stringify(entities);
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+    ed.focus();
+  }
+
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function loadList() {
+    var list = document.getElementById('pcTgImportList');
+    var empty = document.getElementById('pcTgImportEmpty');
+    var err = document.getElementById('pcTgImportError');
+    var loading = document.getElementById('pcTgImportLoading');
+    if (!list || !empty || !err || !loading) return;
+    list.innerHTML = '';
+    err.classList.add('d-none');
+    empty.classList.add('d-none');
+    loading.classList.remove('d-none');
+    fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        loading.classList.add('d-none');
+        if (!data || !data.ok || !data.items || !data.items.length) {
+          empty.classList.remove('d-none');
+          return;
+        }
+        data.items.forEach(function (it) {
+          var preview = (it.text || '').replace(/\s+/g, ' ').trim();
+          if (preview.length > 140) preview = preview.slice(0, 137) + '…';
+          var hasEnt = (it.entities && it.entities.length) ? ' · entities: ' + it.entities.length : '';
+          var dt = (it.created_at || '').replace('T', ' ').slice(0, 19);
+          var a = document.createElement('button');
+          a.type = 'button';
+          a.className = 'list-group-item list-group-item-action text-start small';
+          a.innerHTML = '<div class="fw-semibold">' + esc(dt || '—') + '</div>' +
+            '<div class="text-muted text-break">' + esc(preview || '(пустой текст)') + '</div>' +
+            '<div class="text-muted" style="font-size:.75rem;">#' + String(it.id) + hasEnt + '</div>';
+          a.addEventListener('click', function () {
+            applyItem(it);
+            var m = bootstrap.Modal.getInstance(modalEl);
+            if (m) m.hide();
+          });
+          list.appendChild(a);
+        });
+      })
+      .catch(function () {
+        loading.classList.add('d-none');
+        err.textContent = 'Не удалось загрузить список. Проверьте вход в аккаунт и обновите страницу.';
+        err.classList.remove('d-none');
+      });
+  }
+
+  btn.addEventListener('click', function () {
+    loadList();
+    if (typeof bootstrap !== 'undefined' && bootstrap.Modal && bootstrap.Modal.getOrCreateInstance) {
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+  });
+})();
+</script>

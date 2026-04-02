@@ -11,6 +11,7 @@ urlpatterns = [
     path('tg-import/webhook/', views.tg_import_webhook, name='tg_import_webhook'),
     path('tg-import/webhook/setup/', views.tg_import_webhook_setup, name='tg_import_webhook_setup'),
     path('tg-import/webhook/disable/', views.tg_import_webhook_disable, name='tg_import_webhook_disable'),
+    path('tg-import/messages.json', views.tg_import_messages_json, name='tg_import_messages'),
     path('<int:pk>/', views.post_detail, name='detail'),
     path('<int:pk>/edit/', views.post_edit, name='edit'),
     path('<int:pk>/delete/', views.post_delete, name='delete'),
