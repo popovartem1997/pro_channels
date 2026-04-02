@@ -3,9 +3,10 @@
 """
 import json
 from decimal import Decimal, InvalidOperation
-from typing import Optional, Tuple
+from typing import Optional
 
 import requests as http_requests
+from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
@@ -23,37 +24,50 @@ def _team_channel_editor_user(user) -> bool:
     )
 
 
-def _parse_ad_slot_schedule_json(raw) -> Tuple[Optional[list], Optional[str]]:
-    """
-    Парсит JSON расписания слотов рекламы.
-    Формат: [{"weekday": 0, "times": ["10:00", "14:00"]}, ...] — weekday пн=0 … вс=6.
-    """
-    if raw is None:
-        return [], None
-    s = str(raw).strip()
-    if not s:
-        return [], None
-    try:
-        data = json.loads(s)
-    except json.JSONDecodeError as e:
-        return None, f'Некорректный JSON: {e}'
-    if not isinstance(data, list):
-        return None, 'Ожидается JSON-массив [...]'
-    for i, block in enumerate(data):
+def _ad_slot_selected_hours_from_json(schedule) -> list[set[int]]:
+    """Из ad_slot_schedule_json — множества выбранных часов (0–23) по дням пн=0 … вс=6."""
+    selected: list[set[int]] = [set() for _ in range(7)]
+    if not isinstance(schedule, list):
+        return selected
+    for block in schedule:
         if not isinstance(block, dict):
-            return None, f'Элемент {i}: нужен объект {{ "weekday", "times" }}'
+            continue
         wd = block.get('weekday')
-        if wd is not None:
+        try:
+            wd = int(wd)
+        except (TypeError, ValueError):
+            continue
+        if wd < 0 or wd > 6:
+            continue
+        for hm in block.get('times') or []:
+            if not isinstance(hm, str):
+                continue
+            part = hm.strip().split(':')[0]
+            if not part.isdigit():
+                continue
+            h = int(part)
+            if 0 <= h <= 23:
+                selected[wd].add(h)
+    return selected
+
+
+def _ad_slot_schedule_from_post(post) -> list:
+    """Собирает JSON расписания из чекбоксов slot_w0 … slot_w6 (значения — час 0–23)."""
+    blocks: list[dict] = []
+    for wd in range(7):
+        raw = post.getlist(f'slot_w{wd}')
+        hours: list[int] = []
+        for x in raw:
             try:
-                wdi = int(wd)
+                h = int(x)
             except (TypeError, ValueError):
-                return None, f'Элемент {i}: weekday должен быть числом 0–6'
-            if wdi < 0 or wdi > 6:
-                return None, f'Элемент {i}: weekday в диапазоне 0 (пн) … 6 (вс)'
-        times = block.get('times')
-        if times is not None and not isinstance(times, list):
-            return None, f'Элемент {i}: times — массив строк времени (например "10:30")'
-    return data, None
+                continue
+            if 0 <= h <= 23:
+                hours.append(h)
+        hours = sorted(set(hours))
+        if hours:
+            blocks.append({'weekday': wd, 'times': [f'{h:02d}:00' for h in hours]})
+    return blocks
 
 
 def _parse_ad_price(raw) -> Optional[Decimal]:
@@ -311,11 +325,7 @@ def channel_edit(request, pk):
             channel.ad_price = parsed_price
         channel.ord_pad_external_id = (request.POST.get('ord_pad_external_id') or '').strip()
 
-        sched_list, sched_err = _parse_ad_slot_schedule_json(request.POST.get('ad_slot_schedule_json'))
-        if sched_err:
-            messages.warning(request, f'Расписание слотов не обновлено: {sched_err}')
-        else:
-            channel.ad_slot_schedule_json = sched_list
+        channel.ad_slot_schedule_json = _ad_slot_schedule_from_post(request.POST)
 
         h_raw = (request.POST.get('ad_slot_horizon_days') or '').strip()
         if h_raw.isdigit():
@@ -367,7 +377,12 @@ def channel_edit(request, pk):
         return redirect('channels:detail', pk=pk)
 
     groups = ChannelGroup.objects.filter(owner=request.user).order_by('name', 'pk')
-    ad_slot_json_text = json.dumps(channel.ad_slot_schedule_json or [], ensure_ascii=False, indent=2)
+    sel = _ad_slot_selected_hours_from_json(channel.ad_slot_schedule_json)
+    day_labels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+    ad_slot_days = [
+        {'weekday': i, 'label': day_labels[i], 'hours': sel[i]} for i in range(7)
+    ]
+    ad_slot_hours = [{'v': h, 'lb': f'{h:02d}'} for h in range(24)]
     return render(
         request,
         'channels/edit.html',
@@ -375,7 +390,9 @@ def channel_edit(request, pk):
             'channel': channel,
             'footer_only': footer_only,
             'channel_groups': groups,
-            'ad_slot_json_text': ad_slot_json_text,
+            'ad_slot_days': ad_slot_days,
+            'ad_slot_hours': ad_slot_hours,
+            'server_timezone': getattr(settings, 'TIME_ZONE', 'UTC'),
         },
     )
 
