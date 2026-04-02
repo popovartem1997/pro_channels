@@ -33,22 +33,15 @@
           {% csrf_token %}
           <input type="hidden" name="form" value="create_contract">
           <div class="col-12 col-md-6 col-lg-4">
-            <label class="form-label small fw-semibold">Внешний ID договора <span class="text-danger">*</span></label>
-            <input type="text" name="new_contract_external_id" class="form-control form-control-sm font-monospace"
-                   placeholder="my-contract-2026-01" required autocomplete="off">
-            <div class="form-text">Ваш уникальный id; такой же укажете в поле «Внешний ID договора» ниже при регистрации креатива.</div>
+            <label class="form-label small fw-semibold">Внешний ID договора</label>
+            <div class="form-control form-control-sm font-monospace bg-body-secondary">{{ suggested_contract_external_id }}</div>
+            <div class="form-text">Назначается автоматически при отправке: <code>ORD-год-порядковый номер</code> (например <code>ORD-2026-000001</code>). Тот же id укажите ниже в блоке регистрации креатива.</div>
           </div>
           <div class="col-12 col-md-6 col-lg-4">
-            <label class="form-label small fw-semibold">Клиент (person) <span class="text-danger">*</span></label>
-            <input list="ord-person-ids-contract" type="text" name="contract_client_external_id"
-                   class="form-control form-control-sm font-monospace" placeholder="external_id person" required>
-            <datalist id="ord-person-ids-contract">{% for x in person_ids %}<option value="{{ x }}">{% endfor %}</datalist>
+            {% include 'ord_marking/includes/ord_filtered_select.html' with field_name='contract_client_external_id' field_id='id_contract_client' label_html='Клиент (person) <span class="text-danger">*</span>' choices=person_choices required=1 empty_label='— Выберите контрагента —' %}
           </div>
           <div class="col-12 col-md-6 col-lg-4">
-            <label class="form-label small fw-semibold">Исполнитель (person)</label>
-            <input list="ord-person-ids-contract2" type="text" name="contract_contractor_external_id"
-                   class="form-control form-control-sm font-monospace" placeholder="необязательно">
-            <datalist id="ord-person-ids-contract2">{% for x in person_ids %}<option value="{{ x }}">{% endfor %}</datalist>
+            {% include 'ord_marking/includes/ord_filtered_select.html' with field_name='contract_contractor_external_id' field_id='id_contract_contractor' label_html='Исполнитель (person)' choices=person_choices required=0 empty_label='— Не указан —' %}
           </div>
           <div class="col-12 col-md-8">
             <label class="form-label small fw-semibold">Предмет договора <span class="text-danger">*</span></label>
@@ -92,6 +85,42 @@
           Подсказки для договора / контрагента / площадки — из <code>GET /v1/person</code>, <code>/v1/contract</code>, <code>/v1/pad</code>.
         </div>
         {% endif %}
+
+        <details class="mb-4 small border rounded p-3 bg-body-tertiary">
+          <summary class="fw-semibold" style="cursor:pointer;">Добавить рекламодателя</summary>
+          <p class="small text-muted mb-2 mt-2">Создаётся пользователь с ролью «рекламодатель» и временным паролем (покажем после сохранения).</p>
+          <form method="post" class="row g-2">
+            {% csrf_token %}
+            <input type="hidden" name="form" value="quick_advertiser">
+            <div class="col-12 col-md-6">
+              <label class="form-label small mb-0">Название / компания <span class="text-danger">*</span></label>
+              <input type="text" name="qa_company_name" class="form-control form-control-sm" required maxlength="255">
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label small mb-0">ИНН <span class="text-danger">*</span></label>
+              <input type="text" name="qa_inn" class="form-control form-control-sm" required pattern="[0-9]{10}|[0-9]{12}" inputmode="numeric" placeholder="10 или 12 цифр">
+            </div>
+            <div class="col-12">
+              <label class="form-label small mb-0">Юридический адрес <span class="text-danger">*</span></label>
+              <input type="text" name="qa_legal_address" class="form-control form-control-sm" required>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label small mb-0">Контактное лицо <span class="text-danger">*</span></label>
+              <input type="text" name="qa_contact_person" class="form-control form-control-sm" required maxlength="255">
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label small mb-0">Email (логин) <span class="text-danger">*</span></label>
+              <input type="email" name="qa_email" class="form-control form-control-sm" required autocomplete="off">
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label small mb-0">Телефон</label>
+              <input type="text" name="qa_contact_phone" class="form-control form-control-sm" maxlength="20">
+            </div>
+            <div class="col-12">
+              <button type="submit" class="btn btn-sm btn-outline-primary rounded-pill">Создать и выбрать</button>
+            </div>
+          </form>
+        </details>
 
         <form method="post" enctype="multipart/form-data" id="ord-register-form">
           {% csrf_token %}
@@ -162,9 +191,10 @@
             </div>
           </div>
 
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Рекламодатель</label>
-            <select name="advertiser_id" class="form-select">
+          <div class="mb-3 ord-entity-select-wrap" data-ord-select-wrap>
+            <label class="form-label fw-semibold" for="id_advertiser_id">Рекламодатель</label>
+            <input type="search" class="form-control form-control-sm mb-1 ord-entity-select-filter" id="id_advertiser_filter" placeholder="Фильтр: название, ИНН…" autocomplete="off" aria-label="Фильтр рекламодателей">
+            <select name="advertiser_id" id="id_advertiser_id" class="form-select">
               <option value="">— Не указан —</option>
               {% for adv in advertisers %}
               <option value="{{ adv.pk }}">{{ adv.company_name }} (ИНН {{ adv.inn }})</option>
@@ -174,19 +204,15 @@
 
           <h6 class="fw-bold small text-muted text-uppercase mt-4 mb-2">Параметры ОРД</h6>
           <div class="mb-2">
-            <label class="form-label small fw-semibold">Внешний ID договора</label>
-            <input list="ord-contract-ids" type="text" name="contract_external_id" class="form-control form-control-sm font-monospace" value="{{ default_contract }}" placeholder="Из кабинета или созданный выше">
-            <datalist id="ord-contract-ids">{% for x in contract_ids %}<option value="{{ x }}">{% endfor %}</datalist>
+            {% include 'ord_marking/includes/ord_filtered_select.html' with field_name='contract_external_id' field_id='id_reg_contract' label_html='Внешний ID договора' choices=contract_choices required=0 empty_label='— Как в кабинете ОРД —' %}
+            {% if default_contract %}<div class="form-text">По умолчанию из ключей: <code>{{ default_contract }}</code> — выберите в списке или оставьте свой.</div>{% endif %}
           </div>
           <div class="mb-2">
-            <label class="form-label small fw-semibold">Внешний ID площадки (pad)</label>
-            <input list="ord-pad-ids" type="text" name="pad_external_id" class="form-control form-control-sm font-monospace" value="{{ default_pad }}">
-            <datalist id="ord-pad-ids">{% for x in pad_ids %}<option value="{{ x }}">{% endfor %}</datalist>
+            {% include 'ord_marking/includes/ord_filtered_select.html' with field_name='pad_external_id' field_id='id_reg_pad' label_html='Внешний ID площадки (pad)' choices=pad_choices required=0 empty_label='— Не задано —' %}
+            {% if default_pad %}<div class="form-text">Из ключей: <code>{{ default_pad }}</code></div>{% endif %}
           </div>
           <div class="mb-3">
-            <label class="form-label small fw-semibold">Внешний ID контрагента (person)</label>
-            <input list="ord-person-ids" type="text" name="person_external_id" class="form-control form-control-sm font-monospace" placeholder="Если не из карточки рекламодателя">
-            <datalist id="ord-person-ids">{% for x in person_ids %}<option value="{{ x }}">{% endfor %}</datalist>
+            {% include 'ord_marking/includes/ord_filtered_select.html' with field_name='person_external_id' field_id='id_reg_person' label_html='Внешний ID контрагента (person)' choices=person_choices required=0 empty_label='— Из карточки рекламодателя / не задано —' %}
           </div>
 
           <div class="mb-4">
@@ -273,8 +299,55 @@
   if (srcPub) srcPub.addEventListener('change', syncSourceMode);
   if (srcSt) srcSt.addEventListener('change', syncSourceMode);
 
+  function wireOrdFilteredSelects() {
+    document.querySelectorAll('[data-ord-select-wrap]').forEach(function (wrap) {
+      var filt = wrap.querySelector('.ord-entity-select-filter');
+      var sel = wrap.querySelector('select');
+      if (!filt || !sel) return;
+      var opts = Array.prototype.slice.call(sel.options, 0);
+      filt.addEventListener('input', function () {
+        var q = (filt.value || '').toLowerCase().trim();
+        opts.forEach(function (o) {
+          if (o.value === '') {
+            o.hidden = false;
+            return;
+          }
+          var t = (o.textContent || '').toLowerCase();
+          var v = (o.value || '').toLowerCase();
+          o.hidden = !!(q && t.indexOf(q) < 0 && v.indexOf(q) < 0);
+        });
+      });
+    });
+  }
+
+  function preselectOrdSelect(selectId, val) {
+    if (!val) return;
+    var s = document.getElementById(selectId);
+    if (!s || s.tagName !== 'SELECT') return;
+    for (var i = 0; i < s.options.length; i++) {
+      if (s.options[i].value === val) {
+        s.selectedIndex = i;
+        return;
+      }
+    }
+    var o = document.createElement('option');
+    o.value = val;
+    o.textContent = val + ' (из ключей)';
+    s.appendChild(o);
+    s.value = val;
+  }
+
   rebuildChannels();
   syncSourceMode();
+  wireOrdFilteredSelects();
+  preselectOrdSelect('id_reg_contract', '{{ default_contract|escapejs }}');
+  preselectOrdSelect('id_reg_pad', '{{ default_pad|escapejs }}');
+  var params = new URLSearchParams(location.search);
+  var aid = params.get('advertiser_id');
+  if (aid) {
+    var ads = document.getElementById('id_advertiser_id');
+    if (ads) ads.value = aid;
+  }
 })();
 </script>
 {% endblock %}

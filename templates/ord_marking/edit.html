@@ -30,9 +30,10 @@
         <form method="post">
           {% csrf_token %}
 
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Рекламодатель (наш каталог)</label>
-            <select name="advertiser_id" class="form-select">
+          <div class="mb-3 ord-entity-select-wrap" data-ord-select-wrap>
+            <label class="form-label fw-semibold" for="id_edit_advertiser_id">Рекламодатель (наш каталог)</label>
+            <input type="search" class="form-control form-control-sm mb-1 ord-entity-select-filter" placeholder="Фильтр: название, ИНН…" autocomplete="off" aria-label="Фильтр рекламодателей">
+            <select name="advertiser_id" id="id_edit_advertiser_id" class="form-select">
               <option value="">— Не указан —</option>
               {% for adv in advertisers %}
               <option value="{{ adv.pk }}" {% if reg.advertiser_id == adv.pk %}selected{% endif %}>{{ adv.company_name }} (ИНН {{ adv.inn }})</option>
@@ -44,34 +45,18 @@
           <h6 class="fw-bold small text-muted text-uppercase mt-4 mb-2">Связь с ОРД VK</h6>
 
           <div class="mb-3">
-            <label class="form-label fw-semibold" for="id_contract_external_id">Внешний ID договора (contract)</label>
-            <input list="ord-contract-ids" type="text" name="contract_external_id" id="id_contract_external_id"
-                   class="form-control font-monospace" value="{{ reg.contract_external_id }}"
-                   placeholder="{% if default_contract %}По умолчанию из ключей: {{ default_contract }}{% else %}Например id из ЛК ОРД{% endif %}">
-            <datalist id="ord-contract-ids">
-              {% for x in contract_ids %}<option value="{{ x }}">{% endfor %}
-            </datalist>
+            {% include 'ord_marking/includes/ord_filtered_select.html' with field_name='contract_external_id' field_id='id_contract_external_id' label_html='Внешний ID договора (contract)' choices=contract_choices required=0 empty_label='— Как в ЛК ОРД —' selected_value=reg.contract_external_id %}
+            {% if default_contract %}<div class="form-text small">Из ключей API по умолчанию: <code>{{ default_contract }}</code></div>{% endif %}
             <div class="form-text">Для креатива через договор. Если указан <b>контрагент (person)</b>, в теле креатива уходит он (логика API ОРД).</div>
           </div>
 
           <div class="mb-3">
-            <label class="form-label fw-semibold" for="id_person_external_id">Внешний ID контрагента (person)</label>
-            <input list="ord-person-ids" type="text" name="person_external_id" id="id_person_external_id"
-                   class="form-control font-monospace" value="{{ reg.person_external_id }}"
-                   placeholder="Из списка контрагентов в ЛК ОРД">
-            <datalist id="ord-person-ids">
-              {% for x in person_ids %}<option value="{{ x }}">{% endfor %}
-            </datalist>
+            {% include 'ord_marking/includes/ord_filtered_select.html' with field_name='person_external_id' field_id='id_person_external_id' label_html='Внешний ID контрагента (person)' choices=person_choices required=0 empty_label='— Не задано —' selected_value=reg.person_external_id %}
           </div>
 
           <div class="mb-3">
-            <label class="form-label fw-semibold" for="id_pad_external_id">Внешний ID площадки (pad), статистика</label>
-            <input list="ord-pad-ids" type="text" name="pad_external_id" id="id_pad_external_id"
-                   class="form-control font-monospace" value="{{ reg.pad_external_id }}"
-                   placeholder="{% if default_pad %}Из ключей: {{ default_pad }}{% else %}Для отправки показов в ОРД{% endif %}">
-            <datalist id="ord-pad-ids">
-              {% for x in pad_ids %}<option value="{{ x }}">{% endfor %}
-            </datalist>
+            {% include 'ord_marking/includes/ord_filtered_select.html' with field_name='pad_external_id' field_id='id_pad_external_id' label_html='Внешний ID площадки (pad), статистика' choices=pad_choices required=0 empty_label='— Не задано —' selected_value=reg.pad_external_id %}
+            {% if default_pad %}<div class="form-text small">Из ключей: <code>{{ default_pad }}</code></div>{% endif %}
           </div>
 
           <div class="mb-4">
@@ -99,4 +84,48 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  function wireOrdFilteredSelects() {
+    document.querySelectorAll('[data-ord-select-wrap]').forEach(function (wrap) {
+      var filt = wrap.querySelector('.ord-entity-select-filter');
+      var sel = wrap.querySelector('select');
+      if (!filt || !sel) return;
+      var opts = Array.prototype.slice.call(sel.options, 0);
+      filt.addEventListener('input', function () {
+        var q = (filt.value || '').toLowerCase().trim();
+        opts.forEach(function (o) {
+          if (o.value === '') {
+            o.hidden = false;
+            return;
+          }
+          var t = (o.textContent || '').toLowerCase();
+          var v = (o.value || '').toLowerCase();
+          o.hidden = !!(q && t.indexOf(q) < 0 && v.indexOf(q) < 0);
+        });
+      });
+    });
+  }
+  function ensureOrdSelectValue(selectId, val) {
+    if (!val) return;
+    var s = document.getElementById(selectId);
+    if (!s || s.tagName !== 'SELECT') return;
+    for (var i = 0; i < s.options.length; i++) {
+      if (s.options[i].value === val) return;
+    }
+    var o = document.createElement('option');
+    o.value = val;
+    o.textContent = val + ' (сохранённый id)';
+    s.appendChild(o);
+    s.value = val;
+  }
+  wireOrdFilteredSelects();
+  ensureOrdSelectValue('id_contract_external_id', '{{ reg.contract_external_id|escapejs }}');
+  ensureOrdSelectValue('id_person_external_id', '{{ reg.person_external_id|escapejs }}');
+  ensureOrdSelectValue('id_pad_external_id', '{{ reg.pad_external_id|escapejs }}');
+})();
+</script>
 {% endblock %}

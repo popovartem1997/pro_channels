@@ -1,0 +1,15 @@
+{# field_name, field_id, label_html, choices, required, empty_label, selected_value (optional) #}
+<div class="ord-entity-select-wrap mb-3" data-ord-select-wrap>
+  <label class="form-label small fw-semibold" for="{{ field_id }}">{{ label_html|safe }}</label>
+  {% if choices %}
+  <input type="search" class="form-control form-control-sm mb-1 ord-entity-select-filter" placeholder="Фильтр по названию, ИНН или id…" autocomplete="off" aria-label="Фильтр списка">
+  <select name="{{ field_name }}" id="{{ field_id }}" class="form-select form-select-sm"{% if required %} required{% endif %}>
+    <option value="">{{ empty_label }}</option>
+    {% for c in choices %}
+    <option value="{{ c.external_id }}"{% if selected_value and selected_value == c.external_id %} selected{% endif %}>{{ c.label }}</option>
+    {% endfor %}
+  </select>
+  {% else %}
+  <input type="text" name="{{ field_name }}" id="{{ field_id }}" class="form-control form-control-sm font-monospace"{% if required %} required{% endif %} placeholder="Внешний id из кабинета ОРД" autocomplete="off" value="{{ selected_value|default:'' }}">
+  {% endif %}
+</div>

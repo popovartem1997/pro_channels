@@ -1,3 +1,7 @@
+import secrets
+
+from django.contrib.auth import get_user_model
+from django.urls import reverse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -9,6 +13,8 @@ from django.utils import timezone
 from .models import ORDRegistration, OrdSyncRun
 from . import vk_ord_client
 from .services import (
+    allocate_next_ord_contract_external_id,
+    peek_next_ord_contract_external_id,
     register_creative_for_registration,
     refresh_erid_from_api,
     submit_statistics_for_month,
@@ -112,19 +118,66 @@ def ord_create(request):
         )
 
     if request.method == 'POST':
+        if request.POST.get('form') == 'quick_advertiser':
+            User = get_user_model()
+            company_name = (request.POST.get('qa_company_name') or '').strip()
+            inn = (request.POST.get('qa_inn') or '').strip()
+            legal_address = (request.POST.get('qa_legal_address') or '').strip()
+            contact_person = (request.POST.get('qa_contact_person') or '').strip()
+            email = (request.POST.get('qa_email') or '').strip().lower()
+            contact_phone = (request.POST.get('qa_contact_phone') or '').strip()
+            if not all([company_name, inn, legal_address, contact_person, email]) or '@' not in email:
+                messages.error(
+                    request,
+                    'Заполните название, ИНН, юр. адрес, контактное лицо и корректный email рекламодателя.',
+                )
+                return redirect('ord_marking:create')
+            if not inn.isdigit() or len(inn) not in (10, 12):
+                messages.error(request, 'ИНН должен состоять из 10 или 12 цифр.')
+                return redirect('ord_marking:create')
+            if User.objects.filter(email=email).exists():
+                messages.error(
+                    request,
+                    'Пользователь с таким email уже есть. Укажите другой email или выберите рекламодателя в списке.',
+                )
+                return redirect('ord_marking:create')
+            pw = secrets.token_urlsafe(14)
+            user = User(
+                email=email,
+                username=email,
+                first_name=(contact_person[:150] if contact_person else email.split('@')[0]),
+                role=User.ROLE_ADVERTISER,
+            )
+            user.set_password(pw)
+            user.save()
+            adv = Advertiser.objects.create(
+                user=user,
+                company_name=company_name,
+                inn=inn,
+                legal_address=legal_address,
+                contact_person=contact_person,
+                contact_phone=contact_phone,
+            )
+            messages.success(
+                request,
+                f'Рекламодатель «{company_name}» создан. Временный пароль для входа: {pw} '
+                '(сохраните в надёжном месте; пользователь может сменить пароль после входа).',
+            )
+            return redirect(f'{reverse("ord_marking:create")}?advertiser_id={adv.pk}')
+
         if request.POST.get('form') == 'create_contract':
             if not bearer:
                 messages.error(request, 'Нет ключа API ОРД — создание договора недоступно.')
                 return redirect('ord_marking:create')
-            ext = (request.POST.get('new_contract_external_id') or '').strip()
+            ext = allocate_next_ord_contract_external_id()
             client_eid = (request.POST.get('contract_client_external_id') or '').strip()
             contractor_eid = (request.POST.get('contract_contractor_external_id') or '').strip()
             subject = (request.POST.get('contract_subject') or '').strip()
             date_s = (request.POST.get('contract_date') or '').strip()
-            if not ext or not client_eid or not subject or not date_s:
+            if not client_eid or not subject or not date_s:
                 messages.error(
                     request,
-                    'Укажите внешний ID договора, внешний ID клиента (person), предмет договора и дату.',
+                    'Укажите клиента (person), предмет договора и дату.',
                 )
                 return redirect('ord_marking:create')
             body: dict = {
@@ -271,7 +324,7 @@ def ord_create(request):
     advertisers = Advertiser.objects.all().order_by('company_name')
     keys, sandbox = _ord_keys_flags()
     bearer = (keys.get_vk_ord_access_token() or '').strip()
-    catalog = load_ord_catalog(bearer, use_sandbox=sandbox) if bearer else {}
+    catalog = load_ord_catalog(bearer, use_sandbox=sandbox)
     return render(
         request,
         'ord_marking/create.html',
@@ -284,6 +337,7 @@ def ord_create(request):
             'default_pad': (keys.vk_ord_pad_external_id or '').strip(),
             'sandbox': sandbox,
             'token_set': bool(bearer),
+            'suggested_contract_external_id': peek_next_ord_contract_external_id(),
             **catalog,
         },
     )
@@ -301,7 +355,7 @@ def ord_edit(request, pk):
     )
     keys, sandbox = _ord_keys_flags()
     bearer = (keys.get_vk_ord_access_token() or '').strip()
-    catalog = load_ord_catalog(bearer, use_sandbox=sandbox) if bearer else {}
+    catalog = load_ord_catalog(bearer, use_sandbox=sandbox)
 
     if request.method == 'POST':
         reg.contract_external_id = (request.POST.get('contract_external_id') or '').strip()

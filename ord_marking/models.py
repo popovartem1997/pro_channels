@@ -56,6 +56,20 @@ class ORDRegistration(models.Model):
         return f'ОРД: {self.post} → {self.channel} ({self.get_status_display()})'
 
 
+class OrdContractExternalIdCounter(models.Model):
+    """Порядковый номер внешнего id договора ОРД на календарный год (ORD-ГГГГ-NNNNNN)."""
+
+    year = models.PositiveIntegerField('Год', unique=True, db_index=True)
+    last_seq = models.PositiveIntegerField('Последний номер', default=0)
+
+    class Meta:
+        verbose_name = 'Счётчик id договора ОРД'
+        verbose_name_plural = 'Счётчики id договоров ОРД'
+
+    def __str__(self):
+        return f'{self.year}: {self.last_seq}'
+
+
 class OrdSyncRun(models.Model):
     """Фоновая синхронизация кабинета ОРД (контрагенты/договоры) в нашу БД."""
     STATUS_PENDING = 'pending'

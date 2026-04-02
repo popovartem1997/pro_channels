@@ -4,31 +4,216 @@
 from __future__ import annotations
 
 import calendar
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, time
+from typing import Any
 
+from django.db import transaction
 from django.utils import timezone
 
 from . import vk_ord_client
-from .models import ORDRegistration
+from .models import ORDRegistration, OrdContractExternalIdCounter
+
+
+def peek_next_ord_contract_external_id() -> str:
+    """Следующий id без резервирования (для подсказки на форме)."""
+    year = timezone.now().year
+    row = OrdContractExternalIdCounter.objects.filter(year=year).first()
+    n = (row.last_seq + 1) if row else 1
+    return f'ORD-{year}-{n:06d}'
+
+
+def allocate_next_ord_contract_external_id() -> str:
+    """Атомарно зарезервировать внешний id договора: ORD-ГГГГ-NNNNNN."""
+    year = timezone.now().year
+    with transaction.atomic():
+        row, _ = OrdContractExternalIdCounter.objects.select_for_update().get_or_create(
+            year=year,
+            defaults={'last_seq': 0},
+        )
+        row.last_seq += 1
+        row.save(update_fields=['last_seq'])
+        return f'ORD-{year}-{row.last_seq:06d}'
+
+
+def _eid_from_mixed_item(item: Any) -> str:
+    if isinstance(item, str):
+        return item.strip()
+    if isinstance(item, dict):
+        return str(item.get('external_id') or item.get('id') or '').strip()
+    return ''
+
+
+def person_label_for_ord_dict(d: dict) -> str:
+    """Читаемая подпись контрагента для списков и карточки GET /v1/person/{id}."""
+    eid = str(d.get('external_id') or d.get('id') or '').strip()
+    jd = d.get('juridical_details')
+    if isinstance(jd, dict):
+        name = ''
+        for k in ('name', 'full_name', 'short_name', 'organization_name'):
+            v = jd.get(k)
+            if isinstance(v, str) and v.strip():
+                name = v.strip()
+                break
+        inn = (jd.get('inn') or '').strip()
+        if name and inn:
+            lab = f'{name} (ИНН {inn})'
+        elif name:
+            lab = name
+        elif inn:
+            lab = f'Юрлицо, ИНН {inn}'
+        else:
+            lab = ''
+        if lab:
+            return f'{lab} — {eid}' if eid else lab
+    pd = d.get('physical_details')
+    if isinstance(pd, dict):
+        fio = (pd.get('fio') or pd.get('full_name') or pd.get('name') or '').strip()
+        if fio:
+            return f'{fio} — {eid}' if eid else fio
+    for k in ('name', 'full_name', 'title'):
+        v = d.get(k)
+        if isinstance(v, str) and v.strip():
+            return f'{v.strip()} — {eid}' if eid else v.strip()
+    return eid or '—'
+
+
+def contract_label_for_ord_dict(d: dict) -> str:
+    eid = str(d.get('external_id') or d.get('id') or '').strip()
+    subj = (d.get('subject') or d.get('title') or '').strip()
+    serial = (d.get('serial') or d.get('number') or '').strip()
+    parts = [p for p in (subj, serial) if p]
+    if parts:
+        head = ' · '.join(parts[:2])
+        return f'{head} — {eid}' if eid else head
+    return eid or '—'
+
+
+def pad_label_for_ord_dict(d: dict) -> str:
+    eid = str(d.get('external_id') or d.get('id') or '').strip()
+    name = (d.get('name') or d.get('title') or d.get('url') or '').strip()
+    if name:
+        return f'{name} — {eid}' if eid else name
+    return eid or '—'
+
+
+def _choice_from_list_item(entity: str, item: Any) -> dict | None:
+    if isinstance(item, dict):
+        eid = _eid_from_mixed_item(item)
+        if not eid:
+            return None
+        if entity == 'person':
+            label = person_label_for_ord_dict(item)
+        elif entity == 'contract':
+            label = contract_label_for_ord_dict(item)
+        else:
+            label = pad_label_for_ord_dict(item)
+        if not label or label == '—':
+            label = eid
+        return {'external_id': eid, 'label': label}
+    if isinstance(item, str) and item.strip():
+        eid = item.strip()
+        return {'external_id': eid, 'label': eid}
+    return None
+
+
+def _enrich_person_labels(
+    bearer: str,
+    external_ids: list[str],
+    *,
+    use_sandbox: bool,
+    max_fetch: int = 48,
+    workers: int = 8,
+) -> dict[str, str]:
+    ids = [x for x in external_ids if x][:max_fetch]
+    if not ids:
+        return {}
+
+    def job(eid: str) -> tuple[str, str]:
+        try:
+            d = vk_ord_client.get_v1_entity_json(bearer, 'person', eid, use_sandbox=use_sandbox)
+            if not isinstance(d, dict):
+                return eid, eid
+            lab = person_label_for_ord_dict(d)
+            return eid, lab if lab and lab != '—' else eid
+        except Exception:
+            return eid, eid
+
+    out: dict[str, str] = {}
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = [ex.submit(job, eid) for eid in ids]
+        for fut in as_completed(futures):
+            eid, lab = fut.result()
+            out[eid] = lab
+    return out
+
+
+def build_entity_choices(
+    bearer: str,
+    entity: str,
+    *,
+    use_sandbox: bool,
+    enrich_person_ids: bool = True,
+    person_enrich_max: int = 48,
+) -> list[dict]:
+    raw = vk_ord_client.list_v1_entity_list_response(
+        bearer, entity, limit=400, use_sandbox=use_sandbox
+    )
+    choices: list[dict] = []
+    seen: set[str] = set()
+    to_enrich: set[str] = set()
+    for item in raw:
+        ch = _choice_from_list_item(entity, item)
+        if not ch:
+            continue
+        eid = ch['external_id']
+        if eid in seen:
+            continue
+        seen.add(eid)
+        if entity == 'person':
+            if isinstance(item, str) or ch.get('label') == eid:
+                to_enrich.add(eid)
+        choices.append(ch)
+    if entity == 'person' and to_enrich and enrich_person_ids:
+        ids_fetch = sorted(to_enrich)[:person_enrich_max]
+        by_id = _enrich_person_labels(bearer, ids_fetch, use_sandbox=use_sandbox, max_fetch=person_enrich_max)
+        for ch in choices:
+            eid = ch['external_id']
+            if eid in by_id:
+                ch['label'] = by_id[eid]
+    choices.sort(key=lambda x: (x.get('label') or x['external_id']).lower())
+    return choices
 
 
 def load_ord_catalog(bearer: str, *, use_sandbox: bool) -> dict:
     """
-    Списки внешних id из кабинета ОРД (те же данные, что в ЛК ord.vk.com), по API.
+    Списки из кабинета ОРД: id и человекочитаемые подписи (person по возможности
+    уточняются через GET /v1/person/{id}).
     """
-    out: dict = {'person_ids': [], 'contract_ids': [], 'pad_ids': [], 'catalog_error': None}
+    out: dict = {
+        'person_ids': [],
+        'contract_ids': [],
+        'pad_ids': [],
+        'person_choices': [],
+        'contract_choices': [],
+        'pad_choices': [],
+        'catalog_error': None,
+    }
     if not (bearer or '').strip():
         return out
     try:
-        out['person_ids'] = vk_ord_client.list_v1_entity_external_ids(
-            bearer, 'person', limit=400, use_sandbox=use_sandbox
+        out['person_choices'] = build_entity_choices(
+            bearer, 'person', use_sandbox=use_sandbox, enrich_person_ids=True
         )
-        out['contract_ids'] = vk_ord_client.list_v1_entity_external_ids(
-            bearer, 'contract', limit=400, use_sandbox=use_sandbox
+        out['contract_choices'] = build_entity_choices(
+            bearer, 'contract', use_sandbox=use_sandbox, enrich_person_ids=False
         )
-        out['pad_ids'] = vk_ord_client.list_v1_entity_external_ids(
-            bearer, 'pad', limit=400, use_sandbox=use_sandbox
+        out['pad_choices'] = build_entity_choices(
+            bearer, 'pad', use_sandbox=use_sandbox, enrich_person_ids=False
         )
+        out['person_ids'] = [x['external_id'] for x in out['person_choices']]
+        out['contract_ids'] = [x['external_id'] for x in out['contract_choices']]
+        out['pad_ids'] = [x['external_id'] for x in out['pad_choices']]
     except vk_ord_client.OrdVkApiError as e:
         if getattr(e, 'status', None) == 401:
             out['catalog_error'] = (

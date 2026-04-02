@@ -182,6 +182,33 @@ def _parse_external_id_items(data: Any) -> list[str]:
     return out
 
 
+def list_v1_entity_list_response(
+    bearer: str,
+    entity: str,
+    *,
+    limit: int = 300,
+    offset: int = 0,
+    use_sandbox: bool = False,
+) -> list[Any]:
+    """Сырой список элементов из GET /v1/person|contract|pad (строки или объекты)."""
+    ent = (entity or '').strip().lower().rstrip('/')
+    if ent not in ('person', 'contract', 'pad'):
+        raise ValueError('entity must be person, contract or pad')
+    q: dict[str, Any] = {'limit': max(1, min(int(limit), 1000))}
+    if offset:
+        q['offset'] = max(0, int(offset))
+    path = f'/v1/{ent}?{urlencode(q)}'
+    status, data = ord_request(bearer, 'GET', path, use_sandbox=use_sandbox)
+    if status != 200:
+        raise OrdVkApiError(status, json.dumps(data, ensure_ascii=False), data if isinstance(data, dict) else {})
+    if not isinstance(data, dict):
+        return []
+    raw = data.get('items')
+    if raw is None:
+        raw = data.get('external_ids')
+    return list(raw) if isinstance(raw, list) else []
+
+
 def list_v1_entity_external_ids(
     bearer: str,
     entity: str,
@@ -194,17 +221,10 @@ def list_v1_entity_external_ids(
     GET /v1/person | /v1/contract | /v1/pad — списки внешних id из кабинета ОРД.
     См. Swagger ОРД VK и darkdarin/vk-ord-sdk.
     """
-    ent = (entity or '').strip().lower().rstrip('/')
-    if ent not in ('person', 'contract', 'pad'):
-        raise ValueError('entity must be person, contract or pad')
-    q: dict[str, Any] = {'limit': max(1, min(int(limit), 1000))}
-    if offset:
-        q['offset'] = max(0, int(offset))
-    path = f'/v1/{ent}?{urlencode(q)}'
-    status, data = ord_request(bearer, 'GET', path, use_sandbox=use_sandbox)
-    if status != 200:
-        raise OrdVkApiError(status, json.dumps(data, ensure_ascii=False), data if isinstance(data, dict) else {})
-    return _parse_external_id_items(data)
+    data_items = list_v1_entity_list_response(
+        bearer, entity, limit=limit, offset=offset, use_sandbox=use_sandbox
+    )
+    return _parse_external_id_items({'items': data_items})
 
 
 def get_v1_entity_json(
