@@ -61,6 +61,22 @@ def _max_event_dedupe_acquire(key: str, ttl_seconds: int = 120) -> bool:
     except Exception:
         pass
 
+    # DB-based dedupe for MAX callbacks (works across multiple workers without Redis)
+    # Key format expected: "<bot_id>:cb:<callback_id>"
+    try:
+        if ':cb:' in key:
+            bot_id = str(key).split(':', 1)[0]
+            callback_id = str(key).split(':cb:', 1)[1]
+            if bot_id.isdigit() and callback_id:
+                from bots.models import MaxProcessedCallback
+                _obj, created = MaxProcessedCallback.objects.get_or_create(
+                    bot_id=int(bot_id),
+                    callback_id=callback_id[:200],
+                )
+                return bool(created)
+    except Exception:
+        pass
+
     # In-memory best-effort dedupe
     now = time.time()
     try:

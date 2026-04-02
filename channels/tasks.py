@@ -286,6 +286,28 @@ def import_tg_history_to_max_task(self, run_id: int):
     async def _do_import():
         from telethon import TelegramClient
 
+        async def _ensure_connected():
+            nonlocal client
+            if client is None:
+                return
+            try:
+                if client.is_connected():
+                    return
+            except Exception:
+                pass
+            # Retry connect a few times
+            for i in range(5):
+                try:
+                    await client.connect()
+                    try:
+                        if client.is_connected():
+                            return
+                    except Exception:
+                        return
+                except Exception as exc:
+                    logger.warning('TG import: reconnect failed (attempt=%s): %s', i + 1, exc)
+                    await asyncio.sleep(1.5 + i * 1.7)
+
         # Telethon sessions: same location as parsing.
         session_dir = settings.BASE_DIR / 'media' / 'telethon_sessions'
         try:
@@ -314,6 +336,7 @@ def import_tg_history_to_max_task(self, run_id: int):
                         'Важно: у celery должен быть смонтирован тот же /app/media.'
                     )
 
+            await _ensure_connected()
             entity = await client.get_entity(_tg_entity_id_from_channel(source))
             # reverse=True: from oldest to newest
             async for msg in client.iter_messages(entity, reverse=True):
@@ -322,6 +345,9 @@ def import_tg_history_to_max_task(self, run_id: int):
                 # cancellation: check every message
                 if await _cancel_requested():
                     raise asyncio.CancelledError()
+
+                # MAX/Telethon can drop connection mid-run; reconnect if needed
+                await _ensure_connected()
 
                 msg_id = getattr(msg, 'id', None)
                 if msg_id is None:
@@ -356,6 +382,7 @@ def import_tg_history_to_max_task(self, run_id: int):
                 downloaded_paths = []
                 if has_media:
                     try:
+                        await _ensure_connected()
                         media_root = Path(getattr(settings, 'MEDIA_ROOT', settings.BASE_DIR / 'media'))
                         rel_dir = Path('imports') / 'tg_to_max' / f'run_{run_id}' / f'msg_{msg_id}'
                         abs_dir = media_root / rel_dir

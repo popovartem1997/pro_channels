@@ -441,3 +441,20 @@ class AuditLog(models.Model):
         verbose_name = 'Аудит-лог'
         verbose_name_plural = 'Аудит-лог'
         ordering = ['-created_at']
+
+
+class MaxProcessedCallback(models.Model):
+    """
+    Дедупликация callback-событий MAX (нажатия кнопок).
+    Нужна, когда вебхук обрабатывается несколькими воркерами/инстансами без общего Redis.
+    """
+
+    bot = models.ForeignKey(SuggestionBot, on_delete=models.CASCADE, related_name='max_processed_callbacks', verbose_name='Бот')
+    callback_id = models.CharField(max_length=200, db_index=True, verbose_name='callback_id')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'MAX: обработанный callback'
+        verbose_name_plural = 'MAX: обработанные callback'
+        unique_together = ('bot', 'callback_id')
+        ordering = ['-created_at']
