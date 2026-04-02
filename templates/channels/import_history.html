@@ -1,0 +1,282 @@
+{% extends 'base.html' %}
+{% block title %}Импорт истории · {{ target_channel.name }}{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <div>
+    <a href="{% url 'channels:detail' target_channel.pk %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+      <i class="bi bi-arrow-left me-1"></i> Назад к каналу
+    </a>
+    <h1>Импорт истории из Telegram → MAX</h1>
+    <div class="text-muted small">Целевой канал: <span class="fw-semibold">{{ target_channel.name }}</span></div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-5">
+    <div class="card">
+      <div class="card-header bg-transparent border-bottom py-3">
+        <h6 class="fw-bold mb-0">Запуск</h6>
+      </div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label small text-muted">Telegram-канал (источник)</label>
+          <select id="pcSourceChannel" class="form-select">
+            <option value="">— выберите —</option>
+            {% for ch in tg_channels %}
+              <option value="{{ ch.pk }}">{{ ch.name }}</option>
+            {% endfor %}
+          </select>
+          {% if not tg_channels %}
+            <div class="small text-muted mt-2">У вас нет активных Telegram‑каналов.</div>
+          {% endif %}
+        </div>
+
+        <div class="d-flex gap-2 flex-wrap">
+          <button id="pcStartBtn" class="btn btn-brand" type="button" {% if not tg_channels %}disabled{% endif %}>
+            <i class="bi bi-play-fill me-1"></i> Начать импорт
+          </button>
+          <button id="pcStopBtn" class="btn btn-outline-danger d-none" type="button">
+            <i class="bi bi-stop-fill me-1"></i> Остановить
+          </button>
+        </div>
+
+        <div class="small text-muted mt-3">
+          Импорт выполняется в фоне. Можно обновлять страницу — прогресс сохранится.
+        </div>
+      </div>
+    </div>
+
+    {% if recent_runs %}
+    <div class="card mt-3">
+      <div class="card-header bg-transparent border-bottom py-3">
+        <h6 class="fw-bold mb-0">Последние запуски</h6>
+      </div>
+      <div class="card-body">
+        <div class="d-flex flex-column gap-2">
+          {% for run in recent_runs %}
+          <button class="btn btn-outline-secondary btn-sm text-start js-pc-open-run" data-run-id="{{ run.pk }}">
+            <div class="d-flex justify-content-between gap-2">
+              <div class="small fw-semibold">{{ run.source_channel.name }}</div>
+              <div class="small text-muted">#{{ run.pk }}</div>
+            </div>
+            <div class="small text-muted">Статус: {{ run.get_status_display }}</div>
+          </button>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-header bg-transparent border-bottom py-3 d-flex align-items-center justify-content-between">
+        <h6 class="fw-bold mb-0">Статус</h6>
+        <span id="pcStatusBadge" class="badge bg-secondary-subtle text-secondary">—</span>
+      </div>
+      <div class="card-body">
+        <div class="mb-2 small text-muted">Отправлено в MAX</div>
+        <div class="progress" role="progressbar" aria-label="Import progress">
+          <div id="pcProgressBar" class="progress-bar" style="width: 0%"></div>
+        </div>
+        <div class="d-flex justify-content-between mt-2">
+          <div class="small text-muted">Сообщений: <span id="pcSent">0</span></div>
+          <div class="small text-muted">Ошибок: <span id="pcErrors">0</span></div>
+        </div>
+
+        <div class="mt-3">
+          <div class="small text-muted mb-1">Последний TG message_id</div>
+          <div class="small"><code id="pcLastTg">—</code></div>
+        </div>
+
+        <div class="mt-3">
+          <div class="small text-muted mb-1">Ошибка</div>
+          <div id="pcError" class="small text-danger" style="white-space:pre-wrap;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm modal -->
+<div class="modal fade" id="pcConfirmImportModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Подтвердите импорт</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="small text-muted">
+          Вы действительно хотите импортировать <span class="fw-semibold">всю историю</span> из Telegram‑канала
+          <span class="fw-semibold" id="pcConfirmSourceName">—</span> в MAX‑канал <span class="fw-semibold">{{ target_channel.name }}</span>?
+        </div>
+        <div class="alert alert-warning mt-3 py-2 small mb-0">
+          Импорт может занять долгое время и отправит много сообщений в MAX.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+        <button type="button" class="btn btn-brand" id="pcConfirmStartBtn">
+          <i class="bi bi-play-fill me-1"></i> Начать
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+  const csrf = '{{ csrf_token }}';
+  const targetChannelId = '{{ target_channel.pk }}';
+
+  const els = {
+    source: document.getElementById('pcSourceChannel'),
+    start: document.getElementById('pcStartBtn'),
+    stop: document.getElementById('pcStopBtn'),
+    badge: document.getElementById('pcStatusBadge'),
+    bar: document.getElementById('pcProgressBar'),
+    sent: document.getElementById('pcSent'),
+    errors: document.getElementById('pcErrors'),
+    lastTg: document.getElementById('pcLastTg'),
+    err: document.getElementById('pcError'),
+    confirmSourceName: document.getElementById('pcConfirmSourceName'),
+    confirmStart: document.getElementById('pcConfirmStartBtn'),
+  };
+
+  let currentRunId = null;
+  let pollTimer = null;
+  const confirmModal = new bootstrap.Modal(document.getElementById('pcConfirmImportModal'));
+
+  function setStatus(status) {
+    const map = {
+      pending: ['bg-secondary-subtle text-secondary', 'В очереди'],
+      running: ['bg-primary-subtle text-primary', 'В работе'],
+      done: ['bg-success-subtle text-success', 'Готово'],
+      error: ['bg-danger-subtle text-danger', 'Ошибка'],
+      cancelled: ['bg-warning-subtle text-warning', 'Остановлено'],
+    };
+    const v = map[status] || ['bg-secondary-subtle text-secondary', status || '—'];
+    els.badge.className = 'badge ' + v[0];
+    els.badge.textContent = v[1];
+  }
+
+  function setRunningUi(isRunning) {
+    els.stop.classList.toggle('d-none', !isRunning);
+  }
+
+  function updateProgress(run) {
+    const p = run.progress || {};
+    els.sent.textContent = String(p.sent || 0);
+    els.errors.textContent = String(p.errors || 0);
+    els.lastTg.textContent = (p.last_tg_message_id == null) ? '—' : String(p.last_tg_message_id);
+    els.err.textContent = run.error_message || '';
+    setStatus(run.status);
+    setRunningUi(run.status === 'running' || run.status === 'pending');
+    // Total неизвестен — делаем "индикатор активности"
+    const w = Math.min(100, 5 + Math.log10((p.sent || 0) + 1) * 20);
+    els.bar.style.width = (run.status === 'running' || run.status === 'pending') ? (w + '%') : '100%';
+    els.bar.classList.toggle('bg-danger', run.status === 'error');
+    els.bar.classList.toggle('bg-success', run.status === 'done');
+    els.bar.classList.toggle('bg-warning', run.status === 'cancelled');
+  }
+
+  function stopPolling() {
+    if (pollTimer) clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+
+  function poll() {
+    if (!currentRunId) return;
+    fetch(`{% url "channels:import_history_status" 0 %}`.replace('/0/', `/${currentRunId}/`), {
+      headers: {'X-Requested-With': 'XMLHttpRequest'},
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok) return;
+      updateProgress(data.run);
+      if (['done','error','cancelled'].includes(data.run.status)) {
+        stopPolling();
+        return;
+      }
+      pollTimer = setTimeout(poll, 1500);
+    })
+    .catch(() => { pollTimer = setTimeout(poll, 2500); });
+  }
+
+  function startImport() {
+    const sourceId = els.source.value;
+    if (!sourceId) return;
+    els.start.disabled = true;
+    els.start.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Запускаю...';
+    const body = new URLSearchParams();
+    body.set('csrfmiddlewaretoken', csrf);
+    body.set('source_channel_id', sourceId);
+    body.set('target_channel_id', targetChannelId);
+    fetch('{% url "channels:import_history_start" %}', {
+      method: 'POST',
+      headers: {'X-Requested-With': 'XMLHttpRequest'},
+      body,
+    })
+    .then(r => r.json().then(j => ({status: r.status, json: j})))
+    .then(({status, json}) => {
+      if (!json.ok) throw new Error(json.message || 'Ошибка запуска');
+      currentRunId = json.run_id;
+      setStatus('pending');
+      setRunningUi(true);
+      stopPolling();
+      poll();
+    })
+    .catch((e) => {
+      els.err.textContent = String(e && e.message ? e.message : e);
+      setStatus('error');
+    })
+    .finally(() => {
+      els.start.disabled = false;
+      els.start.innerHTML = '<i class="bi bi-play-fill me-1"></i> Начать импорт';
+    });
+  }
+
+  els.start?.addEventListener('click', () => {
+    const id = els.source.value;
+    const name = els.source.options[els.source.selectedIndex]?.textContent || '—';
+    if (!id) return;
+    els.confirmSourceName.textContent = name.trim();
+    confirmModal.show();
+  });
+  els.confirmStart?.addEventListener('click', () => {
+    confirmModal.hide();
+    startImport();
+  });
+
+  els.stop?.addEventListener('click', () => {
+    if (!currentRunId) return;
+    els.stop.disabled = true;
+    const body = new URLSearchParams();
+    body.set('csrfmiddlewaretoken', csrf);
+    fetch(`{% url "channels:import_history_stop" 0 %}`.replace('/0/', `/${currentRunId}/`), {
+      method: 'POST',
+      headers: {'X-Requested-With': 'XMLHttpRequest'},
+      body,
+    })
+    .then(r => r.json())
+    .then(() => { /* next poll tick will update */ })
+    .finally(() => { els.stop.disabled = false; });
+  });
+
+  document.querySelectorAll('.js-pc-open-run').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      currentRunId = btn.getAttribute('data-run-id');
+      stopPolling();
+      poll();
+    });
+  });
+
+  setStatus('');
+})();
+</script>
+{% endblock %}
+

@@ -28,6 +28,17 @@
   <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
 {% endif %}
 
+{% if user.is_staff or user.is_superuser or user.role == 'owner' %}
+<div class="d-flex flex-wrap gap-2 mb-3">
+  <a class="btn btn-sm btn-outline-secondary" href="{% url 'advertisers:owner_orders' %}">
+    <i class="bi bi-clipboard-check me-1"></i> Заявки (owner)
+  </a>
+  <a class="btn btn-sm btn-outline-secondary" href="{% url 'advertisers:dashboard' %}">
+    <i class="bi bi-megaphone me-1"></i> Рекламодатели (кабинеты)
+  </a>
+</div>
+{% endif %}
+
 <div class="row g-3 mb-4">
   <div class="col-12 col-md-6">
     <div class="card h-100">
@@ -77,7 +88,7 @@
         <div class="d-flex justify-content-between gap-2">
           <div class="small">
             <div class="fw-semibold">Пост #{{ r.post.pk }}</div>
-            <div class="text-muted text-truncate" style="max-width: 80vw;">{{ r.post.text|truncatechars:80 }}</div>
+            <div class="text-muted" style="overflow-wrap:anywhere;word-break:break-word;">{{ r.post.text|truncatechars:180 }}</div>
             <div class="text-muted">{{ r.channel.name }} — {{ r.channel.get_platform_display }}</div>
           </div>
           <span class="badge {% if r.status == 'registered' %}bg-success-subtle text-success{% elif r.status == 'error' %}bg-danger-subtle text-danger{% else %}bg-secondary-subtle text-secondary{% endif %} align-self-start">

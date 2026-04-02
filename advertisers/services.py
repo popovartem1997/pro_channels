@@ -85,6 +85,18 @@ def _safe_username(base: str) -> str:
     return (b or 'ord_advertiser')[:150]
 
 
+def _fake_inn_from_external_id(external_id: str) -> str:
+    """
+    В ОРД person может быть без ИНН (например, иностранный/не заполнен).
+    Наша модель Advertiser требует inn, поэтому генерируем детерминированный "технический ИНН" (12 цифр).
+    """
+    import zlib
+
+    s = (external_id or '').strip().encode('utf-8', errors='ignore')
+    n = zlib.crc32(s) % (10**12)
+    return f'{n:012d}'
+
+
 def sync_advertisers_and_contracts_from_ord(*, use_sandbox: bool) -> dict:
     """
     1) Подтягивает контрагентов (person) из кабинета ОРД в нашу базу как Advertiser + User (stub).
@@ -123,8 +135,7 @@ def sync_advertisers_and_contracts_from_ord(*, use_sandbox: bool) -> dict:
             inn = (jd.get('inn') or jd.get('foreign_inn') or '').strip()
             phone = (jd.get('phone') or '').strip()
         if not inn:
-            # Без ИНН создаём только если точно нужен аккаунт: пока пропускаем, чтобы не плодить мусор.
-            continue
+            inn = _fake_inn_from_external_id(pid)
 
         # Найдём существующего рекламодателя по ord_person_external_id или ИНН.
         adv = (
@@ -136,11 +147,14 @@ def sync_advertisers_and_contracts_from_ord(*, use_sandbox: bool) -> dict:
             if not adv.ord_person_external_id:
                 adv.ord_person_external_id = pid
                 changed = True
-            if not adv.company_name and name:
-                adv.company_name = name
+            if name and adv.company_name != name:
+                adv.company_name = name[:255]
+                changed = True
+            if not adv.contact_phone and phone:
+                adv.contact_phone = phone[:20]
                 changed = True
             if changed:
-                adv.save(update_fields=['ord_person_external_id', 'company_name'])
+                adv.save(update_fields=['ord_person_external_id', 'company_name', 'contact_phone'])
                 updated += 1
         else:
             username = _safe_username(f'ord_{inn}_{pid}')

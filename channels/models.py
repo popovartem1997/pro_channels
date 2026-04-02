@@ -181,3 +181,67 @@ class Channel(models.Model):
         if self.platform == self.PLATFORM_INSTAGRAM:
             return bool(self.ig_access_token_enc and self.ig_account_id)
         return False
+
+
+class HistoryImportRun(models.Model):
+    """
+    Фоновый импорт истории сообщений из Telegram-канала в MAX-канал.
+    Прогресс хранится в JSON, чтобы UI мог поллить статус даже после обновления страницы.
+    """
+
+    STATUS_PENDING = 'pending'
+    STATUS_RUNNING = 'running'
+    STATUS_DONE = 'done'
+    STATUS_ERROR = 'error'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'В очереди'),
+        (STATUS_RUNNING, 'В работе'),
+        (STATUS_DONE, 'Готово'),
+        (STATUS_ERROR, 'Ошибка'),
+        (STATUS_CANCELLED, 'Остановлено'),
+    ]
+
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='history_import_runs',
+        verbose_name='Запустил',
+    )
+    source_channel = models.ForeignKey(
+        Channel,
+        on_delete=models.CASCADE,
+        related_name='history_import_runs_as_source',
+        verbose_name='Источник (Telegram)',
+    )
+    target_channel = models.ForeignKey(
+        Channel,
+        on_delete=models.CASCADE,
+        related_name='history_import_runs_as_target',
+        verbose_name='Цель (MAX)',
+    )
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    progress_json = models.JSONField(default=dict)
+    error_message = models.TextField(blank=True)
+
+    cancel_requested = models.BooleanField(default=False, db_index=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Импорт истории TG→MAX'
+        verbose_name_plural = 'Импорты истории TG→MAX'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['source_channel', 'target_channel', 'status']),
+        ]
+
+    def __str__(self):
+        return f'Import #{self.pk}: {self.source_channel_id} → {self.target_channel_id} ({self.status})'

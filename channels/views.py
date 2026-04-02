@@ -10,8 +10,9 @@ from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
 from django.contrib import messages
 from django.http import JsonResponse
-from django.db import IntegrityError
-from .models import Channel, ChannelGroup
+from django.db import IntegrityError, transaction
+from django.utils import timezone
+from .models import Channel, ChannelGroup, HistoryImportRun
 
 
 def _team_channel_editor_user(user) -> bool:
@@ -540,3 +541,98 @@ def channel_delete(request, pk):
         messages.success(request, f'Канал "{name}" удалён.')
         return redirect('channels:list')
     return render(request, 'channels/delete_confirm.html', {'channel': channel})
+
+
+@login_required
+def channel_import_history(request, pk: int):
+    target = get_object_or_404(Channel, pk=pk, owner=request.user)
+    if target.platform != Channel.PLATFORM_MAX:
+        messages.error(request, 'Импорт истории доступен только для MAX-каналов.')
+        return redirect('channels:detail', pk=pk)
+
+    tg_channels = list(
+        Channel.objects.filter(owner=request.user, platform=Channel.PLATFORM_TELEGRAM, is_active=True).order_by('-created_at')
+    )
+    recent_runs = list(
+        HistoryImportRun.objects.filter(created_by=request.user, target_channel=target).select_related('source_channel')[:10]
+    )
+    return render(request, 'channels/import_history.html', {
+        'target_channel': target,
+        'tg_channels': tg_channels,
+        'recent_runs': recent_runs,
+    })
+
+
+@login_required
+@require_POST
+def import_history_start(request):
+    source_id = (request.POST.get('source_channel_id') or '').strip()
+    target_id = (request.POST.get('target_channel_id') or '').strip()
+    if not (source_id.isdigit() and target_id.isdigit()):
+        return JsonResponse({'ok': False, 'message': 'Некорректные параметры.'}, status=400)
+
+    source = get_object_or_404(Channel, pk=int(source_id), owner=request.user, platform=Channel.PLATFORM_TELEGRAM)
+    target = get_object_or_404(Channel, pk=int(target_id), owner=request.user, platform=Channel.PLATFORM_MAX)
+
+    with transaction.atomic():
+        existing = HistoryImportRun.objects.select_for_update().filter(
+            source_channel=source,
+            target_channel=target,
+            status__in=[HistoryImportRun.STATUS_PENDING, HistoryImportRun.STATUS_RUNNING],
+        ).first()
+        if existing:
+            return JsonResponse({'ok': True, 'run_id': existing.pk, 'message': 'Импорт уже запущен.'})
+
+        run = HistoryImportRun.objects.create(
+            created_by=request.user,
+            source_channel=source,
+            target_channel=target,
+            status=HistoryImportRun.STATUS_PENDING,
+            progress_json={'sent': 0, 'errors': 0, 'last_tg_message_id': None},
+        )
+
+    try:
+        from .tasks import import_tg_history_to_max_task
+        import_tg_history_to_max_task.delay(run.pk)
+    except Exception as exc:
+        run.status = HistoryImportRun.STATUS_ERROR
+        run.error_message = f'Не удалось поставить задачу в очередь: {exc}'
+        run.finished_at = timezone.now()
+        run.save(update_fields=['status', 'error_message', 'finished_at'])
+        return JsonResponse({'ok': False, 'message': run.error_message}, status=500)
+
+    return JsonResponse({'ok': True, 'run_id': run.pk})
+
+
+@login_required
+def import_history_status(request, pk: int):
+    run = get_object_or_404(
+        HistoryImportRun.objects.select_related('source_channel', 'target_channel'),
+        pk=pk,
+        created_by=request.user,
+    )
+    return JsonResponse({
+        'ok': True,
+        'run': {
+            'id': run.pk,
+            'status': run.status,
+            'started_at': run.started_at.isoformat() if run.started_at else None,
+            'finished_at': run.finished_at.isoformat() if run.finished_at else None,
+            'progress': run.progress_json or {},
+            'error_message': run.error_message or '',
+            'source_channel': {'id': run.source_channel_id, 'name': run.source_channel.name},
+            'target_channel': {'id': run.target_channel_id, 'name': run.target_channel.name},
+            'cancel_requested': bool(run.cancel_requested),
+        }
+    })
+
+
+@login_required
+@require_POST
+def import_history_stop(request, pk: int):
+    run = get_object_or_404(HistoryImportRun, pk=pk, created_by=request.user)
+    if run.status not in (HistoryImportRun.STATUS_PENDING, HistoryImportRun.STATUS_RUNNING):
+        return JsonResponse({'ok': True, 'message': 'Импорт уже завершён.'})
+    run.cancel_requested = True
+    run.save(update_fields=['cancel_requested'])
+    return JsonResponse({'ok': True})

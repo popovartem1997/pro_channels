@@ -14,4 +14,8 @@ urlpatterns = [
     path('<int:pk>/edit/', views.channel_edit, name='edit'),
     path('<int:pk>/delete/', views.channel_delete, name='delete'),
     path('<int:pk>/test/', views.channel_test, name='test'),
+    path('<int:pk>/import-history/', views.channel_import_history, name='import_history'),
+    path('import-history/start/', views.import_history_start, name='import_history_start'),
+    path('import-history/status/<int:pk>/', views.import_history_status, name='import_history_status'),
+    path('import-history/stop/<int:pk>/', views.import_history_stop, name='import_history_stop'),
 ]

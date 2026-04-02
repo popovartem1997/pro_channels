@@ -28,6 +28,11 @@
     <a href="{% url 'channels:edit' channel.pk %}" class="btn btn-outline-primary">
       <i class="bi bi-pencil me-1"></i> {% if channel_team_access %}Подпись{% else %}Редактировать{% endif %}
     </a>
+    {% if not channel_team_access and channel.platform == 'max' %}
+    <a href="{% url 'channels:import_history' channel.pk %}" class="btn btn-outline-secondary">
+      <i class="bi bi-arrow-down-up me-1"></i> Импорт истории из Telegram
+    </a>
+    {% endif %}
     {% if not channel_team_access %}
     <a href="{% url 'channels:delete' channel.pk %}" class="btn btn-outline-danger">
       <i class="bi bi-trash me-1"></i> Удалить
