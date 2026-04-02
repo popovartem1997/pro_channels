@@ -1280,21 +1280,47 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if data == 'menu_contact':
             try:
                 bot_config = context.bot_data['bot_config']
-                channel = getattr(bot_config, 'channel', None)
-                owner = getattr(bot_config, 'owner', None)
+                eff_user = update.effective_user
+                platform_uid = str(eff_user.id) if eff_user else ''
+                platform_uname = getattr(eff_user, 'username', '') if eff_user else ''
 
-                site_nick = ''
-                tg_nick = ''
-                vk_nick = ''
-                max_phone = ''
-                try:
+                @sync_to_async
+                def _load_contacts_and_log():
+                    """Канал/аудит трогают БД только здесь — не из async-контекста."""
+                    from bots.models import AuditLog, SuggestionBot
+
+                    bot_pk = getattr(bot_config, 'pk', None) or getattr(bot_config, 'id', None)
+                    bot = SuggestionBot.objects.select_related('channel', 'owner').get(pk=bot_pk)
+                    channel = bot.channel
+                    owner = bot.owner
+                    site_nick = ''
+                    tg_nick = ''
+                    vk_nick = ''
+                    max_phone = ''
                     if channel:
                         site_nick = (channel.admin_contact_site or '').strip()
                         tg_nick = (channel.admin_contact_tg or '').strip()
                         vk_nick = (channel.admin_contact_vk or '').strip()
                         max_phone = (channel.admin_contact_max_phone or '').strip()
-                except Exception:
-                    pass
+                    try:
+                        AuditLog.objects.create(
+                            actor=None,
+                            owner=owner,
+                            action='bot.contact_pressed',
+                            object_type='SuggestionBot',
+                            object_id=str(bot.id),
+                            data={
+                                'channel_id': channel.id if channel else None,
+                                'platform': 'telegram',
+                                'platform_user_id': platform_uid,
+                                'platform_username': platform_uname,
+                            },
+                        )
+                    except Exception:
+                        pass
+                    return site_nick, tg_nick, vk_nick, max_phone
+
+                site_nick, tg_nick, vk_nick, max_phone = await _load_contacts_and_log()
 
                 if tg_nick and not tg_nick.startswith('@') and 't.me/' not in tg_nick:
                     tg_nick = '@' + tg_nick
@@ -1310,30 +1336,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     lines.append(f'— MAX (телефон): {max_phone}')
                 if len(lines) == 1:
                     lines.append('— Контакты не заполнены. Админ может добавить их в настройках канала.')
-
-                # Log on site (best-effort)
-                try:
-                    from asgiref.sync import sync_to_async
-
-                    @sync_to_async
-                    def log_press():
-                        from bots.models import AuditLog
-                        AuditLog.objects.create(
-                            actor=None,
-                            owner=owner,
-                            action='bot.contact_pressed',
-                            object_type='SuggestionBot',
-                            object_id=str(getattr(bot_config, 'id', '')),
-                            data={
-                                'channel_id': getattr(channel, 'id', None),
-                                'platform': 'telegram',
-                                'platform_user_id': str(update.effective_user.id) if update and update.effective_user else '',
-                                'platform_username': getattr(update.effective_user, 'username', '') if update and update.effective_user else '',
-                            },
-                        )
-                    await log_press()
-                except Exception:
-                    pass
 
                 context.user_data['contact_mode'] = True
                 chat_id = update.effective_chat.id if update and update.effective_chat else None
