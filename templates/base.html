@@ -570,7 +570,7 @@
     }
     sync();
 
-    // Сохранённые TG entities (Premium emoji) — подставляются из {% json_script %} на странице поста
+    // Premium emoji: скрытое поле tg_entities заполняется из script#pc-tg-entities-initial (страницы поста)
     var tgInit = document.getElementById('pc-tg-entities-initial');
     var tgHid = document.getElementById('id_tg_entities_hidden');
     if (tgInit && tgHid && tgInit.textContent) {
