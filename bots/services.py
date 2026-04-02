@@ -40,8 +40,14 @@ def format_rejected_subscriber_message(raw_template: str, tracking_short_id: str
     raw = (raw_template or '').strip()
     if not raw:
         raw = 'Ваша заявка #{tracking_id} не прошла модерацию.\nПричина: {reason}'
-    text = raw.replace('{tracking_id}', tracking_short_id).replace('{reason}', reason or '')
-    return _subscriber_text_ensure_tracking_id(text, tracking_short_id)
+    reason_clean = (reason or '').strip()
+    had_reason_placeholder = '{reason}' in raw
+    text = raw.replace('{tracking_id}', tracking_short_id).replace('{reason}', reason_clean)
+    text = _subscriber_text_ensure_tracking_id(text, tracking_short_id)
+    # Кастомный текст без {reason} — иначе комментарий с сайта/админки никогда не попадал в бот
+    if reason_clean and not had_reason_placeholder and reason_clean not in text:
+        text = text.rstrip() + f'\n\nПричина: {reason_clean}'
+    return text
 
 
 def _subscriber_menu_inline_keyboard_tg() -> dict:
@@ -152,7 +158,10 @@ def notify_suggestion_rejected(suggestion, reason: str = ''):
     if not bot:
         return
 
-    text = format_rejected_subscriber_message(bot.rejected_message or '', suggestion.short_tracking_id, reason)
+    reason_final = (reason or '').strip() or (getattr(suggestion, 'rejection_reason', None) or '').strip()
+    text = format_rejected_subscriber_message(
+        bot.rejected_message or '', suggestion.short_tracking_id, reason_final
+    )
     if not text.strip():
         return
 
