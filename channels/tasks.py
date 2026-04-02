@@ -446,9 +446,38 @@ def import_tg_history_to_max_task(self, run_id: int):
                 except Exception:
                     pass
 
+    def _set_run_error_message(msg: str):
+        try:
+            HistoryImportRun.objects.filter(pk=run_id).update(error_message=(msg or '')[:2000])
+        except Exception:
+            pass
+
+    # Telethon session lock может быть занят параллельным парсингом.
+    # Для импорта истории ждём дольше и ретраим, вместо падения всей задачи.
     try:
-        with _telethon_session_lock(source.owner_id):
-            asyncio.run(_do_import())
+        lock_last_err = None
+        for lock_attempt in range(40):  # ~40 * 30s = 20 минут ожидания
+            if run.cancel_requested:
+                raise asyncio.CancelledError()
+            try:
+                with _telethon_session_lock(source.owner_id):
+                    asyncio.run(_do_import())
+                lock_last_err = None
+                break
+            except RuntimeError as exc:
+                msg = str(exc)
+                lock_last_err = msg
+                if 'не удалось занять сессию' in msg or 'не удалось занять' in msg or 'session' in msg:
+                    _set_run_error_message(
+                        'Ожидаю освобождения Telegram-сессии (возможно, параллельно идёт парсинг этого же аккаунта). '
+                        f'Повтор через 30с. Детали: {msg}'
+                    )
+                    time.sleep(30)
+                    continue
+                raise
+        if lock_last_err:
+            raise RuntimeError(lock_last_err)
+
         run.status = HistoryImportRun.STATUS_DONE
         run.finished_at = timezone.now()
         run.progress_json = {'sent': sent, 'errors': errors, 'last_tg_message_id': last_tg_message_id}
