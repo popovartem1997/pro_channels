@@ -143,8 +143,9 @@ def post_create(request):
             text = raw_text
             text_html = raw_html
         else:
-            text = raw_text.strip()
-            text_html = raw_html.strip()
+            # Не .strip(): иначе теряются ведущие/хвостовые пробелы (колонки, выравнивание в TG).
+            text = raw_text
+            text_html = raw_html
 
         if not (text or '').strip():
             messages.error(request, 'Введите текст поста.')
@@ -418,8 +419,8 @@ def post_edit(request, pk):
             post.text = raw_text
             post.text_html = raw_html
         else:
-            post.text = raw_text.strip()
-            post.text_html = raw_html.strip()
+            post.text = raw_text
+            post.text_html = raw_html
 
         post.pin_message = request.POST.get('pin_message') == 'on'
         post.disable_notification = request.POST.get('disable_notification') == 'on'

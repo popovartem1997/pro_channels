@@ -614,8 +614,9 @@ def _build_text(post, channel):
     if channel.platform == Ch.PLATFORM_TELEGRAM:
         th_raw = post.text_html or ''
         th = th_raw.strip()
-        # Premium / tg-emoji: тело из plain в <pre> потеряет custom_emoji — оставляем HTML-ветку
-        avoid_pre = getattr(post, 'has_premium_emoji', False) or ('tg-emoji' in th_raw.lower())
+        # В <pre> из plain нельзя отдавать сырой <tg-emoji> (ещё в HTML). Флаг has_premium_emoji не
+        # означает рабочие caption_entities — при сбое entities мы всё равно в HTML и pre допустим.
+        avoid_pre = 'tg-emoji' in th_raw.lower()
         if th:
             if (
                 not avoid_pre

@@ -488,7 +488,7 @@
 <script>
 // Simple WYSIWYG editor for posts: stores HTML for TG + plain for MAX/VK.
 (function () {
-  function stripHtml(html) {
+  function stripHtml(html, keepNbspForOffsets) {
     var raw = (html || '')
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/p>\s*<p>/gi, '\n\n')
@@ -497,7 +497,9 @@
       .replace(/<\/?div>/gi, '\n');
     var div = document.createElement('div');
     div.innerHTML = raw;
-    return (div.textContent || div.innerText || '').replace(/\u00A0/g, ' ');
+    var t = div.textContent || div.innerText || '';
+    if (!keepNbspForOffsets) t = t.replace(/\u00A0/g, ' ');
+    return t;
   }
 
   function sanitizeForTelegram(html) {
@@ -542,7 +544,21 @@
     out = out.replace(/<div>/gi, '');
     out = out.replace(/<\/p>\s*<p>/gi, '<br><br>');
     out = out.replace(/<\/?p>/gi, '');
-    return out.trim();
+    /* Не .trim(): съедает ведущие/хвостовые пробелы (колонки). Убираем только крайние переносы. */
+    return out.replace(/^[\r\n]+|[\r\n]+$/g, '');
+  }
+
+  /** Двойной пробел в HTML → пробел+NBSP (как в Bot API), только если нет tg_entities. */
+  function preserveSpacesInTelegramHtml(html) {
+    if (!html || /<pre\b/i.test(html)) return html;
+    var parts = html.split(/(<[^>]+>)/);
+    return parts.map(function (p) {
+      if (!p) return p;
+      if (/^<[^>]+>$/.test(p)) return p;
+      var s = p;
+      while (s.indexOf('  ') !== -1) s = s.replace(/  /g, ' \u00a0');
+      return s;
+    }).join('');
   }
 
   function exec(cmd) {
@@ -569,8 +585,8 @@
 
     var tgHid = document.getElementById('id_tg_entities_hidden');
 
-    // Hydrate editor from saved html/plain
-    var initialHtml = (hidden.value || '').trim();
+    // Hydrate editor from saved html/plain (без trim — пробелы в начале/конце часть вёрстки)
+    var initialHtml = hidden.value || '';
     if (initialHtml) ed.innerHTML = initialHtml;
     else ed.textContent = plain.value || '';
 
@@ -633,23 +649,24 @@
 
     function sync() {
       normalizeTgEmojiNodes();
+      var hasEnt = false;
+      try {
+        var hidEl0 = document.getElementById('id_tg_entities_hidden');
+        if (hidEl0 && hidEl0.value) {
+          var pe0 = JSON.parse(hidEl0.value);
+          hasEnt = Array.isArray(pe0) && pe0.length > 0;
+        }
+      } catch (x0) {}
       var html = sanitizeForTelegram(ed.innerHTML || '');
       // Многострочный ввод без тегов: в Telegram HTML перевод строки нужно задавать через <br>.
       if (html && !/<[a-z][\s\S]*>/i.test(html) && /[\r\n]/.test(html)) {
         html = html.replace(/\r\n|\r|\n/g, '<br>');
       }
+      if (!hasEnt) html = preserveSpacesInTelegramHtml(html);
       hidden.value = html;
-      var rawPlain = stripHtml(html);
-      var hasEnt = false;
-      try {
-        var hidEl = document.getElementById('id_tg_entities_hidden');
-        if (hidEl && hidEl.value) {
-          var pe = JSON.parse(hidEl.value);
-          hasEnt = Array.isArray(pe) && pe.length > 0;
-        }
-      } catch (x) {}
-      /* С tg_entities пробелы по краям и длина строки должны совпадать с offset в UTF-16 (Bot API). */
-      plain.value = hasEnt ? rawPlain : rawPlain.trim();
+      var rawPlain = stripHtml(html, hasEnt);
+      /* Без tg_entities не режем пробелы по краям — только крайние переносы (пустой ввод ловит сервер). */
+      plain.value = hasEnt ? rawPlain : rawPlain.replace(/^[\r\n]+|[\r\n]+$/g, '');
     }
     sync();
 
