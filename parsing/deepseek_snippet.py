@@ -25,6 +25,30 @@ def _strip_json_fence(raw: str) -> str:
     return s.strip()
 
 
+# Хвосты, которые модель иногда вставляет вопреки промпту — убираем постобработкой.
+_META_LINK_TAIL_RES = (
+    re.compile(r'(?:\s|<br\s*/?>)*Подробности\s+в\s+материале\.?\s*$', re.IGNORECASE | re.UNICODE),
+    re.compile(r'(?:\s|<br\s*/?>)*Подробнее\s+в\s+материале\.?\s*$', re.IGNORECASE | re.UNICODE),
+    re.compile(r'(?:\s|<br\s*/?>)*Читайте\s+в\s+материале\.?\s*$', re.IGNORECASE | re.UNICODE),
+    re.compile(r'(?:\s|<br\s*/?>)*Полный\s+текст\s*[—\-]?\s*в\s+материале\.?\s*$', re.IGNORECASE | re.UNICODE),
+    re.compile(r'(?:\s|<br\s*/?>)*В\s+материале\.?\s*$', re.IGNORECASE | re.UNICODE),
+)
+
+
+def _strip_meta_material_tail(s: str) -> str:
+    if not (s or '').strip():
+        return s
+    t = s
+    for _ in range(4):
+        prev = t
+        for rx in _META_LINK_TAIL_RES:
+            t = rx.sub('', t)
+        t = t.rstrip()
+        if t == prev:
+            break
+    return t
+
+
 def _compose_headline_post(*, headline: str, body_plain: str, body_html: str) -> tuple[str, str]:
     """Собирает итоговый plain и HTML из частей."""
     hl = (headline or '').strip()
@@ -72,19 +96,27 @@ def rewrite_for_feed_post(
         'Структура поста: (1) один громкий цепляющий ЗАГОЛОВОК — короткая строка, можно частично КАПСОМ и с 1–2 уместными эмодзи; '
         '(2) ТЕЛО — 2–4 коротких предложения простым языком, без воды. '
         'Не упоминай «источник», парсинг и технические детали. '
-        'Если передан URL оригинала: в теле для HTML встрой его РОВНО ОДИН раз как '
-        '<a href="URL">органичная фраза внутри предложения</a> — якорь должен быть обычным смысловым фрагментом текста '
-        '(например название события, «в материале издания», «на странице портала»). '
-        'Категорически запрещены якорные тексты вроде «Подробнее», «Читать далее», «Ещё», «Тут», «Ссылка» отдельной кнопкой или строкой. '
-        'Не делай отдельной строки «источник:» или похожего. '
-        'Для plain-текста (VK/MAX) в конце тела один раз допиши полный URL через пробел, если URL был дан; без дублирования в заголовке. '
+        'Если передан URL оригинала: в body_html встрой ссылку РОВНО ОДИН раз в ПЕРВОМ или ВТОРОМ предложении тела, '
+        'внутри факта: оберни в <a href="URL">…</a> обычную смысловую фразу из этого же предложения (3–7 слов), '
+        'которая описывает событие или действие. Примеры хорошего якоря: «в округе появились новые учебные заведения», '
+        '«за пять лет ввели в строй», «педагогам выделили гранты» — то есть не отсылка к «статье», а касательно сути новости. '
+        'ЗАПРЕЩЕНО: любые формулировки про «материал», «статью», «публикацию», «подробности» как отдельное предложение или хвост текста — '
+        'в частности нельзя писать «Подробности в материале», «в материале», «читайте в материале», «полный текст», '
+        '«подробнее в статье», отдельное финальное предложение только ради ссылки. '
+        'Также запрещены якоря «Подробнее», «Читать далее», «Ещё», «Тут», «Ссылка». '
+        'Не делай строки «источник:» и мета-отсылки к СМИ. '
+        'Для body_plain (VK/MAX): то же тело без тегов; полный URL один раз в конце последнего предложения через пробел, без фразы «подробности». '
         'Если URL нет — тело без ссылок. '
         'Ответ строго JSON без markdown-обёртки: '
         '{"headline": "заголовок", "body_plain": "только тело без заголовка", "body_html": "только тело в HTML с <i> по желанию и одной <a> если есть URL"}. '
         'Допустим устаревший формат {"plain": "...", "html": "..."} — тогда интерпретируй как единый блок без отдельного заголовка.'
     )
 
-    user_msg = f'Исходный текст:\n{safe_text}\n\nURL оригинала (если пусто — ссылку не вставляй): {safe_url}'
+    user_msg = (
+        f'Исходный текст:\n{safe_text}\n\nURL оригинала (если пусто — ссылку не вставляй): {safe_url}\n'
+        'Если URL есть: в HTML обязательно спрячь его внутри фактического фрагмента первого/второго предложения '
+        '(как в примере со словами «в округе появились»), без отдельной строки про материал или подробности.'
+    )
 
     client = build_deepseek_client(api_key)
     response = client.chat.completions.create(
@@ -102,6 +134,8 @@ def rewrite_for_feed_post(
         data: dict[str, Any] = json.loads(cleaned)
     except json.JSONDecodeError:
         t = re.sub(r'<[^>]+>', '', cleaned).strip() or cleaned.strip()
+        t = _strip_meta_material_tail(t)
+        cleaned = _strip_meta_material_tail(cleaned)
         return t, cleaned
 
     hl = (data.get('headline') or '').strip()
@@ -114,7 +148,7 @@ def rewrite_for_feed_post(
             plain = re.sub(r'<[^>]+>', ' ', ht)
             plain = re.sub(r'\s+', ' ', plain).strip()
         if plain or ht:
-            return plain, ht
+            return _strip_meta_material_tail(plain), _strip_meta_material_tail(ht)
 
     plain = (data.get('plain') or '').strip()
     ht = (data.get('html') or '').strip()
@@ -126,4 +160,4 @@ def rewrite_for_feed_post(
     if not plain:
         plain = re.sub(r'<[^>]+>', ' ', ht)
         plain = re.sub(r'\s+', ' ', plain).strip()
-    return plain, ht
+    return _strip_meta_material_tail(plain), _strip_meta_material_tail(ht)
