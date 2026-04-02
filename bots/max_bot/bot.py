@@ -34,6 +34,48 @@ REJECT_REASONS = [
 ]
 
 
+_MAX_DEDUPE_MEM: dict[str, float] = {}
+
+
+def _max_event_dedupe_acquire(key: str, ttl_seconds: int = 120) -> bool:
+    """
+    Возвращает True, если ключ "захвачен" впервые за TTL (обрабатываем событие).
+    Если False — событие дублируется, обработку надо пропустить.
+
+    Предпочитает Redis (если настроен), иначе fallback на память процесса.
+    """
+    key = (key or '').strip()
+    if not key:
+        return True
+
+    # Try Redis-based dedupe (works across multiple workers)
+    try:
+        from django.conf import settings
+        url = getattr(settings, 'DJANGO_CACHE_REDIS_URL', None) or ''
+        if url:
+            import redis
+            r = redis.from_url(url)
+            redis_key = f'pch:max:dedupe:{key}'
+            ok = r.set(redis_key, '1', nx=True, ex=max(5, int(ttl_seconds)))
+            return bool(ok)
+    except Exception:
+        pass
+
+    # In-memory best-effort dedupe
+    now = time.time()
+    try:
+        for k in list(_MAX_DEDUPE_MEM.keys())[:200]:
+            if _MAX_DEDUPE_MEM.get(k, 0) < now:
+                _MAX_DEDUPE_MEM.pop(k, None)
+    except Exception:
+        pass
+    exp = _MAX_DEDUPE_MEM.get(key)
+    if exp and exp > now:
+        return False
+    _MAX_DEDUPE_MEM[key] = now + float(ttl_seconds)
+    return True
+
+
 class MaxBotAPI:
     """Минимальный клиент для MAX Bot API."""
 
@@ -517,6 +559,31 @@ class MAXSuggestionBot:
         if not isinstance(recipient, dict):
             recipient = {}
         chat_id = recipient.get('chat_id') or recipient.get('user_id') or callback.get('chat_id', '')
+
+        # Защита от дублей: MAX иногда присылает один и тот же callback повторно
+        # (или обработчик может быть запущен в двух процессах). Делаем дедупликацию
+        # по callback_id (лучший ключ) или fallback по message_id+payload.
+        dedupe_key = ''
+        try:
+            cbid = str(callback_id or '').strip()
+        except Exception:
+            cbid = ''
+        if cbid:
+            dedupe_key = f'cb:{cbid}'
+        else:
+            try:
+                dedupe_key = f'mid:{str(message_id or "").strip()}|pl:{payload[:120]}'
+            except Exception:
+                dedupe_key = ''
+        if dedupe_key and not _max_event_dedupe_acquire(f'{self.config.pk}:{dedupe_key}', ttl_seconds=120):
+            # Best-effort: ответим на callback, чтобы у пользователя не "крутилось",
+            # но не отправляем второе сообщение.
+            if callback_id:
+                try:
+                    self.api.answer_callback(callback_id)
+                except Exception:
+                    pass
+            return
 
         # User menu actions
         if payload in ('menu_send', 'menu_contact', 'menu_my', 'menu_stats'):
