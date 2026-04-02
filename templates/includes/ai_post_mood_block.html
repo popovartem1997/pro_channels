@@ -1,16 +1,16 @@
 {# Ожидает: ai_form_url — полный action формы; ai_post_moods — из контекста #}
-<div class="ai-mood-block border rounded-2 px-2 py-2 mt-2 bg-light">
-  <div class="small fw-semibold text-muted mb-1">
+{# Кнопки — те же btn-sm, что «В пост» / «Пропустить», чтобы высота и шрифт совпадали на десктопе #}
+<div class="ai-mood-block border rounded-2 p-2 bg-light w-100">
+  <div class="small fw-semibold text-muted mb-2">
     <i class="bi bi-stars me-1" style="color:var(--brand)"></i>AI — тон поста
   </div>
   <form method="post" action="{{ ai_form_url }}" class="m-0">
     {% csrf_token %}
-    <div class="d-flex flex-wrap gap-1">
+    <div class="d-flex flex-wrap gap-2 align-items-center">
       {% for m in ai_post_moods %}
         <button type="submit" name="tone" value="{{ m.id }}"
-                class="btn btn-outline-secondary btn-sm py-0 px-2 lh-sm"
-                title="{{ m.title }}"
-                style="font-size:0.72rem;">
+                class="btn btn-outline-secondary btn-sm"
+                title="{{ m.title }}">
           {{ m.label }}
         </button>
       {% endfor %}
