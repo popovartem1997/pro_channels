@@ -1,0 +1,55 @@
+{% extends "admin/base_site.html" %}
+
+{% block title %}Реклама: деньги и каналы{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Начало</a>
+  &rsaquo; <a href="{% url 'admin:app_list' app_label='advertisers' %}">Рекламодатели</a>
+  &rsaquo; Аналитика кампаний
+</div>
+{% endblock %}
+
+{% block content %}
+<h1>Реклама: деньги и каналы</h1>
+<p class="help">Суммы по заявкам в статусах «оплачена» и далее по воронке. Счета должны быть оплачены (TBank или перевод).</p>
+
+<div class="module" style="margin-bottom:1.5rem;">
+  <table style="width:auto;">
+    <tr><th style="text-align:left;padding-right:2rem;">Выручка (оплаченные+)</th><td><strong>{{ total_revenue|floatformat:2 }} ₽</strong></td></tr>
+    <tr><th style="text-align:left;padding-right:2rem;">Заявок в этой выборке</th><td>{{ total_apps }}</td></tr>
+    <tr><th style="text-align:left;padding-right:2rem;">Ожидают оплаты</th><td>{{ pending_count }} (≈ {{ pending_sum|floatformat:2 }} ₽)</td></tr>
+    <tr><th style="text-align:left;padding-right:2rem;">Черновики</th><td>{{ draft_count }}</td></tr>
+    <tr><th style="text-align:left;padding-right:2rem;">Постов кампаний (оплачено+)</th><td>{{ campaign_posts_total }}</td></tr>
+    <tr><th style="text-align:left;padding-right:2rem;">Из них с записью ОРД</th><td>{{ campaign_posts_with_ord }} {% if campaign_posts_total %}({{ ord_pct }}%){% endif %}</td></tr>
+  </table>
+</div>
+
+<div class="module">
+  <h2>По каналам (оплачено и далее)</h2>
+  <div class="results">
+    <table id="result_list" style="width:100%;">
+      <thead>
+        <tr>
+          <th>Канал</th>
+          <th>Заявок</th>
+          <th>Сумма, ₽</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in by_channel %}
+        <tr>
+          <td>{{ row.channel__name|default:"—" }}</td>
+          <td>{{ row.cnt }}</td>
+          <td>{{ row.revenue|floatformat:2 }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="3">Нет данных.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<p style="margin-top:1.5rem;"><a href="{% url 'admin:advertisers_adapplication_changelist' %}">&larr; К списку заявок</a></p>
+{% endblock %}

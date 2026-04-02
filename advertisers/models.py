@@ -199,6 +199,12 @@ class AdApplication(models.Model):
     ord_pad_external_id = models.CharField('ОРД: pad', max_length=220, blank=True)
     ord_synced_at = models.DateTimeField('ОРД: синхронизировано', null=True, blank=True)
     ord_sync_error = models.TextField('ОРД: ошибка синхронизации', blank=True)
+    ord_wizard_saved_at = models.DateTimeField(
+        'Мастер: шаг ОРД сохранён',
+        null=True,
+        blank=True,
+        help_text='Ставится при сохранении шага ОРД (в т.ч. с пустыми полями), чтобы продолжить мастер в правильном порядке.',
+    )
 
     payment_method = models.CharField('Способ оплаты', max_length=20, choices=PAYMENT_METHOD_CHOICES, blank=True)
     invoice = models.ForeignKey(

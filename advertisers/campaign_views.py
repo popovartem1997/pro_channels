@@ -56,6 +56,8 @@ def campaign_resume(request, pk: int):
     post = app.post
     if not post or not (post.text or '').strip():
         return redirect('advertisers:campaign_content', pk=pk)
+    if not app.ord_wizard_saved_at:
+        return redirect('advertisers:campaign_ord', pk=pk)
     return redirect('advertisers:campaign_review', pk=pk)
 
 
@@ -188,6 +190,7 @@ def campaign_ord(request, pk: int):
         app.ord_sync_error = ''
         if app.ord_contract_external_id or app.ord_person_external_id or app.ord_pad_external_id:
             app.ord_synced_at = timezone.now()
+        app.ord_wizard_saved_at = timezone.now()
         app.save(
             update_fields=[
                 'ord_contract_external_id',
@@ -195,6 +198,7 @@ def campaign_ord(request, pk: int):
                 'ord_pad_external_id',
                 'ord_synced_at',
                 'ord_sync_error',
+                'ord_wizard_saved_at',
                 'updated_at',
             ]
         )
@@ -209,6 +213,9 @@ def campaign_review(request, pk: int):
     app = _app_adv(request, pk)
     if app.status != AdApplication.STATUS_DRAFT:
         return redirect('advertisers:campaign_list')
+    if not app.ord_wizard_saved_at:
+        messages.info(request, 'Сначала пройдите шаг с данными ОРД (можно оставить поля пустыми и нажать «Далее»).')
+        return redirect('advertisers:campaign_ord', pk=pk)
 
     n = len(app.selected_slot_ids or [])
     if n:
@@ -232,6 +239,8 @@ def campaign_contract(request, pk: int):
     app = _app_adv(request, pk)
     if app.status != AdApplication.STATUS_DRAFT:
         return redirect('advertisers:campaign_list')
+    if not app.ord_wizard_saved_at:
+        return redirect('advertisers:campaign_ord', pk=pk)
 
     if not app.contract_body_html:
         app.contract_body_html = build_contract_html(app)
@@ -252,6 +261,8 @@ def campaign_checkout(request, pk: int):
     app = _app_adv(request, pk)
     if app.status != AdApplication.STATUS_DRAFT:
         return redirect('advertisers:campaign_list')
+    if not app.ord_wizard_saved_at:
+        return redirect('advertisers:campaign_ord', pk=pk)
     if not app.contract_signed_at:
         messages.error(request, 'Сначала подпишите договор.')
         return redirect('advertisers:campaign_contract', pk=app.pk)
