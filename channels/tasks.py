@@ -3,6 +3,7 @@ import logging
 import time
 from pathlib import Path
 
+from asgiref.sync import sync_to_async
 from celery import shared_task
 from django.conf import settings
 from django.core.files import File
@@ -150,6 +151,72 @@ def import_tg_history_to_max_task(self, run_id: int):
     errors = int((run.progress_json or {}).get('errors') or 0)
     last_tg_message_id = (run.progress_json or {}).get('last_tg_message_id') or None
 
+    @sync_to_async(thread_sensitive=True)
+    def _cancel_requested() -> bool:
+        try:
+            rr = HistoryImportRun.objects.only('cancel_requested').get(pk=run_id)
+            return bool(rr.cancel_requested)
+        except Exception:
+            return False
+
+    @sync_to_async(thread_sensitive=True)
+    def _create_post_for_target(text_value: str):
+        from content.models import Post
+        post = Post.objects.create(
+            author=target.owner,
+            published_by=run.created_by,
+            text=_truncate_max_text(text_value),
+            text_html='',
+            status=Post.STATUS_DRAFT,
+        )
+        post.channels.add(target)
+        return post.pk
+
+    @sync_to_async(thread_sensitive=True)
+    def _attach_file_to_post(post_id: int, file_path: str, order: int, media_type: str) -> bool:
+        from content.models import PostMedia, Post
+        pth = Path(file_path)
+        if not pth.exists():
+            return False
+        post = Post.objects.get(pk=post_id)
+        with pth.open('rb') as f:
+            PostMedia.objects.create(
+                post=post,
+                file=File(f, name=pth.name),
+                media_type=media_type,
+                order=int(order),
+            )
+        return True
+
+    @sync_to_async(thread_sensitive=True)
+    def _normalize_media(post_id: int):
+        from content.models import Post, normalize_post_media_orders
+        post = Post.objects.get(pk=post_id)
+        normalize_post_media_orders(post)
+
+    @sync_to_async(thread_sensitive=True)
+    def _create_publish_result(post_id: int, ok: bool, platform_message_id: str = '', error_message: str = ''):
+        from content.models import Post, PublishResult
+        post = Post.objects.get(pk=post_id)
+        PublishResult.objects.create(
+            post=post,
+            channel=target,
+            status=PublishResult.STATUS_OK if ok else PublishResult.STATUS_FAIL,
+            platform_message_id=platform_message_id or '',
+            error_message=error_message or '',
+        )
+
+    @sync_to_async(thread_sensitive=True)
+    def _set_post_status(post_id: int, *, status: str, published_at=None):
+        from content.models import Post
+        post = Post.objects.get(pk=post_id)
+        post.status = status
+        if published_at is not None:
+            post.published_at = published_at
+            post.save(update_fields=['status', 'published_at'])
+        else:
+            post.save(update_fields=['status'])
+
     async def _do_import():
         from telethon import TelegramClient
 
@@ -187,15 +254,8 @@ def import_tg_history_to_max_task(self, run_id: int):
                 nonlocal sent, errors, last_tg_message_id
 
                 # cancellation: check every message
-                try:
-                    run_ref = HistoryImportRun.objects.only('cancel_requested', 'status').get(pk=run_id)
-                    if run_ref.cancel_requested:
-                        raise asyncio.CancelledError()
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    # if we can't read cancellation flag, proceed
-                    pass
+                if await _cancel_requested():
+                    raise asyncio.CancelledError()
 
                 msg_id = getattr(msg, 'id', None)
                 if msg_id is None:
@@ -223,14 +283,7 @@ def import_tg_history_to_max_task(self, run_id: int):
                     _update_progress(run_id, sent=sent, errors=errors, last_tg_message_id=last_tg_message_id)
                     continue
 
-                post = Post.objects.create(
-                    author=target.owner,
-                    published_by=run.created_by,
-                    text=_truncate_max_text(text),
-                    text_html='',
-                    status=Post.STATUS_DRAFT,
-                )
-                post.channels.add(target)
+                post_id = await _create_post_for_target(text)
 
                 # Media: download one file per message (best-effort). MAX supports up to 10 attachments,
                 # but Telegram message usually has one; albums may come as multiple messages.
@@ -252,21 +305,12 @@ def import_tg_history_to_max_task(self, run_id: int):
                 # Attach to post
                 for i, p in enumerate(downloaded_paths[:10], start=1):
                     try:
-                        pth = Path(p)
-                        if not pth.exists():
-                            continue
-                        with pth.open('rb') as f:
-                            PostMedia.objects.create(
-                                post=post,
-                                file=File(f, name=pth.name),
-                                media_type=_guess_media_type(msg),
-                                order=i,
-                            )
+                        await _attach_file_to_post(post_id, p, i, _guess_media_type(msg))
                     except Exception as exc:
                         errors += 1
                         logger.warning('Import run=%s tg_msg=%s attach error: %s', run_id, msg_id, exc)
                 try:
-                    normalize_post_media_orders(post)
+                    await _normalize_media(post_id)
                 except Exception:
                     pass
 
@@ -275,11 +319,12 @@ def import_tg_history_to_max_task(self, run_id: int):
                 last_exc = None
                 for attempt in range(6):
                     try:
-                        resp = _publish_max(post, target)
-                        PublishResult.objects.create(
-                            post=post,
-                            channel=target,
-                            status=PublishResult.STATUS_OK,
+                        from content.models import Post
+                        post_obj = await sync_to_async(Post.objects.get, thread_sensitive=True)(pk=post_id)
+                        resp = _publish_max(post_obj, target)
+                        await _create_publish_result(
+                            post_id,
+                            True,
                             platform_message_id=str(resp.get('message_id', '')) if isinstance(resp, dict) else '',
                         )
                         ok = True
@@ -287,23 +332,15 @@ def import_tg_history_to_max_task(self, run_id: int):
                     except Exception as exc:
                         last_exc = exc
                         errors += 1
-                        PublishResult.objects.create(
-                            post=post,
-                            channel=target,
-                            status=PublishResult.STATUS_FAIL,
-                            error_message=str(exc),
-                        )
+                        await _create_publish_result(post_id, False, error_message=str(exc))
                         # Backoff: handle common throttling/connection resets.
                         time.sleep(min(20.0, 1.2 + attempt * 2.2))
 
                 if ok:
                     sent += 1
-                    post.status = Post.STATUS_PUBLISHED
-                    post.published_at = timezone.now()
-                    post.save(update_fields=['status', 'published_at'])
+                    await _set_post_status(post_id, status='published', published_at=timezone.now())
                 else:
-                    post.status = Post.STATUS_FAILED
-                    post.save(update_fields=['status'])
+                    await _set_post_status(post_id, status='failed')
                     logger.error('Import run=%s tg_msg=%s publish failed: %s', run_id, msg_id, last_exc)
 
                 last_tg_message_id = int(msg_id)
