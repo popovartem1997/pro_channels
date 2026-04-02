@@ -212,6 +212,9 @@ VK_ORD_CABINET_ID = config('VK_ORD_CABINET_ID', default='')
 # ─── Telegram Парсинг (Telethon — user API) ──────────────────────────────────
 TELEGRAM_API_ID = config('TELEGRAM_API_ID', default='')
 TELEGRAM_API_HASH = config('TELEGRAM_API_HASH', default='')
+# Сериализация доступа к файлу *.session в Redis (см. parsing.tasks._telethon_session_lock)
+TELETHON_REDIS_LOCK_TTL = config('TELETHON_REDIS_LOCK_TTL', default=28800, cast=int)
+TELETHON_REDIS_LOCK_WAIT = config('TELETHON_REDIS_LOCK_WAIT', default=600, cast=int)
 
 # ─── VK Парсинг ──────────────────────────────────────────────────────────────
 VK_PARSE_ACCESS_TOKEN = config('VK_PARSE_ACCESS_TOKEN', default='')

@@ -452,11 +452,11 @@ def import_tg_history_to_max_task(self, run_id: int):
         except Exception:
             pass
 
-    # Telethon session lock может быть занят параллельным парсингом.
-    # Для импорта истории ждём дольше и ретраим, вместо падения всей задачи.
+    # Telethon session lock может быть занят параллельным парсингом или другим импортом.
+    # Сама блокировка в Redis уже ждёт до TELETHON_REDIS_LOCK_WAIT (см. parsing.tasks); здесь — запасные повторы.
     try:
         lock_last_err = None
-        for lock_attempt in range(40):  # ~40 * 30s = 20 минут ожидания
+        for lock_attempt in range(12):
             # Не полагаемся на run в памяти — отмена из UI пишется в БД.
             if HistoryImportRun.objects.filter(pk=run_id, cancel_requested=True).exists():
                 raise asyncio.CancelledError()
@@ -470,12 +470,12 @@ def import_tg_history_to_max_task(self, run_id: int):
             except RuntimeError as exc:
                 msg = str(exc)
                 lock_last_err = msg
-                if 'не удалось занять сессию' in msg or 'не удалось занять' in msg or 'session' in msg:
+                if 'не удалось занять сессию' in msg or 'не удалось занять' in msg or 'session' in msg.lower():
                     _set_run_error_message(
-                        'Ожидаю освобождения Telegram-сессии (возможно, параллельно идёт парсинг этого же аккаунта). '
-                        f'Повтор через 30с. Детали: {msg}'
+                        'Ожидаю освобождения Telegram-сессии (импорт истории или парсинг того же файла сессии). '
+                        f'Повтор через 45с. Детали: {msg}'
                     )
-                    time.sleep(30)
+                    time.sleep(45)
                     continue
                 raise
         if lock_last_err:
