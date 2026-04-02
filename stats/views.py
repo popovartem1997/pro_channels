@@ -96,7 +96,14 @@ def channel_stats(request, channel_pk):
     tot_c = int(agg['c'] or 0)
     tot_f = int(agg['f'] or 0)
     engagement_actions = tot_r + tot_c + tot_f
-    engagement_rate_posts = round(engagement_actions / tot_v * 100, 2) if tot_v else None
+    n_posts = int(agg['n'] or 0)
+    if tot_v > 0:
+        engagement_rate_posts = round(engagement_actions / tot_v * 100, 2)
+    elif n_posts > 0:
+        # Строки PostStat есть, просмотры пока 0 — не None, иначе в шаблоне «—»
+        engagement_rate_posts = 0.0
+    else:
+        engagement_rate_posts = None
 
     # ER канала: взвешенное среднее по снимкам ChannelStat (дневной ER × дневные просмотры в снимке).
     w_er_num = sum((s.er or 0) * (s.views or 0) for s in stats)
@@ -110,17 +117,16 @@ def channel_stats(request, channel_pk):
     # Оценка по охвату и базе подписчиков, если постовой агрегат пустой
     if avg_er is None:
         subs_now = int(getattr(channel, 'subscribers_count', 0) or 0)
-        n_posts = int(agg['n'] or 0)
         total_views_period_chk = tot_v if tot_v else sum(views_data)
         if subs_now > 0 and total_views_period_chk > 0 and n_posts > 0:
-            avg_reach = total_views_period_chk / n_posts
+            avg_reach = total_views_period_chk / float(n_posts)
             avg_er = round(avg_reach / subs_now * 100, 2)
 
     if avg_er is None:
         avg_er = 0.0
 
     # Fallbacks when daily snapshots (ChannelStat) are empty or have zero views.
-    total_views_period = tot_v if tot_v else sum(views_data)
+    total_views_period = int(tot_v if tot_v else sum(views_data))
 
     subs_delta = None
     if len(subs_data) >= 2:
@@ -141,7 +147,7 @@ def channel_stats(request, channel_pk):
         'stat_agg_reactions': tot_r,
         'stat_agg_comments': tot_c,
         'stat_agg_forwards': tot_f,
-        'stat_agg_post_rows': int(agg['n'] or 0),
+        'stat_agg_post_rows': n_posts,
         'engagement_rate_posts': engagement_rate_posts,
         'subs_delta': subs_delta,
     })
