@@ -228,14 +228,8 @@
             {% endif %}
 
             {% if it.kind == 'subscriber' and it.obj and it.status != 'rejected' %}
-              <div class="mt-2 d-flex gap-2 flex-wrap">
-                <form method="post" action="{% url 'content:ai_from_suggestion' tracking_id=it.obj.tracking_id %}" class="d-inline">
-                  {% csrf_token %}
-                  <button type="submit" class="btn btn-outline-secondary btn-sm" title="Заголовок и текст через AI; черновик с медиа из заявки откроется в редакторе">
-                    <i class="bi bi-stars me-1"></i> AI
-                  </button>
-                </form>
-              </div>
+              {% url 'content:ai_from_suggestion' tracking_id=it.obj.tracking_id as subscriber_ai_url %}
+              {% include 'includes/ai_post_mood_block.html' with ai_form_url=subscriber_ai_url %}
             {% endif %}
 
             {% if it.kind == 'parsing' and it.obj %}
@@ -255,12 +249,8 @@
                     <i class="bi bi-trash me-1"></i> Удалить
                   </button>
                 </form>
-                <form method="post" action="{% url 'parsing:item_ai_to_post' it.obj.pk %}" class="d-inline">
-                  {% csrf_token %}
-                  <button type="submit" class="btn btn-outline-secondary btn-sm" title="Сгенерировать короткий пост через AI и открыть создание поста">
-                    <i class="bi bi-stars me-1"></i> AI
-                  </button>
-                </form>
+                {% url 'parsing:item_ai_to_post' it.obj.pk as parsing_ai_url %}
+                {% include 'includes/ai_post_mood_block.html' with ai_form_url=parsing_ai_url %}
               </div>
             {% endif %}
 

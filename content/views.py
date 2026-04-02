@@ -355,7 +355,7 @@ def post_ai_from_suggestion(request, tracking_id):
 
     from bots.models import Suggestion
     from core.models import get_global_api_keys
-    from parsing.deepseek_snippet import rewrite_for_feed_post
+    from parsing.deepseek_snippet import ai_tone_label, normalize_ai_tone, rewrite_for_feed_post
 
     suggestion = get_object_or_404(
         Suggestion.objects.select_related('bot', 'bot__owner').prefetch_related('bot__channel_groups'),
@@ -388,6 +388,7 @@ def post_ai_from_suggestion(request, tracking_id):
         messages.info(request, 'Для этой заявки уже есть пост — откройте редактор.')
         return redirect('content:edit', pk=existing.pk)
 
+    tone = normalize_ai_tone(request.POST.get('tone'))
     try:
         source_url = _extract_first_http_url(suggestion.text or '')
         plain, ht = rewrite_for_feed_post(
@@ -395,6 +396,7 @@ def post_ai_from_suggestion(request, tracking_id):
             source_url=source_url,
             api_key=api_key,
             model_name=getattr(settings, 'DEEPSEEK_MODEL', 'deepseek-chat'),
+            tone=tone,
         )
     except Exception as exc:
         messages.error(request, f'Не удалось сгенерировать текст: {exc}')
@@ -415,7 +417,10 @@ def post_ai_from_suggestion(request, tracking_id):
         existing.text_html = text_html
         existing.save(update_fields=['text', 'text_html'])
         post_pk = existing.pk
-        msg = 'Текст черновика обновлён через AI. Медиа из заявки подтянуты при необходимости.'
+        msg = (
+            f'Текст черновика обновлён через AI (тон: «{ai_tone_label(tone)}»). '
+            'Медиа из заявки подтянуты при необходимости.'
+        )
     else:
         post = Post.objects.create(
             author=bot.owner,
@@ -426,7 +431,10 @@ def post_ai_from_suggestion(request, tracking_id):
         )
         post.channels.set(bot_target_ids)
         post_pk = post.pk
-        msg = f'Черновик из предложки #{suggestion.short_tracking_id} создан через AI.'
+        msg = (
+            f'Черновик из предложки #{suggestion.short_tracking_id} создан через AI '
+            f'(тон: «{ai_tone_label(tone)}»).'
+        )
 
     try:
         _run_suggestion_media_import(request, post_pk, bot)

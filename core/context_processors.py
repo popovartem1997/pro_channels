@@ -4,12 +4,15 @@
 from django.conf import settings
 from django.db import models
 
+from parsing.deepseek_snippet import AI_POST_MOODS
+
 
 def site_context(request):
     ctx = {
         'SITE_NAME': settings.SITE_NAME,
         'SITE_URL': settings.SITE_URL,
         'AI_REWRITE_ENABLED': getattr(settings, 'AI_REWRITE_ENABLED', False),
+        'ai_post_moods': AI_POST_MOODS,
     }
     if request.user.is_authenticated:
         from bots.models import Suggestion

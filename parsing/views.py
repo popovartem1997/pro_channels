@@ -829,14 +829,16 @@ def item_ai_to_post(request, pk):
         )
         return redirect(request.META.get('HTTP_REFERER') or reverse('core:feed'))
 
-    try:
-        from .deepseek_snippet import rewrite_for_feed_post
+    from .deepseek_snippet import ai_tone_label, normalize_ai_tone, rewrite_for_feed_post
 
+    tone = normalize_ai_tone(request.POST.get('tone'))
+    try:
         plain, ht = rewrite_for_feed_post(
             original_text=item.text or '',
             source_url=item.original_url or '',
             api_key=api_key,
             model_name=getattr(settings, 'DEEPSEEK_MODEL', 'deepseek-chat'),
+            tone=tone,
         )
     except Exception as exc:
         messages.error(request, f'Не удалось сгенерировать текст: {exc}')
@@ -856,7 +858,10 @@ def item_ai_to_post(request, pk):
     except Exception:
         pass
 
-    messages.success(request, 'Черновик подготовлен — проверьте текст и каналы перед публикацией.')
+    messages.success(
+        request,
+        f'Черновик подготовлен (тон: «{ai_tone_label(tone)}») — проверьте текст и каналы перед публикацией.',
+    )
     return redirect('content:create')
 
 @login_required
