@@ -52,21 +52,21 @@
     <div class="card mb-4">
       <div class="card-body p-4">
         <h6 class="fw-bold mb-3 text-muted small text-uppercase letter-spacing">Медиа</h6>
-        <div class="d-flex gap-2 flex-wrap">
+        <div class="d-flex gap-2 flex-wrap js-media-gallery">
           {% for m in post.media_files.all %}
             {% if m.media_type == 'photo' and m.file %}
-              <a href="{{ m.file.url }}" target="_blank" rel="noopener" class="d-inline-block">
+              <a href="{{ m.file.url }}" class="d-inline-block js-media-open" data-media-kind="photo" data-media-caption="Пост #{{ post.pk }}">
                 <img src="{{ m.file.url }}" alt=""
                      style="width:96px;height:96px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;">
               </a>
             {% elif m.media_type == 'video' and m.file %}
-              <a href="{{ m.file.url }}" target="_blank" rel="noopener"
+              <a href="{{ m.file.url }}" class="d-inline-flex align-items-center justify-content-center js-media-open" data-media-kind="video" data-media-caption="Пост #{{ post.pk }}"
                  class="d-inline-flex align-items-center justify-content-center"
                  style="width:96px;height:96px;border-radius:10px;border:1px solid #e2e8f0;background:#0b1220;color:#fff;text-decoration:none;">
                 <i class="bi bi-play-circle fs-3"></i>
               </a>
             {% elif m.file %}
-              <a href="{{ m.file.url }}" target="_blank" rel="noopener" class="badge bg-light text-dark border text-decoration-none">
+              <a href="{{ m.file.url }}" class="badge bg-light text-dark border text-decoration-none js-media-open" data-media-kind="document" data-media-caption="Файл · пост #{{ post.pk }}">
                 <i class="bi bi-paperclip me-1"></i>Файл
               </a>
             {% endif %}

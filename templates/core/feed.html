@@ -147,20 +147,20 @@
             <div style="white-space:pre-wrap;">{{ it.text|truncatechars:600 }}</div>
 
             {% if it.kind == 'post' and it.media %}
-              <div class="mt-3 d-flex gap-2 flex-wrap">
+              <div class="mt-3 d-flex gap-2 flex-wrap js-media-gallery">
                 {% for m in it.media %}
                   {% if m.media_type == 'photo' %}
-                    <a href="{{ m.file.url }}" target="_blank" rel="noopener" class="d-inline-block">
+                    <a href="{{ m.file.url }}" class="d-inline-block js-media-open" data-media-kind="photo" data-media-caption="{{ it.title }}">
                       <img src="{{ m.file.url }}" alt="" style="width:96px;height:96px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;">
                     </a>
                   {% elif m.media_type == 'video' %}
-                    <a href="{{ m.file.url }}" target="_blank" rel="noopener"
+                    <a href="{{ m.file.url }}" class="d-inline-flex align-items-center justify-content-center js-media-open" data-media-kind="video" data-media-caption="{{ it.title }}"
                        class="d-inline-flex align-items-center justify-content-center"
                        style="width:96px;height:96px;border-radius:10px;border:1px solid #e2e8f0;background:#0b1220;color:#fff;text-decoration:none;">
                       <i class="bi bi-play-circle fs-3"></i>
                     </a>
                   {% else %}
-                    <a href="{{ m.file.url }}" target="_blank" rel="noopener" class="badge bg-light text-dark border text-decoration-none">
+                    <a href="{{ m.file.url }}" class="badge bg-light text-dark border text-decoration-none js-media-open" data-media-kind="document" data-media-caption="{{ it.title }}">
                       <i class="bi bi-paperclip me-1"></i>Файл
                     </a>
                   {% endif %}
@@ -174,7 +174,7 @@
                   {% for _ in "1234" %}
                     {% with forloop.counter0 as i %}
                       {% if it.obj.media_file_ids|length > i %}
-                        <a href="{% url 'bots:suggestion_media' it.obj.pk i %}" target="_blank" rel="noopener" class="d-inline-block">
+                        <a href="{% url 'bots:suggestion_media' it.obj.pk i %}" class="d-inline-block js-media-open" data-media-kind="photo" data-media-caption="Предложка · {{ it.title }}">
                           <img src="{% url 'bots:suggestion_media' it.obj.pk i %}" alt=""
                                style="width:96px;height:96px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;">
                         </a>
@@ -194,9 +194,9 @@
             {% endif %}
 
             {% if it.kind == 'parsing' and it.obj and it.obj.media %}
-              <div class="mt-3 d-flex gap-2 flex-wrap">
+              <div class="mt-3 d-flex gap-2 flex-wrap js-media-gallery">
                 {% for u in it.obj.media %}
-                  <a href="{{ u }}" target="_blank" rel="noopener" class="d-inline-block">
+                  <a href="{{ u }}" class="d-inline-block js-media-open" data-media-kind="photo" data-media-caption="{{ it.title }}">
                     <img src="{{ u }}" alt="" style="width:96px;height:96px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;">
                   </a>
                 {% endfor %}
