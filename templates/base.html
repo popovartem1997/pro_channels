@@ -567,12 +567,72 @@
     var plain = plainId ? document.getElementById(plainId) : null;
     if (!ed || !hidden || !plain) return;
 
+    var tgHid = document.getElementById('id_tg_entities_hidden');
+
     // Hydrate editor from saved html/plain
     var initialHtml = (hidden.value || '').trim();
     if (initialHtml) ed.innerHTML = initialHtml;
     else ed.textContent = plain.value || '';
 
+    function parseTgEntitiesHidden() {
+      try {
+        var v = tgHid ? tgHid.value : '';
+        if (!v) return [];
+        var p = JSON.parse(v);
+        return Array.isArray(p) ? p : [];
+      } catch (err) { return []; }
+    }
+
+    function setTgEntitiesHidden(list) {
+      if (!tgHid) return;
+      tgHid.value = JSON.stringify(list || []);
+    }
+
+    /* После вставки из Telegram в DOM попадает <tg-emoji emoji-id>; без этого custom_emoji_id теряется. */
+    function normalizeTgEmojiNodes() {
+      if (!tgHid) return;
+      var nodes = Array.from(ed.querySelectorAll('tg-emoji'));
+      if (!nodes.length) return;
+      var ops = [];
+      nodes.forEach(function (el) {
+        var r = document.createRange();
+        r.selectNodeContents(ed);
+        r.setEndBefore(el);
+        var off = r.toString().length;
+        var eid = el.getAttribute('emoji-id') || el.getAttribute('emoji_id') || '';
+        var ch = (el.textContent || '').replace(/\uFEFF/g, '');
+        if (!ch.trim()) {
+          var im = el.querySelector('img');
+          if (im) ch = (im.getAttribute('alt') || '').trim();
+        }
+        if (eid && ch) ops.push({ el: el, off: off, id: eid, ch: ch });
+      });
+      ops.sort(function (a, b) { return b.off - a.off; });
+      var added = [];
+      ops.forEach(function (op) {
+        added.push({
+          type: 'custom_emoji',
+          offset: op.off,
+          length: op.ch.length,
+          custom_emoji_id: String(op.id)
+        });
+        op.el.replaceWith(document.createTextNode(op.ch));
+      });
+      added.sort(function (a, b) { return (a.offset || 0) - (b.offset || 0); });
+      var exist = parseTgEntitiesHidden();
+      added.forEach(function (a) {
+        var dup = exist.some(function (e) {
+          return e && e.type === 'custom_emoji' && e.offset === a.offset && e.length === a.length &&
+            String(e.custom_emoji_id || '') === String(a.custom_emoji_id || '');
+        });
+        if (!dup) exist.push(a);
+      });
+      exist.sort(function (a, b) { return (a.offset || 0) - (b.offset || 0); });
+      setTgEntitiesHidden(exist);
+    }
+
     function sync() {
+      normalizeTgEmojiNodes();
       var html = sanitizeForTelegram(ed.innerHTML || '');
       // Многострочный ввод без тегов: в Telegram HTML перевод строки нужно задавать через <br>.
       if (html && !/<[a-z][\s\S]*>/i.test(html) && /[\r\n]/.test(html)) {
@@ -595,7 +655,6 @@
 
     // Premium emoji: подставляем сохранённые entities с сервера; пустой [] не трогаем поле (не затираем «Из Telegram»).
     var tgInit = document.getElementById('pc-tg-entities-initial');
-    var tgHid = document.getElementById('id_tg_entities_hidden');
     if (tgInit && tgHid && tgInit.textContent) {
       try {
         var parsed = JSON.parse(tgInit.textContent);
@@ -614,175 +673,6 @@
         sync();
       });
     }
-
-    function parseTgEntitiesHidden() {
-      try {
-        var v = tgHid ? tgHid.value : '';
-        if (!v) return [];
-        var p = JSON.parse(v);
-        return Array.isArray(p) ? p : [];
-      } catch (err) { return []; }
-    }
-
-    function setTgEntitiesHidden(list) {
-      if (!tgHid) return;
-      tgHid.value = JSON.stringify(list || []);
-    }
-
-    function rangeTextBeforeAfter(ed, range) {
-      var br = document.createRange();
-      br.selectNodeContents(ed);
-      br.setEnd(range.startContainer, range.startOffset);
-      var ar = document.createRange();
-      ar.selectNodeContents(ed);
-      ar.setStart(range.endContainer, range.endOffset);
-      return { before: br.toString(), after: ar.toString() };
-    }
-
-    function entityOverlapsInsertPoint(entities, shift) {
-      return entities.some(function (ent) {
-        var s = ent.offset || 0;
-        var end = s + (ent.length || 0);
-        return s < shift && end > shift;
-      });
-    }
-
-    function shiftEntitiesFrom(entities, shift, delta) {
-      if (!delta) return entities.slice();
-      return entities.map(function (ent) {
-        var ne = Object.assign({}, ent);
-        if ((ne.offset || 0) >= shift) ne.offset = (ne.offset || 0) + delta;
-        return ne;
-      });
-    }
-
-    /* Вставка: не затирать поле пустым text/plain; премиум emoji из буфера Telegram (tg-emoji + emoji-id). */
-    ed.addEventListener('paste', function (e) {
-      var cd = e.clipboardData || window.clipboardData;
-      if (!cd) return;
-
-      var html = cd.getData('text/html') || '';
-      var plainClip = cd.getData('text/plain');
-      if (plainClip === null || plainClip === undefined) plainClip = '';
-
-      ed.focus();
-      var sel = window.getSelection();
-      if (!sel.rangeCount) return;
-      var range = sel.getRangeAt(0);
-      if (!ed.contains(range.commonAncestorContainer)) {
-        range = document.createRange();
-        range.selectNodeContents(ed);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
-
-      var slices = rangeTextBeforeAfter(ed, range);
-      var shift = slices.before.length;
-
-      e.preventDefault();
-
-      var acc = null;
-      if (/tg-emoji/i.test(html)) {
-        var tmp = document.createElement('div');
-        tmp.innerHTML = html;
-        acc = { plain: '', entities: [] };
-        function walkClip(node) {
-          if (node.nodeType === 3) {
-            acc.plain += node.nodeValue || '';
-            return;
-          }
-          if (node.nodeType !== 1) return;
-          var tag = (node.tagName || '').toUpperCase();
-          if (tag === 'TG-EMOJI') {
-            var eid = node.getAttribute('emoji-id') || node.getAttribute('emoji_id') || '';
-            var ch = (node.textContent || '').replace(/\uFEFF/g, '');
-            if (!ch.trim()) {
-              var im = node.querySelector('img');
-              if (im) ch = (im.getAttribute('alt') || '').trim();
-            }
-            if (eid && ch) {
-              var off = acc.plain.length;
-              acc.plain += ch;
-              acc.entities.push({
-                type: 'custom_emoji',
-                offset: off,
-                length: ch.length,
-                custom_emoji_id: String(eid)
-              });
-              return;
-            }
-            for (var ci = 0; ci < node.childNodes.length; ci++) walkClip(node.childNodes[ci]);
-            return;
-          }
-          if (tag === 'IMG') {
-            var alt = (node.getAttribute('alt') || '').trim();
-            if (alt) acc.plain += alt;
-            return;
-          }
-          for (var j = 0; j < node.childNodes.length; j++) walkClip(node.childNodes[j]);
-        }
-        walkClip(tmp);
-      }
-
-      if (acc && (acc.plain.length || acc.entities.length)) {
-        var insLen = acc.plain.length;
-        var exist = parseTgEntitiesHidden();
-        if (entityOverlapsInsertPoint(exist, shift) && exist.length) {
-          exist = [];
-        } else if (insLen && exist.length) {
-          exist = shiftEntitiesFrom(exist, shift, insLen);
-        }
-        var shiftedFrag = acc.entities.map(function (ent) {
-          return {
-            type: 'custom_emoji',
-            offset: (ent.offset || 0) + shift,
-            length: ent.length || 0,
-            custom_emoji_id: String(ent.custom_emoji_id || '')
-          };
-        });
-        var merged = exist.concat(shiftedFrag).sort(function (a, b) {
-          return (a.offset || 0) - (b.offset || 0);
-        });
-        setTgEntitiesHidden(merged);
-
-        range.deleteContents();
-        var tn = document.createTextNode(acc.plain);
-        range.insertNode(tn);
-        range.setStartAfter(tn);
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
-        sync();
-        return;
-      }
-
-      var text = plainClip;
-      if (text === '' && html) {
-        var tmp2 = document.createElement('div');
-        tmp2.innerHTML = html;
-        text = tmp2.innerText || tmp2.textContent || '';
-      }
-      if (text === '') {
-        return;
-      }
-
-      var exist2 = parseTgEntitiesHidden();
-      if (entityOverlapsInsertPoint(exist2, shift) && exist2.length) {
-        setTgEntitiesHidden([]);
-      } else if (text.length && exist2.length) {
-        setTgEntitiesHidden(shiftEntitiesFrom(exist2, shift, text.length));
-      }
-
-      range.deleteContents();
-      var tn2 = document.createTextNode(text);
-      range.insertNode(tn2);
-      range.setStartAfter(tn2);
-      range.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(range);
-      sync();
-    });
 
     toolbar.addEventListener('mousedown', function(e){
       var btn = e.target.closest('button[data-action]');

@@ -1,8 +1,9 @@
 """
 Celery задачи для публикации постов.
 """
+import asyncio
+import io
 import logging
-import mimetypes
 import os
 from celery import shared_task
 from django.db.models import Max
@@ -544,6 +545,9 @@ def _build_text(post, channel):
     # Для TG используем HTML-версию, для остальных — plain
     if channel.platform == Ch.PLATFORM_TELEGRAM and (post.text_html or '').strip():
         text = post.text_html
+        # В Telegram HTML одиночные \n не дают перенос строки в подписи/тексте
+        if '<pre' not in text.lower():
+            text = text.replace('\r\n', '\n').replace('\n', '<br>')
     else:
         text = post.text
 
@@ -621,47 +625,98 @@ def _tg_footer_plain_from_html(tg_footer_html: str) -> str:
     return plain.strip()
 
 
-def _tg_multipart_form(data: dict) -> dict:
-    """Поля multipart/form-data для Bot API: булевы как true/false, остальное — строки."""
-    out = {}
-    for k, v in data.items():
-        if v is None:
+def _tg_file_for_telegram_upload(mf):
+    """Локальный путь или InputFile (если нет .path — облако/хранилище)."""
+    from telegram import InputFile
+
+    name = os.path.basename(getattr(mf.file, 'name', '') or '') or 'media.bin'
+    try:
+        p = mf.file.path
+        if p and os.path.isfile(p):
+            return p
+    except Exception:
+        pass
+    mf.file.open('rb')
+    try:
+        raw = mf.file.read()
+    finally:
+        mf.file.close()
+    return InputFile(io.BytesIO(raw), filename=name)
+
+
+def _tg_entity_dicts_to_ptb(entities: list):
+    """Словари из вебхука / формы → объекты MessageEntity (python-telegram-bot)."""
+    from telegram import MessageEntity
+
+    out = []
+    for e in entities or []:
+        if not isinstance(e, dict):
             continue
-        if isinstance(v, bool):
-            out[k] = 'true' if v else 'false'
-        elif isinstance(v, (int, float)):
-            out[k] = str(v)
-        else:
-            out[k] = v
+        t = str(e.get('type') or '')
+        if not t:
+            continue
+        kwargs = {
+            'type': t,
+            'offset': int(e.get('offset', 0)),
+            'length': int(e.get('length', 0)),
+        }
+        if e.get('url') is not None:
+            kwargs['url'] = e['url']
+        if e.get('language') is not None:
+            kwargs['language'] = e['language']
+        if e.get('custom_emoji_id') is not None:
+            kwargs['custom_emoji_id'] = str(e['custom_emoji_id'])
+        try:
+            out.append(MessageEntity(**kwargs))
+        except (TypeError, ValueError):
+            continue
     return out
 
 
-def _publish_telegram(post, channel):
-    """Публикация в Telegram через Bot API."""
-    import json as json_module
-    import requests
+def _tg_input_media_for_group(mf, *, caption: str | None, parse_mode, caption_entities):
+    from telegram import InputMediaDocument, InputMediaPhoto, InputMediaVideo
+    from .models import PostMedia
+
+    media_obj = _tg_file_for_telegram_upload(mf)
+    if mf.media_type == PostMedia.TYPE_VIDEO:
+        cls = InputMediaVideo
+    elif mf.media_type == PostMedia.TYPE_DOCUMENT:
+        cls = InputMediaDocument
+    else:
+        cls = InputMediaPhoto
+    kw: dict = {'media': media_obj}
+    if caption is not None:
+        kw['caption'] = caption
+    if caption_entities is not None:
+        kw['caption_entities'] = caption_entities
+    if parse_mode is not None:
+        kw['parse_mode'] = parse_mode
+    return cls(**kw)
+
+
+async def _publish_telegram_async(post, channel):
+    """Публикация в Telegram через python-telegram-bot (корректные caption_entities и альбомы)."""
+    from channels.models import Channel as Ch
+    from telegram import Bot
+    from telegram.error import TelegramError
+    from telegram.constants import ParseMode
+    from telegram.request import HTTPXRequest
+    from .models import PostMedia
+
+    if channel.platform != Ch.PLATFORM_TELEGRAM:
+        raise ValueError('Не Telegram-канал')
 
     bot_token = channel.get_tg_token()
     chat_id = channel.tg_chat_id
-
     if not bot_token or not chat_id:
         raise ValueError('Не настроен токен бота или chat_id для Telegram')
 
-    media_files = list(post.media_files.order_by('order', 'pk'))
-    base_url = f'https://api.telegram.org/bot{bot_token}'
-
     raw_entities = getattr(post, 'tg_entities', None)
     tg_entities_list = raw_entities if isinstance(raw_entities, list) else []
-    use_entities = bool(getattr(post, 'has_premium_emoji', False) and tg_entities_list)
-
-    common = {
-        'chat_id': chat_id,
-        'disable_notification': post.disable_notification,
-    }
+    # Достаточно непустого tg_entities; флаг has_premium_emoji может рассинхрониться с БД.
+    use_entities = bool(tg_entities_list)
 
     if use_entities:
-        # ВАЖНО: смещения entities привязаны к post.text из импорта, не к text_html.
-        # Если слать text_html + entities, API игнорирует custom_emoji / показывает «сырой» HTML.
         text = post.text if post.text is not None else ''
         entities = _tg_normalize_entities(tg_entities_list)
         if post.ord_label:
@@ -672,92 +727,79 @@ def _publish_telegram(post, channel):
             footer = _tg_footer_plain_from_html(channel.tg_footer)
             if footer:
                 text = f'{text}\n\n{footer}'
-        # sendMessage: превью ссылок; sendPhoto/sendVideo/sendDocument — только параметры из спецификации API.
-        msg_kwargs = {
-            **common,
-            'disable_web_page_preview': True,
-            'entities': entities,
-        }
-        media_form_base = dict(common)
-        entities_for_api = entities
+        ptb_entities = _tg_entity_dicts_to_ptb(entities)
+        parse_mode = None
     else:
         text = _build_text(post, channel)
-        msg_kwargs = {
-            **common,
-            'disable_web_page_preview': True,
-            'parse_mode': 'HTML',
-        }
-        media_form_base = {**common, 'parse_mode': 'HTML'}
-        entities_for_api = []
+        ptb_entities = None
+        parse_mode = ParseMode.HTML
 
-    if media_files:
-        if len(media_files) == 1:
-            mf = media_files[0]
-            with open(mf.file.path, 'rb') as f:
-                upload_name = os.path.basename(getattr(mf.file, 'name', '') or '') or 'media.bin'
-                mime, _ = mimetypes.guess_type(upload_name)
-                file_field = (upload_name, f, mime or 'application/octet-stream')
-                send_data = {**media_form_base, 'caption': text}
+    request = HTTPXRequest(connect_timeout=25.0, read_timeout=120.0)
+    bot = Bot(token=bot_token, request=request)
+    media_files = list(post.media_files.order_by('order', 'pk'))
+    common_kw = {'chat_id': chat_id, 'disable_notification': post.disable_notification}
+
+    try:
+        async with bot:
+            msg_id = None
+            if not media_files:
                 if use_entities:
-                    send_data['caption_entities'] = json_module.dumps(
-                        entities_for_api,
-                        ensure_ascii=False,
+                    m = await bot.send_message(
+                        text=text,
+                        entities=ptb_entities,
+                        disable_web_page_preview=True,
+                        **common_kw,
                     )
-                send_data = _tg_multipart_form(send_data)
-                if mf.media_type == 'photo':
-                    resp = requests.post(f'{base_url}/sendPhoto', data=send_data, files={'photo': file_field})
-                elif mf.media_type == 'video':
-                    resp = requests.post(f'{base_url}/sendVideo', data=send_data, files={'video': file_field})
                 else:
-                    resp = requests.post(f'{base_url}/sendDocument', data=send_data, files={'document': file_field})
-        else:
-            # Медиагруппа
-            media = []
-            files = {}
-            try:
+                    m = await bot.send_message(
+                        text=text,
+                        parse_mode=parse_mode,
+                        disable_web_page_preview=True,
+                        **common_kw,
+                    )
+                msg_id = m.message_id
+            elif len(media_files) == 1:
+                mf = media_files[0]
+                media_obj = _tg_file_for_telegram_upload(mf)
+                cap_kw: dict = {**common_kw, 'caption': text}
+                if use_entities:
+                    cap_kw['caption_entities'] = ptb_entities
+                else:
+                    cap_kw['parse_mode'] = parse_mode
+                if mf.media_type == PostMedia.TYPE_PHOTO:
+                    m = await bot.send_photo(photo=media_obj, **cap_kw)
+                elif mf.media_type == PostMedia.TYPE_VIDEO:
+                    m = await bot.send_video(video=media_obj, **cap_kw)
+                else:
+                    m = await bot.send_document(document=media_obj, **cap_kw)
+                msg_id = m.message_id
+            else:
+                group = []
                 for i, mf in enumerate(media_files[:10]):
-                    key = f'file{i}'
-                    item = {
-                        'type': mf.media_type if mf.media_type != 'document' else 'photo',
-                        'media': f'attach://{key}',
-                        'caption': text if i == 0 else '',
-                    }
-                    if i == 0 and use_entities:
-                        item['caption_entities'] = entities_for_api
-                    elif i == 0:
-                        item['parse_mode'] = 'HTML'
-                    media.append(item)
-                    files[key] = open(mf.file.path, 'rb')
+                    if i == 0:
+                        item = _tg_input_media_for_group(
+                            mf,
+                            caption=text,
+                            parse_mode=None if use_entities else parse_mode,
+                            caption_entities=ptb_entities if use_entities else None,
+                        )
+                    else:
+                        item = _tg_input_media_for_group(mf, caption=None, parse_mode=None, caption_entities=None)
+                    group.append(item)
+                msgs = await bot.send_media_group(media=group, **common_kw)
+                msg_id = msgs[0].message_id if msgs else None
 
-                group_payload = _tg_multipart_form(
-                    {
-                        **common,
-                        'media': json_module.dumps(media, ensure_ascii=False),
-                    }
-                )
-                resp = requests.post(
-                    f'{base_url}/sendMediaGroup',
-                    data=group_payload,
-                    files=files,
-                )
-            finally:
-                for fp in files.values():
-                    fp.close()
-    else:
-        resp = requests.post(f'{base_url}/sendMessage', json={**msg_kwargs, 'text': text})
+            if post.pin_message and msg_id:
+                await bot.pin_chat_message(chat_id=chat_id, message_id=msg_id)
 
-    data = resp.json()
-    if not data.get('ok'):
-        raise ValueError(f'Telegram API error: {data.get("description", "Unknown")}')
+            return {'message_id': msg_id or ''}
+    except TelegramError as exc:
+        raise ValueError(f'Telegram API error: {exc}') from exc
 
-    result = data.get('result', {})
-    msg_id = result.get('message_id') if isinstance(result, dict) else result[0].get('message_id') if result else ''
 
-    # Закрепить сообщение
-    if post.pin_message and msg_id:
-        requests.post(f'{base_url}/pinChatMessage', json={'chat_id': chat_id, 'message_id': msg_id})
-
-    return {'message_id': msg_id}
+def _publish_telegram(post, channel):
+    """Публикация в Telegram (обёртка над async PTB)."""
+    return asyncio.run(_publish_telegram_async(post, channel))
 
 
 def _publish_vk(post, channel):
