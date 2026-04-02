@@ -295,7 +295,9 @@ def feed(request):
         from channels.models import Channel
         allowed_channels = list(Channel.objects.filter(pk__in=allowed_channel_ids, is_active=True).order_by('name'))
         post_qs = Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct()
-        sug_qs = Suggestion.objects.filter(bot__channel_id__in=allowed_channel_ids).distinct()
+        sug_qs = Suggestion.objects.filter(
+            bot__channel_groups__channels__pk__in=allowed_channel_ids
+        ).distinct()
         parsed_qs = ParsedItem.objects.filter(
             Q(source__channel_id__in=allowed_channel_ids) | Q(keyword__channel_id__in=allowed_channel_ids)
         ).distinct()
@@ -317,7 +319,9 @@ def feed(request):
             ).distinct()
 
     post_qs = post_qs.prefetch_related('channels').select_related('author', 'published_by')
-    sug_qs = sug_qs.select_related('bot', 'bot__channel')
+    sug_qs = sug_qs.select_related('bot', 'bot__owner').prefetch_related(
+        'bot__channel_groups__channels',
+    )
     parsed_qs = parsed_qs.select_related('source', 'source__channel', 'keyword')
 
     items = []
@@ -326,7 +330,7 @@ def feed(request):
     if channel_id and str(channel_id).isdigit():
         cid = int(channel_id)
         post_qs = post_qs.filter(channels__pk=cid).distinct()
-        sug_qs = sug_qs.filter(bot__channel_id=cid).distinct()
+        sug_qs = sug_qs.filter(bot__channel_groups__channels__pk=cid).distinct()
         parsed_qs = parsed_qs.filter(Q(source__channel_id=cid) | Q(keyword__channel_id=cid)).distinct()
 
     cid_int = int(channel_id) if (channel_id and str(channel_id).isdigit()) else None
@@ -345,7 +349,7 @@ def feed(request):
                 allowed_set = {c.pk for c in (allowed_channels or [])}
                 feed_chgroup_cids = [x for x in g.channels.values_list('pk', flat=True) if x in allowed_set]
             post_qs = post_qs.filter(channels__pk__in=feed_chgroup_cids).distinct()
-            sug_qs = sug_qs.filter(bot__channel_id__in=feed_chgroup_cids).distinct()
+            sug_qs = sug_qs.filter(bot__channel_groups__pk=int(chgroup_param)).distinct()
             parsed_qs = parsed_qs.filter(
                 Q(source__channel_id__in=feed_chgroup_cids) | Q(keyword__channel_id__in=feed_chgroup_cids)
             ).distinct()
@@ -456,7 +460,7 @@ def feed(request):
                 'text': s.text or '',
                 'status': s.status,
                 'status_display': s.get_status_display(),
-                'channels': [s.bot.channel] if getattr(s.bot, 'channel', None) else [],
+                'channels': s.bot.display_channels(),
                 'url': reverse('bots:suggestion_detail', args=[s.pk]),
                 'meta': f'{s.bot.name} · {s.sender_display}',
                 'obj': s,

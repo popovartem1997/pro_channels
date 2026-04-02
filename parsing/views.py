@@ -10,6 +10,7 @@ from django.db.models import Q, Count
 from .models import ParseSource, ParseKeyword, ParsedItem, ParseTask, AIRewriteJob
 from django.http import JsonResponse
 from django.http import HttpResponse
+from django.views.decorators.http import require_POST
 import os
 
 
@@ -754,6 +755,27 @@ def item_delete(request, pk):
     return redirect(_parse_url('parsing:items', scope))
 
 
+def _channel_ids_for_new_post_from_parsed_item(item, user):
+    """Каналы черновика по логике «В пост» (группа ключевика или все доступные)."""
+    kw_channel = item.keyword.channel
+    if kw_channel:
+        try:
+            g = getattr(kw_channel, "channel_group", None)
+            if g:
+                from channels.models import Channel
+
+                group_ids = list(
+                    Channel.objects.filter(owner_id=kw_channel.owner_id, channel_group=g, is_active=True)
+                    .values_list("pk", flat=True)
+                )
+                if group_ids:
+                    return group_ids
+            return [kw_channel.pk]
+        except Exception:
+            return [kw_channel.pk]
+    return list(_parsing_channels_qs(user).values_list('pk', flat=True))
+
+
 @login_required
 def item_to_post(request, pk):
     """Создать черновик поста из найденного материала (или AI версии) и перейти в редактор поста."""
@@ -778,34 +800,64 @@ def item_to_post(request, pk):
         status=Post.STATUS_DRAFT,
     )
 
-    if kw_channel:
-        # Если канал в группе — создаём пост сразу на все каналы паблика (группы).
-        try:
-            g = getattr(kw_channel, "channel_group", None)
-            if g:
-                from channels.models import Channel
-                group_ids = list(
-                    Channel.objects.filter(owner_id=kw_channel.owner_id, channel_group=g, is_active=True)
-                    .values_list("pk", flat=True)
-                )
-                if group_ids:
-                    post.channels.set(group_ids)
-                else:
-                    post.channels.set([kw_channel.pk])
-            else:
-                post.channels.set([kw_channel.pk])
-        except Exception:
-            post.channels.set([kw_channel.pk])
-    else:
-        channel_ids = list(_parsing_channels_qs(request.user).values_list('pk', flat=True))
-        if channel_ids:
-            post.channels.set(channel_ids)
+    ch_ids = _channel_ids_for_new_post_from_parsed_item(item, request.user)
+    if ch_ids:
+        post.channels.set(ch_ids)
 
     item.status = ParsedItem.STATUS_USED
     item.save(update_fields=['status'])
 
     messages.success(request, 'Пост создан из материала. Отредактируйте и запланируйте публикацию.')
     return redirect('content:edit', pk=post.pk)
+
+
+@login_required
+@require_POST
+def item_ai_to_post(request, pk):
+    """OpenAI: короткий пост + редирект на создание поста с предзаполненным текстом."""
+    from django.conf import settings
+
+    item = get_object_or_404(_parsed_items_base_qs(request.user), pk=pk)
+    from core.models import get_global_api_keys
+
+    keys = get_global_api_keys()
+    api_key = keys.get_openai_api_key()
+    if not api_key or not keys.ai_rewrite_enabled:
+        messages.error(
+            request,
+            'Включите «AI рерайт» и сохраните ключ OpenAI в разделе «Ключи API».',
+        )
+        return redirect(request.META.get('HTTP_REFERER') or reverse('core:feed'))
+
+    try:
+        from .openai_snippet import rewrite_for_feed_post
+
+        plain, ht = rewrite_for_feed_post(
+            original_text=item.text or '',
+            source_url=item.original_url or '',
+            api_key=api_key,
+            model_name=getattr(settings, 'OPENAI_MODEL', 'gpt-4o-mini'),
+        )
+    except Exception as exc:
+        messages.error(request, f'Не удалось сгенерировать текст: {exc}')
+        return redirect(request.META.get('HTTP_REFERER') or reverse('core:feed'))
+
+    from content.views import POST_CREATE_SESSION_PREFILL
+
+    ch_ids = _channel_ids_for_new_post_from_parsed_item(item, request.user)
+    request.session[POST_CREATE_SESSION_PREFILL] = {
+        'text': plain,
+        'text_html': ht or plain,
+        'channel_ids': ch_ids,
+    }
+    try:
+        item.ai_rewrite = (plain or '')[:5000]
+        item.save(update_fields=['ai_rewrite'])
+    except Exception:
+        pass
+
+    messages.success(request, 'Черновик подготовлен — проверьте текст и каналы перед публикацией.')
+    return redirect('content:create')
 
 @login_required
 def parse_tasks_list(request):

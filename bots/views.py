@@ -27,6 +27,10 @@ from .models import SuggestionBot
 
 logger = logging.getLogger(__name__)
 
+
+def _suggestion_bot_channel_id_set(bot: SuggestionBot) -> set:
+    return set(bot.target_channel_ids())
+
 def _ensure_max_webhook(bot: SuggestionBot):
     """
     Автоматически настраивает webhook для MAX при сохранении бота.
@@ -57,13 +61,15 @@ def _can_manage_bot_by_channel(user, bot: SuggestionBot) -> bool:
     if getattr(user, 'role', '') in ('manager', 'assistant_admin'):
         try:
             from managers.models import TeamMember
-            if bot.channel_id:
-                return TeamMember.objects.filter(
-                    member=user,
-                    is_active=True,
-                    can_manage_bots=True,
-                    channels__pk=bot.channel_id,
-                ).exists()
+            bot_cids = _suggestion_bot_channel_id_set(bot)
+            if not bot_cids:
+                return False
+            return TeamMember.objects.filter(
+                member=user,
+                is_active=True,
+                can_manage_bots=True,
+                channels__pk__in=bot_cids,
+            ).exists()
         except Exception:
             return False
     return False
@@ -80,13 +86,15 @@ def _can_view_bot(user, bot: SuggestionBot) -> bool:
     if getattr(user, 'role', '') in ('manager', 'assistant_admin'):
         try:
             from managers.models import TeamMember
-            if bot.channel_id:
-                return TeamMember.objects.filter(
-                    member=user,
-                    is_active=True,
-                    can_manage_bots=True,
-                    channels__pk=bot.channel_id,
-                ).exists()
+            bot_cids = _suggestion_bot_channel_id_set(bot)
+            if not bot_cids:
+                return False
+            return TeamMember.objects.filter(
+                member=user,
+                is_active=True,
+                can_manage_bots=True,
+                channels__pk__in=bot_cids,
+            ).exists()
         except Exception:
             return False
     return False
@@ -99,16 +107,18 @@ def _can_moderate_suggestion(user, suggestion) -> bool:
         return True
     if suggestion.bot.moderators.filter(id=user.id).exists():
         return True
-    # Менеджер команды: доступ по каналу бота (как в ленте / suggestions_all)
-    if getattr(user, 'role', '') in ('manager', 'assistant_admin') and suggestion.bot.channel_id:
+    # Менеджер команды: доступ по каналам групп бота (как в ленте / suggestions_all)
+    if getattr(user, 'role', '') in ('manager', 'assistant_admin'):
         try:
             from managers.models import TeamMember
-
+            bot_cids = _suggestion_bot_channel_id_set(suggestion.bot)
+            if not bot_cids:
+                return False
             return TeamMember.objects.filter(
                 member=user,
                 is_active=True,
                 can_moderate=True,
-                channels__pk=suggestion.bot.channel_id,
+                channels__pk__in=bot_cids,
             ).exists()
         except Exception:
             return False
@@ -294,6 +304,7 @@ def max_webhook(request, bot_id: int):
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.shortcuts import render, redirect
+from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 
 
@@ -306,9 +317,13 @@ def bot_list(request):
             is_active=True,
             can_manage_bots=True,
         ).values_list('channels__pk', flat=True)
-        bots = SuggestionBot.objects.filter(channel_id__in=allowed_channel_ids).distinct().select_related('channel')
+        bots = (
+            SuggestionBot.objects.filter(channel_groups__channels__pk__in=allowed_channel_ids)
+            .distinct()
+            .prefetch_related('channel_groups')
+        )
     else:
-        bots = SuggestionBot.objects.filter(owner=request.user).select_related('channel')
+        bots = SuggestionBot.objects.filter(owner=request.user).prefetch_related('channel_groups')
     return render(request, 'bots/list.html', {'bots': bots})
 
 
@@ -317,39 +332,61 @@ def bot_create(request):
     from managers.models import TeamMember
     team_members = TeamMember.objects.filter(owner=request.user, is_active=True, can_moderate=True).select_related('member')
     selected_moderators = set(request.POST.getlist('moderators')) if request.method == 'POST' else set()
-    from channels.models import Channel
-    owner_channels = Channel.objects.filter(owner=request.user).order_by('name')
+    from channels.models import ChannelGroup
 
-    # Preselect from querystring (e.g., after creating a channel)
-    channel_prefill = (request.GET.get('channel_id') or '').strip() if request.method == 'GET' else ''
+    owner_groups = ChannelGroup.objects.filter(owner=request.user).order_by('name')
+
+    # Preselect from querystring (e.g., after creating a group)
+    chgroup_prefill = (request.GET.get('chgroup_id') or '').strip() if request.method == 'GET' else ''
     platform_prefill = (request.GET.get('platform') or '').strip() if request.method == 'GET' else ''
     if platform_prefill and platform_prefill not in dict(SuggestionBot.PLATFORM_CHOICES):
         platform_prefill = ''
+
+    selected_channel_group_ids = set()
+    if request.method == 'GET' and chgroup_prefill.isdigit():
+        selected_channel_group_ids.add(int(chgroup_prefill))
 
     if request.method == 'POST':
         import re
         name = request.POST.get('name', '').strip()
         platform = request.POST.get('platform', '')
         token = request.POST.get('bot_token', '').strip()
-        channel_id = (request.POST.get('channel_id') or '').strip()
+        group_ids = request.POST.getlist('channel_group_ids')
         welcome_msg = request.POST.get('welcome_message', '').strip()
         success_msg = request.POST.get('success_message', '').strip()
         approved_msg = request.POST.get('approved_message', '').strip()
         rejected_msg = request.POST.get('rejected_message', '').strip()
 
-        if not all([name, platform, token, channel_id]):
-            messages.error(request, 'Заполните все обязательные поля.')
+        raw_gids = []
+        for g in group_ids:
+            s = (g or '').strip()
+            if s.isdigit():
+                raw_gids.append(int(s))
+        selected_channel_group_ids = set(raw_gids)
+
+        if not all([name, platform, token]) or not group_ids:
+            messages.error(request, 'Заполните все обязательные поля и выберите хотя бы одну группу каналов.')
             return render(request, 'bots/create.html', {
                 'platforms': SuggestionBot.PLATFORM_CHOICES,
                 'team_members': team_members,
                 'selected_moderators': selected_moderators,
-                'owner_channels': owner_channels,
+                'owner_groups': owner_groups,
+                'selected_channel_group_ids': selected_channel_group_ids,
             })
 
-        channel = get_object_or_404(Channel, pk=channel_id, owner=request.user)
+        groups = list(ChannelGroup.objects.filter(pk__in=raw_gids, owner=request.user))
+        if len(groups) != len(set(raw_gids)):
+            messages.error(request, 'Проверьте выбранные группы каналов.')
+            return render(request, 'bots/create.html', {
+                'platforms': SuggestionBot.PLATFORM_CHOICES,
+                'team_members': team_members,
+                'selected_moderators': selected_moderators,
+                'owner_groups': owner_groups,
+                'selected_channel_group_ids': selected_channel_group_ids,
+            })
+
         bot = SuggestionBot(
             owner=request.user,
-            channel=channel,
             name=name,
             platform=platform,
             welcome_message=welcome_msg or SuggestionBot._meta.get_field('welcome_message').default,
@@ -382,6 +419,7 @@ def bot_create(request):
             bot.group_id = gid
 
         bot.save()
+        bot.channel_groups.set(groups)
         # Автоподключение webhook для MAX (без кнопок)
         _ensure_max_webhook(bot)
 
@@ -405,7 +443,11 @@ def bot_create(request):
                 action='suggestion_bot.create',
                 object_type='SuggestionBot',
                 object_id=str(bot.pk),
-                data={'name': bot.name, 'platform': bot.platform, 'channel_id': bot.channel_id},
+                data={
+                    'name': bot.name,
+                    'platform': bot.platform,
+                    'channel_group_ids': list(bot.channel_groups.values_list('pk', flat=True)),
+                },
             )
         except Exception:
             pass
@@ -417,9 +459,10 @@ def bot_create(request):
         'platforms': SuggestionBot.PLATFORM_CHOICES,
         'team_members': team_members,
         'selected_moderators': selected_moderators,
-        'owner_channels': owner_channels,
-        'channel_prefill': channel_prefill,
+        'owner_groups': owner_groups,
+        'chgroup_prefill': chgroup_prefill,
         'platform_prefill': platform_prefill,
+        'selected_channel_group_ids': selected_channel_group_ids,
     })
 
 
@@ -497,9 +540,14 @@ def bot_edit(request, bot_id: int):
     from managers.models import TeamMember
     import re
 
-    bot = get_object_or_404(SuggestionBot, pk=bot_id)
+    bot = get_object_or_404(
+        SuggestionBot.objects.prefetch_related('channel_groups'),
+        pk=bot_id,
+    )
     if not _can_view_bot(request.user, bot):
         return HttpResponse(status=403)
+
+    selected_channel_group_ids = set(bot.channel_groups.values_list('pk', flat=True))
 
     footer_only = False
     can_edit_messages_only = False
@@ -508,8 +556,9 @@ def bot_edit(request, bot_id: int):
         can_edit_messages_only = True
 
     team_members = TeamMember.objects.filter(owner=bot.owner, is_active=True, can_moderate=True).select_related('member')
-    from channels.models import Channel
-    owner_channels = Channel.objects.filter(owner=bot.owner).order_by('name')
+    from channels.models import ChannelGroup
+
+    owner_groups = ChannelGroup.objects.filter(owner=bot.owner).order_by('name')
 
     selected_moderators = set()
     if request.method == 'POST':
@@ -521,9 +570,17 @@ def bot_edit(request, bot_id: int):
     custom_admin_chat_ids = '\n'.join(str(x) for x in (bot.custom_admin_chat_ids or []))
 
     if request.method == 'POST':
+        if not can_edit_messages_only:
+            posted_gids = []
+            for g in request.POST.getlist('channel_group_ids'):
+                s = (g or '').strip()
+                if s.isdigit():
+                    posted_gids.append(int(s))
+            selected_channel_group_ids = set(posted_gids)
+
         before = {
             'name': bot.name,
-            'channel_id': bot.channel_id,
+            'channel_group_ids': sorted(bot.channel_groups.values_list('pk', flat=True)),
             'welcome_message': bot.welcome_message,
             'success_message': bot.success_message,
             'approved_message': bot.approved_message,
@@ -542,16 +599,38 @@ def bot_edit(request, bot_id: int):
                 'team_members': team_members,
                 'selected_moderators': selected_moderators,
                 'custom_admin_chat_ids': request.POST.get('custom_admin_chat_ids', custom_admin_chat_ids),
-                'owner_channels': owner_channels,
+                'owner_groups': owner_groups,
                 'can_edit_messages_only': can_edit_messages_only,
+                'selected_channel_group_ids': selected_channel_group_ids,
             })
 
         bot.name = name
 
         if not can_edit_messages_only:
-            channel_id = (request.POST.get('channel_id') or '').strip()
-            if channel_id:
-                bot.channel = get_object_or_404(Channel, pk=channel_id, owner=bot.owner)
+            raw_gids = list(selected_channel_group_ids)
+            if not raw_gids:
+                messages.error(request, 'Выберите хотя бы одну группу каналов.')
+                return render(request, 'bots/edit.html', {
+                    'bot': bot,
+                    'team_members': team_members,
+                    'selected_moderators': selected_moderators,
+                    'custom_admin_chat_ids': request.POST.get('custom_admin_chat_ids', custom_admin_chat_ids),
+                    'owner_groups': owner_groups,
+                    'can_edit_messages_only': can_edit_messages_only,
+                    'selected_channel_group_ids': selected_channel_group_ids,
+                })
+            groups = list(ChannelGroup.objects.filter(pk__in=raw_gids, owner=bot.owner))
+            if len(groups) != len(set(raw_gids)):
+                messages.error(request, 'Проверьте выбранные группы каналов.')
+                return render(request, 'bots/edit.html', {
+                    'bot': bot,
+                    'team_members': team_members,
+                    'selected_moderators': selected_moderators,
+                    'custom_admin_chat_ids': request.POST.get('custom_admin_chat_ids', custom_admin_chat_ids),
+                    'owner_groups': owner_groups,
+                    'can_edit_messages_only': can_edit_messages_only,
+                    'selected_channel_group_ids': selected_channel_group_ids,
+                })
 
         if not can_edit_messages_only:
             new_token = request.POST.get('bot_token', '').strip()
@@ -584,6 +663,8 @@ def bot_edit(request, bot_id: int):
                 bot.group_id = gid
 
         bot.save()
+        if not can_edit_messages_only:
+            bot.channel_groups.set(groups)
         # Автоподключение webhook для MAX (без кнопок)
         if not can_edit_messages_only:
             _ensure_max_webhook(bot)
@@ -603,7 +684,7 @@ def bot_edit(request, bot_id: int):
         try:
             after = {
                 'name': bot.name,
-                'channel_id': bot.channel_id,
+                'channel_group_ids': sorted(bot.channel_groups.values_list('pk', flat=True)),
                 'welcome_message': bot.welcome_message,
                 'success_message': bot.success_message,
                 'approved_message': bot.approved_message,
@@ -639,8 +720,9 @@ def bot_edit(request, bot_id: int):
         'team_members': team_members,
         'selected_moderators': selected_moderators,
         'custom_admin_chat_ids': custom_admin_chat_ids,
-        'owner_channels': owner_channels,
+        'owner_groups': owner_groups,
         'can_edit_messages_only': can_edit_messages_only,
+        'selected_channel_group_ids': selected_channel_group_ids,
     })
 
 
@@ -648,7 +730,7 @@ def bot_edit(request, bot_id: int):
 def conversations_list(request):
     """Список диалогов 'подписчик ↔ менеджер' по ботам предложки."""
     from .models import BotConversation
-    qs = BotConversation.objects.select_related('bot', 'bot__channel')
+    qs = BotConversation.objects.select_related('bot', 'bot__owner').prefetch_related('bot__channel_groups')
     if getattr(request.user, 'role', '') in ('manager', 'assistant_admin') and not (request.user.is_staff or request.user.is_superuser):
         from managers.models import TeamMember
         allowed_channel_ids = TeamMember.objects.filter(
@@ -656,7 +738,7 @@ def conversations_list(request):
             is_active=True,
             can_manage_bots=True,
         ).values_list('channels__pk', flat=True)
-        qs = qs.filter(bot__channel_id__in=allowed_channel_ids)
+        qs = qs.filter(bot__channel_groups__channels__pk__in=allowed_channel_ids).distinct()
     else:
         qs = qs.filter(bot__owner=request.user)
     qs = qs.order_by('-last_message_at', '-created_at')[:200]
@@ -667,7 +749,7 @@ def conversations_list(request):
 def conversation_detail(request, pk: int):
     """Просмотр диалога и ответ менеджера пользователю (через Telegram Bot API)."""
     from .models import BotConversation, BotConversationMessage, AuditLog
-    conv = get_object_or_404(BotConversation.objects.select_related('bot', 'bot__channel', 'bot__owner'), pk=pk)
+    conv = get_object_or_404(BotConversation.objects.select_related('bot', 'bot__owner'), pk=pk)
     if not _can_manage_bot_by_channel(request.user, conv.bot) and not _can_view_bot(request.user, conv.bot):
         return HttpResponse(status=403)
 
@@ -782,13 +864,13 @@ def suggestions_all(request):
             can_moderate=True,
         ).values_list('channels__pk', flat=True)
         sug_qs = Suggestion.objects.filter(
-            models.Q(bot__channel_id__in=allowed_channel_ids)
+            models.Q(bot__channel_groups__channels__pk__in=allowed_channel_ids)
             | models.Q(bot__moderators=request.user)
         )
     else:
         sug_qs = Suggestion.objects.filter(bot__owner=request.user)
 
-    sug_qs = sug_qs.select_related('bot', 'bot__channel').distinct()
+    sug_qs = sug_qs.select_related('bot', 'bot__owner').prefetch_related('bot__channel_groups').distinct()
     if status_filter:
         sug_qs = sug_qs.filter(status=status_filter)
 
@@ -816,7 +898,7 @@ def suggestions_all(request):
                 'created_at': s.submitted_at,
                 'status': s.status,
                 'bot_name': getattr(s.bot, 'name', ''),
-                'channel_name': getattr(getattr(s.bot, 'channel', None), 'name', ''),
+                'channel_name': ', '.join(g.name for g in s.bot.channel_groups.all()[:5]) or '—',
                 'sender': getattr(s, 'sender_display', '') or (s.platform_username or s.platform_user_id),
                 'text': s.text or '',
                 'obj': s,
@@ -864,13 +946,15 @@ def suggestion_detail(request, pk: int):
     from django.urls import reverse
 
     suggestion = get_object_or_404(
-        Suggestion.objects.select_related('bot', 'bot__channel', 'bot__owner', 'moderated_by'),
+        Suggestion.objects.select_related('bot', 'bot__owner', 'moderated_by').prefetch_related(
+            'bot__channel_groups'
+        ),
         pk=pk,
     )
     if not _can_moderate_suggestion(request.user, suggestion):
         return HttpResponse(status=403)
 
-    channel = getattr(suggestion.bot, 'channel', None)
+    channel = suggestion.bot.representative_channel()
     can_edit_contacts = bool(
         channel
         and (

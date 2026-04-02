@@ -8,7 +8,7 @@ class GlobalApiKeysForm(forms.ModelForm):
     openai_api_key = forms.CharField(
         required=False,
         widget=forms.PasswordInput(render_value=True),
-        label='Нейросеть OpenAI (временно отключено)',
+        label='OpenAI API key',
     )
     tbank_terminal_key = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='TBANK_TERMINAL_KEY')
     tbank_secret_key = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='TBANK_SECRET_KEY')
@@ -32,9 +32,6 @@ class GlobalApiKeysForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Не через HTML disabled — иначе значение не уходит в POST и ломается ModelForm.
-        self.fields['openai_api_key'].disabled = True
-        self.fields['ai_rewrite_enabled'].disabled = True
         # Bootstrap classes
         for name, field in self.fields.items():
             widget = field.widget

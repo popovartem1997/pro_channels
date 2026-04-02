@@ -797,7 +797,7 @@ class MAXSuggestionBot:
 
     def _send_admin_contacts(self, chat_id: str, user: dict):
         # Show channel owner contacts from site
-        channel = getattr(self.config, 'channel', None)
+        channel = self.config.representative_channel() if self.config else None
         owner = getattr(self.config, 'owner', None)
         site_nick = (getattr(channel, 'admin_contact_site', '') or '').strip()
         tg_nick = (getattr(channel, 'admin_contact_tg', '') or '').strip()

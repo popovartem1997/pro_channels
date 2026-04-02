@@ -26,16 +26,17 @@
 
           {% if not can_edit_messages_only %}
           <div class="mb-4">
-            <label class="form-label fw-semibold" for="id_channel_id">Канал (внутри ProChannels)</label>
-            <select name="channel_id" id="id_channel_id" class="form-select" required>
-              <option value="">— Выберите канал —</option>
-              {% for ch in owner_channels %}
-                <option value="{{ ch.pk }}"
-                  {% if bot.channel_id|stringformat:"s" == ch.pk|stringformat:"s" %}selected{% endif %}>
-                  {{ ch.name }} ({{ ch.get_platform_display }})
+            <label class="form-label fw-semibold" for="id_channel_group_ids">Группы каналов</label>
+            <select name="channel_group_ids" id="id_channel_group_ids" class="form-select" multiple size="6" required>
+              {% for g in owner_groups %}
+                <option value="{{ g.pk }}" {% if g.pk in selected_channel_group_ids %}selected{% endif %}>
+                  {{ g.name }}
                 </option>
               {% endfor %}
             </select>
+            <div class="form-text">
+              Одна или несколько групп. Пост из одобренной предложки будет привязан ко всем активным каналам выбранных групп.
+            </div>
           </div>
           {% endif %}
 

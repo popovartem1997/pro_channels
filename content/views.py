@@ -11,6 +11,8 @@ from django.http import HttpResponse
 from django.core.files.base import ContentFile
 from django.db.models import Max, Q
 
+POST_CREATE_SESSION_PREFILL = 'post_create_prefill_v1'
+
 
 def _manager_content_channel_ids(user):
     """
@@ -33,7 +35,12 @@ def _manager_content_channel_ids(user):
 
 
 def _ctx_post_create(user_channels, preselected, **extra):
-    ctx = {'user_channels': user_channels, 'preselected': preselected}
+    ctx = {
+        'user_channels': user_channels,
+        'preselected': preselected,
+        'prefill_text': '',
+        'prefill_text_html': '',
+    }
     ctx.update(extra)
     return ctx
 
@@ -105,6 +112,20 @@ def post_create(request):
             preselected.append(int(p))
         except (ValueError, TypeError):
             pass
+
+    prefill_text = ''
+    prefill_text_html = ''
+    if request.method == 'GET':
+        sess = request.session.pop(POST_CREATE_SESSION_PREFILL, None)
+        if isinstance(sess, dict):
+            prefill_text = (sess.get('text') or '')[:120_000]
+            prefill_text_html = (sess.get('text_html') or '')[:120_000]
+            ch_pre = sess.get('channel_ids') or []
+            extra = [int(x) for x in ch_pre if str(x).isdigit()]
+            allowed = set(user_channels.values_list('pk', flat=True))
+            for pk in extra:
+                if pk in allowed and pk not in preselected:
+                    preselected.append(pk)
 
     if request.method == 'POST':
         channel_ids = request.POST.getlist('channels')
@@ -196,7 +217,16 @@ def post_create(request):
 
         return redirect('content:list')
 
-    return render(request, 'content/create.html', _ctx_post_create(user_channels, preselected))
+    return render(
+        request,
+        'content/create.html',
+        _ctx_post_create(
+            user_channels,
+            preselected,
+            prefill_text=prefill_text,
+            prefill_text_html=prefill_text_html,
+        ),
+    )
 
 
 @login_required
@@ -208,31 +238,36 @@ def post_create_from_suggestion(request, tracking_id):
     from bots.models import Suggestion
 
     suggestion = get_object_or_404(
-        Suggestion.objects.select_related('bot', 'bot__owner', 'bot__channel'),
+        Suggestion.objects.select_related('bot', 'bot__owner').prefetch_related('bot__channel_groups'),
         tracking_id=tracking_id,
     )
     bot = suggestion.bot
+
+    bot_target_ids = bot.target_channel_ids()
 
     # Access control
     if request.user.is_staff or request.user.is_superuser or bot.owner_id == request.user.id:
         allowed = True
     else:
         allowed = False
-        if getattr(request.user, 'role', '') in ('manager', 'assistant_admin') and bot.channel_id:
+        if getattr(request.user, 'role', '') in ('manager', 'assistant_admin') and bot_target_ids:
             try:
                 from managers.models import TeamMember
                 allowed = TeamMember.objects.filter(
                     member=request.user,
                     is_active=True,
-                    channels__pk=bot.channel_id,
+                    channels__pk__in=bot_target_ids,
                 ).filter(Q(can_publish=True) | Q(can_moderate=True)).exists()
             except Exception:
                 allowed = False
     if not allowed:
         return HttpResponse(status=403)
 
-    if not bot.channel_id:
-        messages.error(request, 'У бота предложки не выбран канал. Привяжите бота к каналу и повторите.')
+    if not bot_target_ids:
+        messages.error(
+            request,
+            'У бота предложки не выбраны группы каналов. Укажите группы в настройках бота и повторите.',
+        )
         return redirect('bots:detail', bot_id=bot.id)
 
     # Reuse if already created
@@ -248,17 +283,7 @@ def post_create_from_suggestion(request, tracking_id):
         status=Post.STATUS_DRAFT,
         suggestion=suggestion,
     )
-    # Если канал бота входит в группу — по запросу выделяем все каналы этой группы
-    # (один паблик может публиковаться в нескольких соцсетях).
-    try:
-        ch = bot.channel
-        group = getattr(ch, 'channel_group', None)
-        if group:
-            post.channels.set(list(group.channels.filter(is_active=True).values_list('pk', flat=True)))
-        else:
-            post.channels.set([bot.channel_id])
-    except Exception:
-        post.channels.set([bot.channel_id])
+    post.channels.set(bot_target_ids)
     post_pk = post.pk
 
     def _enqueue_import():

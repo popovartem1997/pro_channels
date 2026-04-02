@@ -27,11 +27,12 @@
             {% if suggestion.moderated_by %}· {{ suggestion.moderated_by.username }}{% endif %}
           {% endif %}
         </div>
-        {% if suggestion.bot.channel %}
+        {% if suggestion.bot.channel_groups.exists %}
           <div class="small mb-3">
-            Канал:
-            <a href="{% url 'channels:detail' suggestion.bot.channel.pk %}">{{ suggestion.bot.channel.name }}</a>
-            {% platform_badge suggestion.bot.channel.platform %}
+            Группы каналов:
+            {% for g in suggestion.bot.channel_groups.all %}
+              <a href="{% url 'channels:group_edit' g.pk %}">{{ g.name }}</a>{% if not forloop.last %}, {% endif %}
+            {% endfor %}
           </div>
         {% endif %}
         <div class="mb-2"><span class="badge bg-light text-dark border">{{ suggestion.get_content_type_display }}</span></div>

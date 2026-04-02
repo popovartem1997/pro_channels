@@ -53,6 +53,7 @@ class SuggestionBotForm(forms.ModelForm):
 @admin.register(SuggestionBot)
 class SuggestionBotAdmin(admin.ModelAdmin):
     form = SuggestionBotForm
+    filter_horizontal = ('channel_groups',)
     list_display = [
         'name', 'platform_badge', 'owner', 'bot_username',
         'is_active', 'suggestions_pending', 'created_at'
@@ -63,7 +64,7 @@ class SuggestionBotAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ('Основное', {
-            'fields': ('owner', 'name', 'platform', 'raw_token', 'bot_username', 'is_active')
+            'fields': ('owner', 'name', 'platform', 'channel_groups', 'raw_token', 'bot_username', 'is_active')
         }),
         ('Настройки модерации', {
             'fields': ('admin_chat_id', 'notify_owner', 'moderators', 'custom_admin_chat_ids', 'group_id'),

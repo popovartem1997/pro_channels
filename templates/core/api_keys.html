@@ -37,21 +37,24 @@
             Не меняйте ключи без необходимости.
           </div>
 
-          <!-- OpenAI (disabled) -->
-          <h6 class="fw-bold mb-2">Нейросеть OpenAI</h6>
+          <!-- OpenAI -->
+          <h6 class="fw-bold mb-2">OpenAI</h6>
           <div class="text-muted small mb-3">
-            Временно отключено. Поле оставлено на будущее.
+            Используется для AI-рерайта в парсинге и кнопки «AI» в ленте (краткий пост из спарсенного материала).
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">{{ form.openai_api_key.label }}</label>
             {{ form.openai_api_key }}
             <div class="form-text">
-              Как получить ключ: в кабинете OpenAI → API keys. (Подключим позже)
+              Как получить ключ: в кабинете OpenAI → API keys.
             </div>
+            {% if obj.openai_api_key_enc %}
+              <div class="form-text"><i class="bi bi-check-circle-fill text-success me-1"></i>Ключ задан (не отображается).</div>
+            {% endif %}
           </div>
           <div class="form-check form-switch mb-4">
             {{ form.ai_rewrite_enabled }}
-            <label class="form-check-label fw-semibold" for="{{ form.ai_rewrite_enabled.id_for_label }}">AI_REWRITE_ENABLED (временно отключено)</label>
+            <label class="form-check-label fw-semibold" for="{{ form.ai_rewrite_enabled.id_for_label }}">Разрешить AI (рерайт и кнопка в ленте)</label>
           </div>
 
           <hr class="my-4">

@@ -21,7 +21,7 @@
             {{ c.display_name|default:c.platform_username|default:c.platform_user_id }}
           </div>
           <div class="text-muted small">
-            Бот: {{ c.bot.name }}{% if c.bot.channel %} · Канал: {{ c.bot.channel.name }}{% endif %}
+            Бот: {{ c.bot.name }}{% if c.bot.channel_groups.exists %} · {% for g in c.bot.channel_groups.all %}{{ g.name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}
           </div>
         </div>
         <div class="text-muted small text-end flex-shrink-0">

@@ -14,7 +14,7 @@ User = get_user_model()
 
 
 class SuggestionBot(models.Model):
-    """Бот-предложка, привязанный к конкретному каналу/паблику владельца."""
+    """Бот-предложка, привязанный к одной или нескольким группам каналов (паблик в разных соцсетях)."""
 
     PLATFORM_TELEGRAM = 'telegram'
     PLATFORM_VK = 'vk'
@@ -30,14 +30,12 @@ class SuggestionBot(models.Model):
         related_name='suggestion_bots',
         verbose_name='Владелец'
     )
-    channel = models.ForeignKey(
-        'channels.Channel',
-        on_delete=models.SET_NULL,
-        null=True,
+    channel_groups = models.ManyToManyField(
+        'channels.ChannelGroup',
         blank=True,
         related_name='suggestion_bots',
-        verbose_name='Канал',
-        help_text='К какому каналу относится этот бот (для прав менеджеров и логики предложки).'
+        verbose_name='Группы каналов',
+        help_text='Предложки и черновики постов привязываются ко всем активным каналам выбранных групп.',
     )
     name = models.CharField(max_length=255, verbose_name='Название бота')
     platform = models.CharField(
@@ -128,6 +126,56 @@ class SuggestionBot(models.Model):
         """Получить расшифрованный токен."""
         from .utils import decrypt_token
         return decrypt_token(self.bot_token_encrypted)
+
+    def target_channel_ids(self) -> list[int]:
+        """Активные каналы из всех привязанных групп (без дубликатов), порядок стабильный."""
+        from channels.models import Channel
+
+        seen: set[int] = set()
+        ordered: list[int] = []
+        for g in self.channel_groups.all().order_by('pk'):
+            for pk in (
+                Channel.objects.filter(channel_group=g, is_active=True)
+                .order_by('pk')
+                .values_list('pk', flat=True)
+            ):
+                if pk not in seen:
+                    seen.add(pk)
+                    ordered.append(pk)
+        return ordered
+
+    def representative_channel(self):
+        """
+        Канал для контактов админа и подсказок в UI: сначала совпадение по платформе бота, иначе первый активный.
+        """
+        from channels.models import Channel
+
+        collected: list = []
+        seen: set[int] = set()
+        for g in self.channel_groups.all().order_by('pk'):
+            for ch in Channel.objects.filter(channel_group=g, is_active=True).order_by('pk'):
+                if ch.pk in seen:
+                    continue
+                seen.add(ch.pk)
+                collected.append(ch)
+        if not collected:
+            return None
+        for ch in collected:
+            if ch.platform == self.platform:
+                return ch
+        return collected[0]
+
+    def display_channels(self):
+        """Активные каналы из всех групп (для бейджей в ленте), без дубликатов."""
+        seen: set[int] = set()
+        out: list = []
+        for g in self.channel_groups.all().order_by('pk'):
+            for ch in g.channels.filter(is_active=True).order_by('name', 'pk'):
+                if ch.pk in seen:
+                    continue
+                seen.add(ch.pk)
+                out.append(ch)
+        return out
 
     def get_moderation_chat_ids(self) -> list[str]:
         """

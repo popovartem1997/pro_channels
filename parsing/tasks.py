@@ -82,14 +82,17 @@ def ai_rewrite_task(self, job_id: int):
         from core.models import get_global_api_keys
         keys = get_global_api_keys()
 
-        if not keys.ai_rewrite_enabled:
-            job.status = AIRewriteJob.STATUS_FAILED
-            job.error = 'AI рерайт временно отключён (заглушка).'
-            job.save(update_fields=['status', 'error'])
-            return
         api_key = keys.get_openai_api_key()
         if not api_key:
-            raise ValueError('OPENAI_API_KEY не задан (Ключи API → OpenAI).')
+            job.status = AIRewriteJob.STATUS_FAILED
+            job.error = 'OPENAI_API_KEY не задан (Ключи API → OpenAI).'
+            job.save(update_fields=['status', 'error'])
+            return
+        if not keys.ai_rewrite_enabled:
+            job.status = AIRewriteJob.STATUS_FAILED
+            job.error = 'Включите «AI рерайт» в разделе «Ключи API».'
+            job.save(update_fields=['status', 'error'])
+            return
 
         from django.conf import settings
         from openai import OpenAI
@@ -120,7 +123,6 @@ def ai_rewrite_task(self, job_id: int):
         job.error = str(exc)
         job.save(update_fields=['status', 'error'])
         logger.error(f'Ошибка AI рерайта #{job_id}: {exc}')
-        # Не ретраим, пока AI отключён / ключи могут отсутствовать
         return
 
 

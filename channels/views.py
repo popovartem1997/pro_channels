@@ -179,16 +179,21 @@ def channel_create(request):
         messages.success(request, f'Канал "{name}" добавлен.')
         if request.POST.get('create_suggestion_bot') == 'on':
             from django.urls import reverse
+            from urllib.parse import urlencode
+
             platform_map = {
                 Channel.PLATFORM_TELEGRAM: 'telegram',
                 Channel.PLATFORM_VK: 'vk',
                 Channel.PLATFORM_MAX: 'max',
             }
-            qs = f'?channel_id={channel.pk}'
+            qd = {}
+            if getattr(channel, 'channel_group_id', None):
+                qd['chgroup_id'] = channel.channel_group_id
             p = platform_map.get(channel.platform)
             if p:
-                qs += f'&platform={p}'
-            return redirect(reverse('bots:create') + qs)
+                qd['platform'] = p
+            suffix = ('?' + urlencode(qd)) if qd else ''
+            return redirect(reverse('bots:create') + suffix)
         return redirect('channels:list')
 
     groups = ChannelGroup.objects.filter(owner=request.user).order_by('name', 'pk')

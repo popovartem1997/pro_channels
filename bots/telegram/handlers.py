@@ -1231,8 +1231,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     from bots.models import AuditLog, SuggestionBot
 
                     bot_pk = getattr(bot_config, 'pk', None) or getattr(bot_config, 'id', None)
-                    bot = SuggestionBot.objects.select_related('channel', 'owner').get(pk=bot_pk)
-                    channel = bot.channel
+                    bot = SuggestionBot.objects.select_related('owner').prefetch_related('channel_groups').get(pk=bot_pk)
+                    channel = bot.representative_channel()
                     owner = bot.owner
                     site_nick = ''
                     tg_nick = ''

@@ -28,7 +28,7 @@ def site_context(request):
                 pending_count = Suggestion.objects.filter(
                     status='pending'
                 ).filter(
-                    models.Q(bot__channel_id__in=allowed_channel_ids)
+                    models.Q(bot__channel_groups__channels__pk__in=allowed_channel_ids)
                     | models.Q(bot__moderators=request.user)
                 ).distinct().count()
             except Exception:
