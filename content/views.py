@@ -683,6 +683,9 @@ def post_delete(request, pk):
             Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct(),
             pk=pk,
         )
+        if post.status in (Post.STATUS_PUBLISHED, Post.STATUS_PUBLISHING):
+            messages.error(request, 'Опубликованные посты удалять нельзя.')
+            return redirect('content:detail', pk=pk)
         # Менеджер/помощник может удалять только свои посты (не посты владельца/админа).
         if getattr(post, 'author_id', None) != request.user.id:
             return HttpResponse(status=403)
