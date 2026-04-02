@@ -14,6 +14,38 @@ from .models import Channel, HistoryImportRun
 
 logger = logging.getLogger(__name__)
 
+def _strip_simple_markdown(text: str) -> str:
+    """
+    Best-effort cleanup of Telegram/Markdown-style formatting artifacts so MAX gets plain text.
+    Removes markers like **bold**, *italic*, __underline__, _italic_, ~~strike~~, `code`, ```code```,
+    and converts [text](url) -> text (url).
+    """
+    import re
+
+    s = str(text or '')
+    if not s.strip():
+        return ''
+
+    # Code blocks / inline code
+    s = re.sub(r"```([\\s\\S]*?)```", r"\\1", s)
+    s = re.sub(r"`([^`\\n]+?)`", r"\\1", s)
+
+    # Links: [text](url) -> text (url)
+    s = re.sub(r"\\[([^\\]]+?)\\]\\((https?://[^\\s)]+)\\)", r"\\1 (\\2)", s)
+
+    # Bold/italic/underline/strike (common markdown)
+    s = re.sub(r"\\*\\*([^*\\n]+?)\\*\\*", r"\\1", s)
+    s = re.sub(r"__([^_\\n]+?)__", r"\\1", s)
+    s = re.sub(r"~~([^~\\n]+?)~~", r"\\1", s)
+    s = re.sub(r"\\*([^*\\n]+?)\\*", r"\\1", s)
+    s = re.sub(r"_([^_\\n]+?)_", r"\\1", s)
+
+    # Cleanup stray markers
+    s = s.replace('\\u2060', '')  # word-joiner
+    s = re.sub(r"[\\t ]+", " ", s)
+    s = re.sub(r"[ ]*\\n[ ]*", "\\n", s)
+    return s.strip()
+
 
 def _guess_media_type(message) -> str:
     try:
@@ -169,7 +201,7 @@ def import_tg_history_to_max_task(self, run_id: int):
         post = Post.objects.create(
             author=target.owner,
             published_by=run.created_by,
-            text=_truncate_max_text(text_value),
+            text=_truncate_max_text(_strip_simple_markdown(text_value)),
             text_html='',
             status=Post.STATUS_DRAFT,
         )
