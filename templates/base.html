@@ -139,7 +139,7 @@
     {% if user.role == 'advertiser' %}
     <span class="nav-section">Реклама</span>
     <ul class="nav flex-column">
-      <li><a class="nav-link {% if request.resolver_match.namespace == 'advertisers' %}{% if request.resolver_match.url_name == 'dashboard' or request.resolver_match.url_name == 'order_create' or request.resolver_match.url_name == 'order_detail' %}active{% endif %}{% endif %}" href="{% url 'advertisers:dashboard' %}">
+      <li><a class="nav-link {% if request.resolver_match.namespace == 'advertisers' %}{% if request.resolver_match.url_name == 'dashboard' or request.resolver_match.url_name == 'order_detail' %}active{% endif %}{% endif %}" href="{% url 'advertisers:dashboard' %}">
         <i class="bi bi-clipboard-check"></i> Заказы
       </a></li>
       <li><a class="nav-link {% if '/advertisers/campaign/' in request.path %}active{% endif %}" href="{% url 'advertisers:campaign_list' %}">

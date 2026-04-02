@@ -106,7 +106,7 @@ def ensure_ad_slots_for_channel(channel: Channel, *, days_ahead: int | None = No
                 for hm in times:
                     if not isinstance(hm, str):
                         continue
-                    t = _parse_hmm(hm)
+                    t = _parse_hhmm(hm)
                     if not t:
                         continue
                     naive = dt.datetime.combine(d, t)

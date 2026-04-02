@@ -14,9 +14,6 @@
     <a href="{% url 'advertisers:campaign_list' %}" class="btn btn-outline-primary">
       <i class="bi bi-collection me-1"></i> Мои заявки
     </a>
-    <a href="{% url 'advertisers:order_create' %}" class="btn btn-outline-secondary btn-sm align-self-center">
-      Старый формат заказа
-    </a>
   </div>
 </div>
 
@@ -109,8 +106,8 @@
     <div class="text-center py-5 text-muted">
       <i class="bi bi-inbox fs-3 d-block mb-2"></i>
       <p class="small mb-3">Заказов пока нет</p>
-      <a href="{% url 'advertisers:order_create' %}" class="btn btn-brand btn-sm">
-        Создать заказ
+      <a href="{% url 'advertisers:campaign_new' %}" class="btn btn-brand btn-sm">
+        Создать заявку
       </a>
     </div>
     {% endif %}

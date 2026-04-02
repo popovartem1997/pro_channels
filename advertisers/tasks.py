@@ -56,6 +56,24 @@ def ad_campaigns_maintenance():
                             generate_act_pdf(act)
                         except Exception as e:
                             logger.warning('PDF акта заявки %s: %s', app.pk, e)
+
+                    from content.tasks import delete_published_post_from_network
+
+                    for p in list(
+                        Post.objects.filter(
+                            campaign_application=app,
+                            status=Post.STATUS_PUBLISHED,
+                        )
+                    ):
+                        try:
+                            delete_published_post_from_network(p)
+                        except Exception as e:
+                            logger.warning('Снятие рекламы с площадок (пост %s): %s', p.pk, e)
+                        try:
+                            p.delete()
+                        except Exception as e:
+                            logger.exception('Удаление поста %s из БД: %s', p.pk, e)
+
                     AdApplication.objects.filter(pk=app.pk).update(
                         status=AdApplication.STATUS_COMPLETED,
                         updated_at=now,

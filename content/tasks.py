@@ -719,6 +719,104 @@ def _publish_to_channel(post, channel):
         raise ValueError(f'Неизвестная платформа: {channel.platform}')
 
 
+def _delete_telegram_published_message(channel, message_id: int) -> None:
+    """Удаляет сообщение в Telegram (отдельный поток + asyncio, как при публикации)."""
+    channel_id = int(channel.pk)
+    mid = int(message_id)
+
+    def _runner():
+        import asyncio
+
+        from channels.models import Channel
+        from telegram import Bot
+        from telegram.error import TelegramError
+        from telegram.request import HTTPXRequest
+
+        ch = Channel.objects.get(pk=channel_id)
+        token = ch.get_tg_token()
+        chat_id = ch.tg_chat_id
+        if not token or not chat_id:
+            raise ValueError('Не настроен токен или chat_id для Telegram')
+
+        async def _inner():
+            req = HTTPXRequest(connect_timeout=25.0, read_timeout=60.0)
+            bot = Bot(token=token, request=req)
+            async with bot:
+                await bot.delete_message(chat_id=chat_id, message_id=mid)
+
+        try:
+            asyncio.run(_inner())
+        except TelegramError as exc:
+            raise ValueError(f'Telegram delete_message: {exc}') from exc
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        pool.submit(_runner).result(timeout=120)
+
+
+def _delete_vk_published_post(channel, post_id_raw: str) -> None:
+    import vk_api
+
+    token = channel.get_vk_token()
+    group_id = channel.vk_group_id
+    if not token or not group_id:
+        raise ValueError('Не настроен токен или group_id для VK')
+    post_id = int(str(post_id_raw).strip())
+    session = vk_api.VkApi(token=token)
+    vk = session.get_api()
+    vk.wall.delete(owner_id=-abs(int(group_id)), post_id=post_id)
+
+
+def _delete_max_published_message(channel, message_id: str) -> None:
+    import requests
+
+    token = channel.get_max_token()
+    if not token:
+        raise ValueError('Не настроен токен для MAX')
+    mid = str(message_id).strip()
+    if not mid:
+        raise ValueError('Пустой message_id MAX')
+    r = requests.delete(
+        'https://platform-api.max.ru/messages',
+        params={'message_id': mid},
+        headers={'Authorization': token},
+        timeout=30,
+    )
+    if r.status_code >= 400:
+        raise ValueError(f'MAX delete: HTTP {r.status_code} {r.text[:400]}')
+
+
+def delete_published_post_from_network(post) -> None:
+    """
+    Снимает опубликованный пост с площадок по сохранённым PublishResult (best-effort).
+    Для альбома Telegram в БД хранится только первый message_id — остальные сообщения
+    могут остаться до ручной очистки.
+    """
+    from channels.models import Channel
+
+    from .models import PublishResult
+
+    log = logger
+    qs = PublishResult.objects.filter(post=post, status=PublishResult.STATUS_OK).select_related('channel')
+    for pr in qs:
+        mid = (pr.platform_message_id or '').strip()
+        if not mid:
+            continue
+        ch = pr.channel
+        try:
+            if ch.platform == Channel.PLATFORM_TELEGRAM:
+                _delete_telegram_published_message(ch, int(mid))
+            elif ch.platform == Channel.PLATFORM_VK:
+                _delete_vk_published_post(ch, mid)
+            elif ch.platform == Channel.PLATFORM_MAX:
+                _delete_max_published_message(ch, mid)
+            elif ch.platform == Channel.PLATFORM_INSTAGRAM:
+                log.info('Автоудаление: Instagram не поддерживается (пост %s)', post.pk)
+            else:
+                log.info('Автоудаление: платформа %s пропущена (пост %s)', ch.platform, post.pk)
+        except Exception as exc:
+            log.warning('Не удалось удалить пост #%s из канала «%s»: %s', post.pk, ch.name, exc)
+
+
 def _tg_plain_preserve_spaces(plain: str) -> str:
     """Два пробела → пробел + NBSP; длина в UTF-16 не меняется — смещения entities сохраняются."""
     s = plain or ''
