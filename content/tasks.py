@@ -535,6 +535,26 @@ def _publish_to_channel(post, channel):
         raise ValueError(f'Неизвестная платформа: {channel.platform}')
 
 
+def _tg_plain_to_html_caption(plain: str) -> str:
+    """
+    Plain → безопасный HTML для Telegram: переносы, множественные пробелы (колонки),
+    экранирование <>&.
+    """
+    from html import escape
+
+    s = plain or ''
+    s = s.replace('\r\n', '\n').replace('\r', '\n')
+    lines = s.split('\n')
+    fixed = []
+    for line in lines:
+        while '  ' in line:
+            line = line.replace('  ', ' \u00a0')
+        fixed.append(line)
+    s = '\n'.join(fixed)
+    s = escape(s, quote=False)
+    return s.replace('\n', '<br>')
+
+
 def _build_text(post, channel):
     """
     Собирает итоговый текст поста: ОРД метка + текст + подпись канала.
@@ -543,23 +563,33 @@ def _build_text(post, channel):
     Подпись НЕ добавляется к рекламным постам (ord_label задан).
     """
     from channels.models import Channel as Ch
-    # Для TG используем HTML-версию, для остальных — plain
-    if channel.platform == Ch.PLATFORM_TELEGRAM and (post.text_html or '').strip():
-        text = post.text_html
-        # В Telegram HTML одиночные \n не дают перенос строки в подписи/тексте
-        if '<pre' not in text.lower():
-            text = text.replace('\r\n', '\n').replace('\n', '<br>')
-    else:
-        text = post.text
+    from html import escape
+
+    if channel.platform == Ch.PLATFORM_TELEGRAM:
+        if (post.text_html or '').strip():
+            text = post.text_html
+            if '<pre' not in text.lower():
+                text = text.replace('\r\n', '\n').replace('\n', '<br>')
+        else:
+            # Только text: в parse_mode=HTML \n не переносит строку; пробелы схлопываются
+            text = _tg_plain_to_html_caption(post.text or '')
+
+        if post.ord_label:
+            ol = escape((post.ord_label or '').strip(), quote=False)
+            text = f'{ol}<br><br>{text}'
+        else:
+            footer = (channel.tg_footer or '').strip()
+            if footer:
+                text = f'{text}<br><br>{footer}'
+        return text
+
+    # MAX / VK / прочие — как раньше (plain + \n)
+    text = post.text or ''
 
     if post.ord_label:
-        # Рекламный пост — ОРД метка в начало, подпись не добавляем
         text = f'{post.ord_label}\n\n{text}'
     else:
-        # Выбираем платформенную подпись
-        if channel.platform == Ch.PLATFORM_TELEGRAM:
-            footer = channel.tg_footer
-        elif channel.platform == Ch.PLATFORM_MAX:
+        if channel.platform == Ch.PLATFORM_MAX:
             footer = channel.max_footer
         elif channel.platform == Ch.PLATFORM_VK:
             footer = channel.vk_footer
@@ -570,6 +600,26 @@ def _build_text(post, channel):
             text = f'{text}\n\n{footer}'
 
     return text
+
+
+def _tg_entities_match_text(entities: list, text: str) -> bool:
+    """False → в канал лучше уйти с parse_mode=HTML, иначе Telegram «обнуляет» оформление."""
+    if not entities:
+        return False
+    n = _tg_utf16_len(text)
+    if n <= 0 and not entities:
+        return True
+    for e in entities:
+        if not isinstance(e, dict):
+            return False
+        try:
+            off = int(e.get('offset', 0))
+            ln = int(e.get('length', 0))
+        except (TypeError, ValueError):
+            return False
+        if off < 0 or ln < 0 or off + ln > n:
+            return False
+    return True
 
 
 def _tg_utf16_len(s: str) -> int:
@@ -716,6 +766,10 @@ def _prepare_telegram_publish_bundle(post, channel):
     raw_entities = getattr(post, 'tg_entities', None)
     tg_entities_list = raw_entities if isinstance(raw_entities, list) else []
     use_entities = bool(tg_entities_list)
+    text = ''
+    entities = []
+    ptb_entities = None
+    parse_mode = ParseMode.HTML
 
     if use_entities:
         text = post.text if post.text is not None else ''
@@ -728,9 +782,14 @@ def _prepare_telegram_publish_bundle(post, channel):
             footer = _tg_footer_plain_from_html(channel.tg_footer)
             if footer:
                 text = f'{text}\n\n{footer}'
-        ptb_entities = _tg_entity_dicts_to_ptb(entities)
-        parse_mode = None
-    else:
+        if _tg_entities_match_text(entities, text):
+            ptb_entities = _tg_entity_dicts_to_ptb(entities)
+            parse_mode = None
+        else:
+            # Несовпадение текста и offset'ов — иначе Telegram шлёт «плоский» текст без разметки
+            use_entities = False
+
+    if not use_entities:
         text = _build_text(post, channel)
         ptb_entities = None
         parse_mode = ParseMode.HTML
