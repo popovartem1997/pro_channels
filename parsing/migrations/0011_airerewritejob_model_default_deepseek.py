@@ -27,6 +27,8 @@ def _set_mysql_default_backward(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    # MySQL: ALTER TABLE внутри транзакции миграции запрещён (rollback DDL невозможен).
+    atomic = False
 
     dependencies = [
         ('parsing', '0010_parsekeyword_channel_group'),

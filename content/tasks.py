@@ -574,14 +574,22 @@ def _tg_preserve_spaces_telegram_html(html: str) -> str:
 
 def _tg_plain_to_html_caption(plain: str) -> str:
     """
-    Plain → безопасный HTML для Telegram: переносы, множественные пробелы (колонки),
-    экранирование <>&.
+    Plain → безопасный фрагмент для Telegram HTML: экранирование <>&.
+    Переносы — через \\n (тег <br> в Telegram Bot API не поддерживается).
     """
     from html import escape
 
     s = _tg_plain_preserve_spaces(plain or '')
-    s = escape(s, quote=False)
-    return s.replace('\n', '<br>')
+    return escape(s, quote=False)
+
+
+def _tg_strip_br_for_telegram_api(html: str) -> str:
+    """Telegram parse_mode=HTML: тег br недопустим — только переносы строк."""
+    import re
+
+    if not (html or '').strip():
+        return html or ''
+    return re.sub(r'<br\s*/?>', '\n', html, flags=re.IGNORECASE)
 
 
 def _tg_html_has_rich_formatting(html: str) -> bool:
@@ -620,19 +628,20 @@ def _build_text(post, channel):
             else:
                 text = post.text_html
                 if '<pre' not in text.lower():
-                    text = text.replace('\r\n', '\n').replace('\n', '<br>')
+                    text = text.replace('\r\n', '\n')
                     text = _tg_preserve_spaces_telegram_html(text)
         else:
             text = _tg_telegram_body_pre_from_plain(post.text or '')
 
         if post.ord_label:
             ol = escape((post.ord_label or '').strip(), quote=False)
-            text = f'{ol}<br><br>{text}'
+            text = f'{ol}\n\n{text}'
         else:
             footer = (channel.tg_footer or '').strip()
             if footer:
-                text = f'{text}<br><br>{footer}'
-        return text
+                text = f'{text}\n\n{footer}'
+        # Редактор и старые посты могут содержать <br>; API Telegram HTML их не принимает.
+        return _tg_strip_br_for_telegram_api(text)
 
     # MAX / VK / прочие — как раньше (plain + \n)
     text = post.text or ''
