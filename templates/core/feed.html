@@ -1,15 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}Лента{% endblock %}
 
-{% block extra_css %}
-<style>
-  .feed-card-text-collapsed {
-    max-height: 5.25rem;
-    overflow: hidden;
-  }
-</style>
-{% endblock %}
-
 {% block content %}
 <div class="page-header d-flex align-items-center justify-content-between">
   <div>
@@ -329,21 +320,21 @@
 <script>
 (function () {
   document.querySelectorAll('.feed-card-text-wrap').forEach(function (wrap) {
-    var el = wrap.querySelector('.feed-card-text');
+    var prev = wrap.querySelector('.feed-card-text-preview');
+    var full = wrap.querySelector('.feed-card-text-full');
     var btn = wrap.querySelector('.feed-card-text-more');
-    if (!el || !btn) return;
-    function needsToggle() {
-      return el.scrollHeight > el.clientHeight + 1;
-    }
-    requestAnimationFrame(function () {
-      if (needsToggle() || (el.textContent || '').trim().length > 220) {
-        btn.classList.remove('d-none');
-      }
-    });
+    if (!prev || !full || !btn) return;
     btn.addEventListener('click', function () {
-      el.classList.toggle('feed-card-text-collapsed');
-      var collapsed = el.classList.contains('feed-card-text-collapsed');
-      btn.textContent = collapsed ? 'Показать полностью' : 'Свернуть';
+      var expanded = !full.classList.contains('d-none');
+      if (expanded) {
+        full.classList.add('d-none');
+        prev.classList.remove('d-none');
+        btn.textContent = 'Показать полностью';
+      } else {
+        prev.classList.add('d-none');
+        full.classList.remove('d-none');
+        btn.textContent = 'Свернуть';
+      }
     });
   });
 })();

@@ -1,5 +1,10 @@
-{# Текст карточки ленты: единый размер, сворачивание и «Показать полностью» #}
+{# Превью ~160 символов; полный текст — по кнопке (лимит в диапазоне 100–200). #}
 <div class="feed-card-text-wrap">
-  <div class="feed-card-text small text-break feed-card-text-collapsed" style="white-space:pre-wrap;">{{ body }}</div>
-  <button type="button" class="btn btn-link btn-sm p-0 align-baseline feed-card-text-more d-none">Показать полностью</button>
+{% if body|length > 160 %}
+  <div class="feed-card-text-preview small text-break" style="white-space:pre-wrap;">{{ body|truncatechars:160 }}</div>
+  <div class="feed-card-text-full small text-break d-none" style="white-space:pre-wrap;">{{ body }}</div>
+  <button type="button" class="btn btn-link btn-sm p-0 align-baseline feed-card-text-more">Показать полностью</button>
+{% else %}
+  <div class="feed-card-text-preview small text-break" style="white-space:pre-wrap;">{{ body }}</div>
+{% endif %}
 </div>
