@@ -300,8 +300,8 @@ def _parse_telegram(source, keywords, keyword_objects):
             found = 0
             logger.info('TG parse: get_entity source_id=%s', (source.source_id or '')[:120])
             channel = await client.get_entity(source.source_id)
-            # Берём последние 100 сообщений: 20 часто мало, когда в канале много постов/репостов.
-            async for message in client.iter_messages(channel, limit=100):
+            # Берём только последние 20 постов/сообщений, чтобы не подтягивать давний контент.
+            async for message in client.iter_messages(channel, limit=20):
                 msg_text = ''
                 try:
                     msg_text = (message.text or '').strip()
@@ -456,7 +456,8 @@ def _parse_rss(source, keywords, keyword_objects):
     feed = feedparser.parse(source.source_id)
     found = 0
 
-    for entry in feed.entries[:50]:
+    # Берём только последние 20 записей, чтобы не подтягивать давний контент.
+    for entry in feed.entries[:20]:
         title = entry.get('title', '')
         summary = entry.get('summary', '')
         text = f'{title}\n\n{summary}' if summary else title
@@ -507,7 +508,8 @@ def _parse_dzen(source, keywords, keyword_objects):
     # Ищем карточки статей по типичным CSS-классам Дзен
     articles = soup.select('article, [class*="card"], [class*="feed-item"], [class*="article"]')
 
-    for article in articles[:50]:
+    # Берём только последние 20 карточек, чтобы не подтягивать давний контент.
+    for article in articles[:20]:
         title_el = article.find(['h2', 'h3', 'h4', 'a'])
         snippet_el = article.find(['p', 'span'])
         title = title_el.get_text(strip=True) if title_el else ''
