@@ -5,63 +5,161 @@
 <div class="page-header">
   <h1><i class="bi bi-shield-check me-2" style="color:var(--brand)"></i>Новая регистрация ОРД</h1>
   <p class="text-muted small mb-0">
-    Создаётся креатив в <code>api.ord.vk.com</code>; в ответе — <b>erid</b> (копируется в пост как <code>erid:…</code>).
+    Креатив в <code>api.ord.vk.com</code> → <b>erid</b> в пост (<code>erid:…</code>).
     {% if sandbox %}<span class="badge bg-warning text-dark ms-1">Песочница</span>{% endif %}
   </p>
 </div>
 
-<div class="row justify-content-center">
-  <div class="col-12 col-lg-7">
-    <div class="card">
+<div class="row justify-content-center g-4">
+  <div class="col-12 col-xl-10 col-xxl-8">
+
+    <!-- Договор через API -->
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-transparent border-bottom py-3 d-flex align-items-center gap-2">
+        <span class="rounded-circle d-inline-flex align-items-center justify-content-center"
+              style="width:36px;height:36px;background:var(--brand-light);">
+          <i class="bi bi-file-earmark-text" style="color:var(--brand);"></i>
+        </span>
+        <div>
+          <h6 class="fw-bold mb-0">Договор в ОРД через API</h6>
+          <div class="small text-muted">PUT <code>/v1/contract/{внешний_id}</code> — см. <a href="https://ord.vk.com/help/api/api.html" target="_blank" rel="noopener">документацию ОРД</a></div>
+        </div>
+      </div>
       <div class="card-body p-4">
-        <form method="post" id="ord-create-form">
+        {% if not token_set %}
+        <div class="alert alert-warning small mb-0">Задайте ключ ОРД в «Ключи API», чтобы создавать договоры из кабинета.</div>
+        {% else %}
+        <form method="post" class="row g-3 align-items-end">
+          {% csrf_token %}
+          <input type="hidden" name="form" value="create_contract">
+          <div class="col-12 col-md-6 col-lg-4">
+            <label class="form-label small fw-semibold">Внешний ID договора <span class="text-danger">*</span></label>
+            <input type="text" name="new_contract_external_id" class="form-control form-control-sm font-monospace"
+                   placeholder="my-contract-2026-01" required autocomplete="off">
+            <div class="form-text">Ваш уникальный id; такой же укажете в поле «Внешний ID договора» ниже при регистрации креатива.</div>
+          </div>
+          <div class="col-12 col-md-6 col-lg-4">
+            <label class="form-label small fw-semibold">Клиент (person) <span class="text-danger">*</span></label>
+            <input list="ord-person-ids-contract" type="text" name="contract_client_external_id"
+                   class="form-control form-control-sm font-monospace" placeholder="external_id person" required>
+            <datalist id="ord-person-ids-contract">{% for x in person_ids %}<option value="{{ x }}">{% endfor %}</datalist>
+          </div>
+          <div class="col-12 col-md-6 col-lg-4">
+            <label class="form-label small fw-semibold">Исполнитель (person)</label>
+            <input list="ord-person-ids-contract2" type="text" name="contract_contractor_external_id"
+                   class="form-control form-control-sm font-monospace" placeholder="необязательно">
+            <datalist id="ord-person-ids-contract2">{% for x in person_ids %}<option value="{{ x }}">{% endfor %}</datalist>
+          </div>
+          <div class="col-12 col-md-8">
+            <label class="form-label small fw-semibold">Предмет договора <span class="text-danger">*</span></label>
+            <input type="text" name="contract_subject" class="form-control form-control-sm"
+                   placeholder="Размещение рекламы в социальных сетях" required maxlength="2000">
+          </div>
+          <div class="col-12 col-md-4 col-lg-3">
+            <label class="form-label small fw-semibold">Дата <span class="text-danger">*</span></label>
+            <input type="date" name="contract_date" class="form-control form-control-sm" required value="{% now 'Y-m-d' %}">
+          </div>
+          <div class="col-12">
+            <button type="submit" class="btn btn-outline-primary btn-sm rounded-pill px-3">
+              <i class="bi bi-cloud-upload me-1"></i> Создать / обновить договор в ОРД
+            </button>
+          </div>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Регистрация креатива -->
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent border-bottom py-3 d-flex align-items-center gap-2">
+        <span class="rounded-circle d-inline-flex align-items-center justify-content-center"
+              style="width:36px;height:36px;background:rgba(34,197,94,.12);">
+          <i class="bi bi-megaphone text-success"></i>
+        </span>
+        <div>
+          <h6 class="fw-bold mb-0">Регистрация креатива (erid)</h6>
+          <div class="small text-muted">Пост с сайта или текст/медиа без публикации в каналы</div>
+        </div>
+      </div>
+      <div class="card-body p-4">
+        {% if catalog_error %}
+        <div class="alert alert-warning small">
+          <b>Списки из ОРД не загрузились:</b> {{ catalog_error }}
+          <div class="mb-0 mt-1">Можно вводить внешние id вручную — как в <a href="https://ord.vk.com" target="_blank" rel="noopener">ord.vk.com</a>.</div>
+        </div>
+        {% elif token_set %}
+        <div class="alert alert-info small py-2">
+          Подсказки для договора / контрагента / площадки — из <code>GET /v1/person</code>, <code>/v1/contract</code>, <code>/v1/pad</code>.
+        </div>
+        {% endif %}
+
+        <form method="post" enctype="multipart/form-data" id="ord-register-form">
           {% csrf_token %}
 
-          {% if catalog_error %}
-          <div class="alert alert-warning small">
-            <b>Списки из ОРД не загрузились:</b> {{ catalog_error }}
-            <div class="mb-0 mt-1">Введите внешние id вручную — как в <a href="https://ord.vk.com" target="_blank" rel="noopener">ord.vk.com</a>.</div>
-          </div>
-          {% elif token_set %}
-          <div class="alert alert-info small py-2">
-            В полях договора / контрагента / площадки доступны <b>подсказки</b> из API ОРД (<code>GET /v1/person</code>, <code>/v1/contract</code>, <code>/v1/pad</code>).
-          </div>
-          {% endif %}
-
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Пост <span class="text-danger">*</span></label>
-            <select name="post_id" id="id_post_id" class="form-select" required>
-              <option value="">— Выберите опубликованный пост —</option>
-              {% for post in posts %}
-              <option value="{{ post.pk }}">#{{ post.pk }} · {{ post.text|truncatechars:70 }}
-                {% if post.channels.all %}
-                  — {% for c in post.channels.all %}{{ c.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
-                {% endif %}
-              </option>
-              {% endfor %}
-            </select>
-            {% if not posts %}
-            <div class="form-text text-warning">Нет опубликованных постов. Сначала опубликуйте пост.</div>
-            {% else %}
-            <div class="form-text">В подписи к посту перечислены каналы публикации (ваши).</div>
-            {% endif %}
-          </div>
-
-          <div class="mb-3">
-            <div class="form-check mb-2">
-              <input class="form-check-input" type="checkbox" name="all_post_channels" id="id_all_post_channels" value="on">
-              <label class="form-check-label fw-semibold" for="id_all_post_channels">
-                Зарегистрировать для всех каналов этого поста
+          <div class="mb-4">
+            <div class="fw-semibold mb-2">Источник текста креатива</div>
+            <div class="btn-group flex-wrap" role="group">
+              <input type="radio" class="btn-check" name="source_mode" id="src_published" value="published_post" checked autocomplete="off">
+              <label class="btn btn-outline-secondary btn-sm" for="src_published">
+                <i class="bi bi-collection me-1"></i>Пост с сайта
+              </label>
+              <input type="radio" class="btn-check" name="source_mode" id="src_standalone" value="standalone" autocomplete="off">
+              <label class="btn btn-outline-secondary btn-sm" for="src_standalone">
+                <i class="bi bi-pencil-square me-1"></i>Вручную (без публикации в каналы)
               </label>
             </div>
-            <label class="form-label fw-semibold">Канал <span class="text-danger">*</span> <span class="text-muted fw-normal small">(если не отмечено «все»)</span></label>
-            <select name="channel_id" id="id_channel_id" class="form-select">
-              <option value="">— Сначала выберите пост —</option>
-              {% for channel in channels %}
-              <option value="{{ channel.pk }}" data-platform="{{ channel.platform }}">{{ channel.name }} — {{ channel.get_platform_display }}</option>
-              {% endfor %}
-            </select>
-            <div class="form-text">После выбора поста остаются только каналы, в которые этот пост публиковался.</div>
+            <div class="form-text">Во втором случае создаётся <strong>черновик поста</strong> только для маркировки; вы сами публикуете рекламу в соцсетях.</div>
+          </div>
+
+          <div id="ord-block-published" class="ord-src-block">
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Опубликованный пост <span class="text-danger">*</span></label>
+              <select name="post_id" id="id_post_id" class="form-select">
+                <option value="">— Выберите пост —</option>
+                {% for post in posts %}
+                <option value="{{ post.pk }}">#{{ post.pk }} · {{ post.text|truncatechars:70 }}</option>
+                {% endfor %}
+              </select>
+              {% if not posts %}
+              <div class="form-text text-warning">Нет опубликованных постов.</div>
+              {% endif %}
+            </div>
+            <div class="mb-3">
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" name="all_post_channels" id="id_all_post_channels" value="on">
+                <label class="form-check-label fw-semibold" for="id_all_post_channels">Все каналы этого поста</label>
+              </div>
+              <label class="form-label fw-semibold">Канал <span class="text-danger">*</span> <span class="text-muted fw-normal small">(если не «все»)</span></label>
+              <select name="channel_id" id="id_channel_id" class="form-select">
+                <option value="">— Сначала выберите пост —</option>
+                {% for channel in channels %}
+                <option value="{{ channel.pk }}">{{ channel.name }} — {{ channel.get_platform_display }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div id="ord-block-standalone" class="ord-src-block d-none">
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Канал для привязки <span class="text-danger">*</span></label>
+              <select name="standalone_channel_id" id="id_standalone_channel_id" class="form-select">
+                <option value="">— Канал (площадка / ссылка в креативе) —</option>
+                {% for channel in channels %}
+                <option value="{{ channel.pk }}">{{ channel.name }} — {{ channel.get_platform_display }}</option>
+                {% endfor %}
+              </select>
+              <div class="form-text">Нужен для pad/URL в креативе и учёта в кабинете.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Текст рекламы <span class="text-danger">*</span></label>
+              <textarea name="standalone_text" id="id_standalone_text" class="form-control" rows="5"
+                        placeholder="Текст, который уйдёт в ОРД как описание креатива"></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Медиа (необязательно)</label>
+              <input type="file" name="standalone_media" class="form-control" multiple accept="image/*,video/*,.pdf">
+              <div class="form-text">Ссылки на файлы добавятся в описание для ОРД (черновик поста хранит вложения).</div>
+            </div>
           </div>
 
           <div class="mb-3">
@@ -72,36 +170,33 @@
               <option value="{{ adv.pk }}">{{ adv.company_name }} (ИНН {{ adv.inn }})</option>
               {% endfor %}
             </select>
-            <div class="form-text">Если у рекламодателя в профиле задан внешний ID в ОРД — он подставится для креатива (person).</div>
           </div>
 
-          <h6 class="fw-bold small text-muted text-uppercase mt-4 mb-2">Переопределение ОРД (необязательно)</h6>
+          <h6 class="fw-bold small text-muted text-uppercase mt-4 mb-2">Параметры ОРД</h6>
           <div class="mb-2">
             <label class="form-label small fw-semibold">Внешний ID договора</label>
-            <input list="ord-contract-ids" type="text" name="contract_external_id" class="form-control form-control-sm font-monospace" value="{{ default_contract }}" placeholder="Из кабинета ord.vk.com">
+            <input list="ord-contract-ids" type="text" name="contract_external_id" class="form-control form-control-sm font-monospace" value="{{ default_contract }}" placeholder="Из кабинета или созданный выше">
             <datalist id="ord-contract-ids">{% for x in contract_ids %}<option value="{{ x }}">{% endfor %}</datalist>
           </div>
           <div class="mb-2">
-            <label class="form-label small fw-semibold">Внешний ID площадки (для статистики)</label>
-            <input list="ord-pad-ids" type="text" name="pad_external_id" class="form-control form-control-sm font-monospace" value="{{ default_pad }}" placeholder="Или задайте в канале">
+            <label class="form-label small fw-semibold">Внешний ID площадки (pad)</label>
+            <input list="ord-pad-ids" type="text" name="pad_external_id" class="form-control form-control-sm font-monospace" value="{{ default_pad }}">
             <datalist id="ord-pad-ids">{% for x in pad_ids %}<option value="{{ x }}">{% endfor %}</datalist>
           </div>
           <div class="mb-3">
             <label class="form-label small fw-semibold">Внешний ID контрагента (person)</label>
-            <input list="ord-person-ids" type="text" name="person_external_id" class="form-control form-control-sm font-monospace" placeholder="Если не берём из карточки рекламодателя">
+            <input list="ord-person-ids" type="text" name="person_external_id" class="form-control form-control-sm font-monospace" placeholder="Если не из карточки рекламодателя">
             <datalist id="ord-person-ids">{% for x in person_ids %}<option value="{{ x }}">{% endfor %}</datalist>
           </div>
 
           <div class="mb-4">
             <label class="form-label fw-semibold">Текст метки</label>
-            <input type="text" name="label_text" class="form-control" value="Реклама"
-                   placeholder="Реклама">
-            <div class="form-text">Текст, который будет добавлен к посту как маркировка</div>
+            <input type="text" name="label_text" class="form-control" value="Реклама" placeholder="Реклама">
           </div>
 
-          <div class="d-flex gap-2">
+          <div class="d-flex flex-wrap gap-2">
             <button type="submit" class="btn btn-brand px-4">
-              <i class="bi bi-shield-check me-1"></i> Зарегистрировать
+              <i class="bi bi-shield-check me-1"></i> Зарегистрировать креатив
             </button>
             <a href="{% url 'ord_marking:dashboard' %}" class="btn btn-outline-secondary">Отмена</a>
           </div>
@@ -122,9 +217,15 @@
   var postSel = document.getElementById('id_post_id');
   var chSel = document.getElementById('id_channel_id');
   var allCh = document.getElementById('id_all_post_channels');
-  if (!postSel || !chSel) return;
+  var blockPub = document.getElementById('ord-block-published');
+  var blockSt = document.getElementById('ord-block-standalone');
+  var srcPub = document.getElementById('src_published');
+  var srcSt = document.getElementById('src_standalone');
+  var stText = document.getElementById('id_standalone_text');
+  var stCh = document.getElementById('id_standalone_channel_id');
 
   function rebuildChannels() {
+    if (!postSel || !chSel) return;
     var pid = postSel.value;
     var list = map[pid] || [];
     var prev = chSel.value;
@@ -146,14 +247,34 @@
     chSel.disabled = allCh && allCh.checked;
   }
 
-  postSel.addEventListener('change', rebuildChannels);
+  function syncSourceMode() {
+    var st = srcSt && srcSt.checked;
+    if (blockPub) blockPub.classList.toggle('d-none', st);
+    if (blockSt) blockSt.classList.toggle('d-none', !st);
+    if (postSel) {
+      postSel.required = !st;
+      postSel.disabled = st;
+    }
+    if (chSel) {
+      chSel.disabled = st || (allCh && allCh.checked);
+    }
+    if (allCh) allCh.disabled = st;
+    if (stText) stText.required = st;
+    if (stCh) stCh.required = st;
+  }
+
+  if (postSel) postSel.addEventListener('change', rebuildChannels);
   if (allCh) {
     allCh.addEventListener('change', function () {
-      chSel.disabled = allCh.checked;
+      chSel.disabled = srcSt.checked || allCh.checked;
       if (!allCh.checked) rebuildChannels();
     });
   }
+  if (srcPub) srcPub.addEventListener('change', syncSourceMode);
+  if (srcSt) srcSt.addEventListener('change', syncSourceMode);
+
   rebuildChannels();
+  syncSourceMode();
 })();
 </script>
 {% endblock %}

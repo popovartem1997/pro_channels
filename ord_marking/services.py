@@ -137,8 +137,27 @@ def register_creative_for_registration(reg: ORDRegistration, *, use_sandbox: boo
     if site:
         targets.append(site + '/posts/' + str(post.pk) + '/')
 
+    creative_text = (post.text or '').strip() or 'Рекламный пост'
+    try:
+        media_urls: list[str] = []
+        for m in post.media_files.all():
+            fn = getattr(getattr(m, 'file', None), 'name', None) or ''
+            if not fn:
+                continue
+            u = m.file.url
+            if u.startswith('http'):
+                media_urls.append(u[:500])
+            elif site:
+                media_urls.append((site.rstrip('/') + u)[:500])
+        if media_urls:
+            creative_text = (
+                creative_text + '\n\n[Медиа: ' + ', '.join(media_urls[:10]) + ']'
+            )[:12000]
+    except Exception:
+        pass
+
     body = build_creative_body(
-        post_text=post.text or '',
+        post_text=creative_text,
         channel_name=channel.name,
         advertiser_company=reg.advertiser.company_name if reg.advertiser_id else None,
         contract_external_id=contract,

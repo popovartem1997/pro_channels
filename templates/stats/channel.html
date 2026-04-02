@@ -64,12 +64,26 @@
   <div class="col-6 col-md-4 col-lg-2">
     <div class="card-stat card h-100">
       <div class="text-muted small mb-1">
-        <abbr title="Сумма реакций по постам канала за период">RR</abbr> / <abbr title="Сумма комментариев">КМ</abbr> / <abbr title="Сумма репостов">RP</abbr>
+        <abbr title="Реакции / комментарии / репосты — сумма по постам за период из синхронизации с API (VK, MAX). Для Telegram — через Telethon, если сессия настроена.">RR</abbr> / <abbr title="См. подсказку у RR">КМ</abbr> / <abbr title="См. подсказку у RR">RP</abbr>
       </div>
-      <div class="value small lh-sm">{{ stat_agg_reactions }} · {{ stat_agg_comments }} · {{ stat_agg_forwards }}</div>
+      <div class="value small lh-sm">
+        {% if stat_agg_post_rows > 0 %}
+          {{ stat_agg_reactions }} · {{ stat_agg_comments }} · {{ stat_agg_forwards }}
+        {% else %}
+          <span class="text-muted" title="За период нет строк статистики постов — суммы не считались">— · — · —</span>
+        {% endif %}
+      </div>
     </div>
   </div>
 </div>
+{% if stat_agg_post_rows == 0 %}
+<p class="small text-muted mb-4 px-1">
+  <i class="bi bi-info-circle me-1"></i>
+  RR, КМ и RP — это суммы по опубликованным постам за выбранный период после фоновой синхронизации с площадкой.
+  Пока «Постов (строк)» равно нулю, вместо сумм показывается «—»: данных в базе за период ещё нет (задача не отработала, нет токенов, для Telegram не подключён Telethon и т.п.).
+  Если строки уже есть, а здесь <strong>0 · 0 · 0</strong> — это действительно нулевые показатели, которые вернул API.
+</p>
+{% endif %}
 
 <div class="row g-4 mb-4">
   <div class="col-12 col-lg-7">

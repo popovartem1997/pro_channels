@@ -99,6 +99,8 @@ def audit_log(request):
         audit_qs = audit_qs.filter(action=q_action)
     if q_actor:
         audit_qs = audit_qs.filter(actor__username=q_actor)
+        # Тот же логин — в посещениях страниц (поле user, не actor)
+        visits_qs = visits_qs.filter(user__username=q_actor)
     if q_object_type:
         audit_qs = audit_qs.filter(object_type=q_object_type)
 
@@ -143,6 +145,15 @@ def audit_log(request):
         .distinct()
         .order_by('actor__username')[:300]
     )
+    visit_usernames = list(
+        PageVisit.objects.values_list('user__username', flat=True)
+        .exclude(user__isnull=True)
+        .exclude(user__username__isnull=True)
+        .exclude(user__username='')
+        .distinct()
+        .order_by('user__username')[:300]
+    )
+    actor_choices = sorted(set(actor_choices) | set(visit_usernames), key=str.lower)
     object_type_choices = list(
         recent_audit.values_list('object_type', flat=True)
         .exclude(object_type__isnull=True)

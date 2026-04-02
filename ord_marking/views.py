@@ -7,6 +7,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 
 from .models import ORDRegistration, OrdSyncRun
+from . import vk_ord_client
 from .services import (
     register_creative_for_registration,
     refresh_erid_from_api,
@@ -95,33 +96,114 @@ def ord_list(request):
 
 @login_required
 def ord_create(request):
-    from content.models import Post
+    from django.db import transaction
+    from django.db.models import Max
+
+    from content.models import Post, PostMedia, normalize_post_media_orders
     from channels.models import Channel
     from advertisers.models import Advertiser
 
     keys, sandbox = _ord_keys_flags()
-    if not (keys.get_vk_ord_access_token() or '').strip():
+    bearer = (keys.get_vk_ord_access_token() or '').strip()
+    if not bearer:
         messages.warning(
             request,
             'Сначала задайте ключ API ОРД VK (Bearer) в разделе «Ключи API» — поле «Ключ API ОРД VK».',
         )
 
     if request.method == 'POST':
-        post_id = request.POST.get('post_id')
-        channel_id = (request.POST.get('channel_id') or '').strip()
-        all_post_channels = request.POST.get('all_post_channels') == 'on'
+        if request.POST.get('form') == 'create_contract':
+            if not bearer:
+                messages.error(request, 'Нет ключа API ОРД — создание договора недоступно.')
+                return redirect('ord_marking:create')
+            ext = (request.POST.get('new_contract_external_id') or '').strip()
+            client_eid = (request.POST.get('contract_client_external_id') or '').strip()
+            contractor_eid = (request.POST.get('contract_contractor_external_id') or '').strip()
+            subject = (request.POST.get('contract_subject') or '').strip()
+            date_s = (request.POST.get('contract_date') or '').strip()
+            if not ext or not client_eid or not subject or not date_s:
+                messages.error(
+                    request,
+                    'Укажите внешний ID договора, внешний ID клиента (person), предмет договора и дату.',
+                )
+                return redirect('ord_marking:create')
+            body: dict = {
+                'client_external_id': client_eid,
+                'subject': subject[:2000],
+                'date': date_s,
+            }
+            if contractor_eid:
+                body['contractor_external_id'] = contractor_eid
+            try:
+                vk_ord_client.put_contract_v1(bearer, ext, body, use_sandbox=sandbox)
+                messages.success(
+                    request,
+                    f'Договор «{ext}» создан/обновлён в ОРД. Выберите его в подсказках или введите id вручную.',
+                )
+            except vk_ord_client.OrdVkApiError as e:
+                messages.error(request, str(e))
+            except Exception as e:
+                messages.error(request, str(e)[:2000])
+            return redirect('ord_marking:create')
+
+        source_mode = (request.POST.get('source_mode') or 'published_post').strip()
+        all_post_channels = source_mode == 'published_post' and request.POST.get('all_post_channels') == 'on'
         advertiser_id = request.POST.get('advertiser_id')
         label_text = request.POST.get('label_text', 'Реклама').strip() or 'Реклама'
         contract_override = (request.POST.get('contract_external_id') or '').strip()
         pad_override = (request.POST.get('pad_external_id') or '').strip()
         person_override = (request.POST.get('person_external_id') or '').strip()
 
-        post = get_object_or_404(
-            Post.objects.prefetch_related('channels'),
-            pk=post_id,
-            author=request.user,
-        )
-        post_channel_list = [c for c in post.channels.all() if c.owner_id == request.user.id]
+        post = None
+        post_channel_list = []
+
+        if source_mode == 'standalone':
+            standalone_text = (request.POST.get('standalone_text') or '').strip()
+            ch_raw = (request.POST.get('standalone_channel_id') or '').strip()
+            if not standalone_text:
+                messages.error(request, 'Введите текст креатива для маркировки.')
+                return redirect('ord_marking:create')
+            if not ch_raw.isdigit():
+                messages.error(request, 'Выберите канал, с которым связана реклама в соцсети.')
+                return redirect('ord_marking:create')
+            channel_one = get_object_or_404(Channel, pk=int(ch_raw), owner=request.user)
+            with transaction.atomic():
+                post = Post.objects.create(
+                    author=request.user,
+                    text=standalone_text,
+                    text_html=(request.POST.get('standalone_text_html') or '').strip()[:120_000],
+                    status=Post.STATUS_DRAFT,
+                )
+                post.channels.set([channel_one])
+                base = PostMedia.objects.filter(post=post).aggregate(m=Max('order'))['m']
+                base_i = int(base) if base is not None else 0
+                for idx, f in enumerate(request.FILES.getlist('standalone_media')):
+                    media_type = PostMedia.TYPE_PHOTO
+                    if f.content_type.startswith('video'):
+                        media_type = PostMedia.TYPE_VIDEO
+                    elif not f.content_type.startswith('image'):
+                        media_type = PostMedia.TYPE_DOCUMENT
+                    PostMedia.objects.create(
+                        post=post,
+                        file=f,
+                        media_type=media_type,
+                        order=base_i + idx + 1,
+                    )
+                normalize_post_media_orders(post)
+            post_channel_list = [channel_one]
+            channel_id = ch_raw
+        else:
+            post_id = (request.POST.get('post_id') or '').strip()
+            channel_id = (request.POST.get('channel_id') or '').strip()
+            if not post_id.isdigit():
+                messages.error(request, 'Выберите опубликованный пост.')
+                return redirect('ord_marking:create')
+            post = get_object_or_404(
+                Post.objects.prefetch_related('channels').filter(status=Post.STATUS_PUBLISHED),
+                pk=int(post_id),
+                author=request.user,
+            )
+            post_channel_list = [c for c in post.channels.all() if c.owner_id == request.user.id]
 
         advertiser = None
         if advertiser_id:
@@ -140,7 +222,7 @@ def ord_create(request):
             if channel not in post_channel_list:
                 messages.error(
                     request,
-                    'Выбранный канал не входит в этот пост. Сначала опубликуйте пост в нужный канал или выберите другой пост.',
+                    'Выбранный канал не подходит к этому посту. Для режима «с сайта» выберите канал из поста.',
                 )
                 return redirect('ord_marking:create')
             targets = [channel]
