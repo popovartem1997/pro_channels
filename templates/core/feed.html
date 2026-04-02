@@ -227,6 +227,17 @@
               </div>
             {% endif %}
 
+            {% if it.kind == 'subscriber' and it.obj and it.status != 'rejected' %}
+              <div class="mt-2 d-flex gap-2 flex-wrap">
+                <form method="post" action="{% url 'content:ai_from_suggestion' tracking_id=it.obj.tracking_id %}" class="d-inline">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-outline-secondary btn-sm" title="Заголовок и текст через AI; черновик с медиа из заявки откроется в редакторе">
+                    <i class="bi bi-stars me-1"></i> AI
+                  </button>
+                </form>
+              </div>
+            {% endif %}
+
             {% if it.kind == 'parsing' and it.obj %}
               <div class="mt-3 d-flex gap-2 flex-wrap">
                 <a href="{% url 'parsing:item_to_post' it.obj.pk %}" class="btn btn-outline-primary btn-sm">

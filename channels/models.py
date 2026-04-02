@@ -240,7 +240,11 @@ class HistoryImportRun(models.Model):
         verbose_name_plural = 'Импорты истории TG→MAX'
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['source_channel', 'target_channel', 'status']),
+            # Имя совпадает с 0009_historyimportrun — иначе makemigrations видит «лишний» индекс.
+            models.Index(
+                fields=['source_channel', 'target_channel', 'status'],
+                name='channels_hi_source__b7b41a_idx',
+            ),
         ]
 
     def __str__(self):

@@ -1,9 +1,12 @@
 """
 Создание, редактирование и публикация постов.
 """
+import re
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.db import transaction
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
 from django.contrib import messages
 from django.utils import timezone
 from .models import Post, PostMedia, PublishResult, normalize_post_media_orders
@@ -70,6 +73,61 @@ def _fix_mislabeled_post_media(post):
             to_update.append(m)
     if to_update:
         PostMedia.objects.bulk_update(to_update, ['media_type'])
+
+
+def _extract_first_http_url(text: str) -> str:
+    if not text:
+        return ''
+    m = re.search(r'https?://[^\s<>"\]\)]+', text.strip())
+    if not m:
+        return ''
+    return m.group(0).rstrip('.,;:!?)')
+
+
+def _can_create_post_from_suggestion(request, bot, bot_target_ids) -> bool:
+    if request.user.is_staff or request.user.is_superuser or bot.owner_id == request.user.id:
+        return True
+    if getattr(request.user, 'role', '') in ('manager', 'assistant_admin') and bot_target_ids:
+        try:
+            from managers.models import TeamMember
+
+            return TeamMember.objects.filter(
+                member=request.user,
+                is_active=True,
+                channels__pk__in=bot_target_ids,
+            ).filter(Q(can_publish=True) | Q(can_moderate=True)).exists()
+        except Exception:
+            return False
+    return False
+
+
+def _run_suggestion_media_import(request, post_pk: int, bot) -> None:
+    from .tasks import _import_suggestion_media_into_post, import_media_from_suggestion_task
+
+    if bot.platform == bot.PLATFORM_MAX:
+        try:
+            _imported, warnings = _import_suggestion_media_into_post(post_pk)
+            for w in warnings[:15]:
+                messages.warning(request, w)
+        except Exception:
+            try:
+                import_media_from_suggestion_task.delay(post_pk)
+                messages.info(
+                    request,
+                    'Медиа из MAX подгрузятся в черновик в фоне (основной импорт не сработал).',
+                )
+            except Exception:
+                messages.warning(
+                    request,
+                    'Не удалось импортировать медиа из MAX. Обновите страницу позже или добавьте файлы вручную.',
+                )
+        return
+    try:
+        _imported, warnings = _import_suggestion_media_into_post(post_pk)
+        for w in warnings[:10]:
+            messages.warning(request, w)
+    except Exception:
+        pass
 
 
 @login_required
@@ -245,22 +303,7 @@ def post_create_from_suggestion(request, tracking_id):
 
     bot_target_ids = bot.target_channel_ids()
 
-    # Access control
-    if request.user.is_staff or request.user.is_superuser or bot.owner_id == request.user.id:
-        allowed = True
-    else:
-        allowed = False
-        if getattr(request.user, 'role', '') in ('manager', 'assistant_admin') and bot_target_ids:
-            try:
-                from managers.models import TeamMember
-                allowed = TeamMember.objects.filter(
-                    member=request.user,
-                    is_active=True,
-                    channels__pk__in=bot_target_ids,
-                ).filter(Q(can_publish=True) | Q(can_moderate=True)).exists()
-            except Exception:
-                allowed = False
-    if not allowed:
+    if not _can_create_post_from_suggestion(request, bot, bot_target_ids):
         return HttpResponse(status=403)
 
     if not bot_target_ids:
@@ -286,42 +329,117 @@ def post_create_from_suggestion(request, tracking_id):
     post.channels.set(bot_target_ids)
     post_pk = post.pk
 
-    def _enqueue_import():
-        from .tasks import _import_suggestion_media_into_post, import_media_from_suggestion_task
-
-        if bot.platform == bot.PLATFORM_MAX:
-            # Сначала синхронно — на странице редактора сразу все фото; Celery оставляем как запас при сбое.
-            try:
-                _imported, warnings = _import_suggestion_media_into_post(post_pk)
-                for w in warnings[:15]:
-                    messages.warning(request, w)
-            except Exception:
-                try:
-                    import_media_from_suggestion_task.delay(post_pk)
-                    messages.info(request, 'Медиа из MAX подгрузятся в черновик в фоне (основной импорт не сработал).')
-                except Exception:
-                    messages.warning(request, 'Не удалось импортировать медиа из MAX. Обновите страницу позже или добавьте файлы вручную.')
-            return
-        try:
-            _imported, warnings = _import_suggestion_media_into_post(post_pk)
-            for w in warnings[:10]:
-                messages.warning(request, w)
-        except Exception:
-            pass
-
-    # Импортируем медиа сразу, чтобы при нажатии "Опубликовать сейчас" в редакторе
-    # пост отправлялся с вложениями. Celery остаётся запасным вариантом.
     try:
-        _enqueue_import()
+        _run_suggestion_media_import(request, post_pk, bot)
     except Exception:
         try:
             from .tasks import import_media_from_suggestion_task
+
             import_media_from_suggestion_task.delay(post_pk)
         except Exception:
             pass
 
     messages.success(request, f'Создан черновик поста из предложки #{suggestion.short_tracking_id}.')
     return redirect('content:edit', pk=post.pk)
+
+
+@login_required
+@require_POST
+def post_ai_from_suggestion(request, tracking_id):
+    """
+    Рерайт текста предложки через DeepSeek, создание/обновление черновика поста с suggestion_id
+    и синхронный импорт медиа — чтобы в редакторе сразу были вложения.
+    """
+    from django.conf import settings
+    from django.urls import reverse
+
+    from bots.models import Suggestion
+    from core.models import get_global_api_keys
+    from parsing.deepseek_snippet import rewrite_for_feed_post
+
+    suggestion = get_object_or_404(
+        Suggestion.objects.select_related('bot', 'bot__owner').prefetch_related('bot__channel_groups'),
+        tracking_id=tracking_id,
+    )
+    bot = suggestion.bot
+    bot_target_ids = bot.target_channel_ids()
+
+    if not _can_create_post_from_suggestion(request, bot, bot_target_ids):
+        return HttpResponse(status=403)
+
+    if not bot_target_ids:
+        messages.error(
+            request,
+            'У бота предложки не выбраны группы каналов. Укажите группы в настройках бота и повторите.',
+        )
+        return redirect('bots:detail', bot_id=bot.id)
+
+    keys = get_global_api_keys()
+    api_key = keys.get_deepseek_api_key()
+    if not api_key or not keys.ai_rewrite_enabled:
+        messages.error(
+            request,
+            'Включите «AI рерайт» и сохраните ключ DeepSeek в разделе «Ключи API».',
+        )
+        return redirect(request.META.get('HTTP_REFERER') or reverse('core:feed'))
+
+    existing = Post.objects.filter(suggestion=suggestion).order_by('-created_at').first()
+    if existing and existing.status != Post.STATUS_DRAFT:
+        messages.info(request, 'Для этой заявки уже есть пост — откройте редактор.')
+        return redirect('content:edit', pk=existing.pk)
+
+    try:
+        source_url = _extract_first_http_url(suggestion.text or '')
+        plain, ht = rewrite_for_feed_post(
+            original_text=suggestion.text or '',
+            source_url=source_url,
+            api_key=api_key,
+            model_name=getattr(settings, 'DEEPSEEK_MODEL', 'deepseek-chat'),
+        )
+    except Exception as exc:
+        messages.error(request, f'Не удалось сгенерировать текст: {exc}')
+        return redirect(request.META.get('HTTP_REFERER') or reverse('core:feed'))
+
+    if not (plain or '').strip() and not (ht or '').strip():
+        messages.error(
+            request,
+            'AI вернул пустой текст. Попробуйте ещё раз или создайте пост вручную.',
+        )
+        return redirect(request.META.get('HTTP_REFERER') or reverse('core:feed'))
+
+    text_plain = (plain or '').strip() or re.sub(r'<[^>]+>', ' ', ht or '').strip()
+    text_html = (ht or '').strip()
+
+    if existing:
+        existing.text = text_plain
+        existing.text_html = text_html
+        existing.save(update_fields=['text', 'text_html'])
+        post_pk = existing.pk
+        msg = 'Текст черновика обновлён через AI. Медиа из заявки подтянуты при необходимости.'
+    else:
+        post = Post.objects.create(
+            author=bot.owner,
+            text=text_plain,
+            text_html=text_html,
+            status=Post.STATUS_DRAFT,
+            suggestion=suggestion,
+        )
+        post.channels.set(bot_target_ids)
+        post_pk = post.pk
+        msg = f'Черновик из предложки #{suggestion.short_tracking_id} создан через AI.'
+
+    try:
+        _run_suggestion_media_import(request, post_pk, bot)
+    except Exception:
+        try:
+            from .tasks import import_media_from_suggestion_task
+
+            import_media_from_suggestion_task.delay(post_pk)
+        except Exception:
+            pass
+
+    messages.success(request, msg)
+    return redirect('content:edit', pk=post_pk)
 
 
 @login_required
