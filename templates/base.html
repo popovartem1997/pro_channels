@@ -604,13 +604,34 @@
       sync();
     });
 
-    // Preview modal
+    // Preview modal (text + media)
     var btnPrev = document.getElementById('btn-preview-post');
     if (btnPrev) {
       btnPrev.addEventListener('click', function(){
         sync();
         var tg = hidden.value || '';
         var mx = plain.value || '';
+        var media = [];
+
+        // 1) From file input on create/edit (new uploads)
+        var fileInput = document.getElementById('id_media_files');
+        if (fileInput && fileInput.files && fileInput.files.length) {
+          for (var i = 0; i < fileInput.files.length; i++) {
+            var f = fileInput.files[i];
+            var url = URL.createObjectURL(f);
+            media.push({ url: url, kind: (f.type || '').startsWith('video') ? 'video' : 'photo', _blob: true });
+          }
+        }
+
+        // 2) From existing media list on edit page (already uploaded)
+        try {
+          document.querySelectorAll('.js-media-gallery a.js-media-open').forEach(function(a){
+            var u = a.getAttribute('href');
+            if (!u) return;
+            media.push({ url: u, kind: a.getAttribute('data-media-kind') || 'photo' });
+          });
+        } catch (e) {}
+
         // Reuse global media modal styles: simple bootstrap modal injected on demand
         var m = document.getElementById('pcPostPreviewModal');
         if (!m) {
@@ -630,14 +651,17 @@
                     '<div class="carousel-inner">' +
                       '<div class="carousel-item active">' +
                         '<div class="small text-muted mb-2">Telegram (HTML)</div>' +
+                        '<div class="d-flex gap-2 flex-wrap mb-2" id="pcPrevMediaTg"></div>' +
                         '<div class="border rounded p-3" style="background:#f8fafc;white-space:pre-wrap;" id="pcPrevTg"></div>' +
                       '</div>' +
                       '<div class="carousel-item">' +
                         '<div class="small text-muted mb-2">MAX (plain)</div>' +
+                        '<div class="d-flex gap-2 flex-wrap mb-2" id="pcPrevMediaMax"></div>' +
                         '<div class="border rounded p-3" style="background:#f8fafc;white-space:pre-wrap;" id="pcPrevMax"></div>' +
                       '</div>' +
                       '<div class="carousel-item">' +
                         '<div class="small text-muted mb-2">VK (plain)</div>' +
+                        '<div class="d-flex gap-2 flex-wrap mb-2" id="pcPrevMediaVk"></div>' +
                         '<div class="border rounded p-3" style="background:#f8fafc;white-space:pre-wrap;" id="pcPrevVk"></div>' +
                       '</div>' +
                     '</div>' +
@@ -656,9 +680,53 @@
             '</div>';
           document.body.appendChild(m);
         }
+
+        function fillMedia(containerId) {
+          var c = document.getElementById(containerId);
+          if (!c) return;
+          c.innerHTML = '';
+          (media || []).slice(0, 10).forEach(function(it){
+            if (it.kind === 'video') {
+              var v = document.createElement('video');
+              v.src = it.url;
+              v.muted = true;
+              v.playsInline = true;
+              v.preload = 'metadata';
+              v.controls = true;
+              v.style.width = '120px';
+              v.style.height = '120px';
+              v.style.objectFit = 'cover';
+              v.style.borderRadius = '10px';
+              v.style.border = '1px solid #e2e8f0';
+              c.appendChild(v);
+            } else {
+              var img = document.createElement('img');
+              img.src = it.url;
+              img.alt = '';
+              img.loading = 'lazy';
+              img.style.width = '120px';
+              img.style.height = '120px';
+              img.style.objectFit = 'cover';
+              img.style.borderRadius = '10px';
+              img.style.border = '1px solid #e2e8f0';
+              c.appendChild(img);
+            }
+          });
+        }
+
         document.getElementById('pcPrevTg').innerHTML = sanitizeForTelegram(tg).replace(/\n/g, '<br>');
         document.getElementById('pcPrevMax').textContent = mx;
         document.getElementById('pcPrevVk').textContent = mx;
+        fillMedia('pcPrevMediaTg');
+        fillMedia('pcPrevMediaMax');
+        fillMedia('pcPrevMediaVk');
+
+        // Cleanup object URLs
+        m.addEventListener('hidden.bs.modal', function () {
+          (media || []).forEach(function(it){
+            if (it._blob) { try { URL.revokeObjectURL(it.url); } catch(e){} }
+          });
+        }, { once: true });
         new bootstrap.Modal(m).show();
       });
     }

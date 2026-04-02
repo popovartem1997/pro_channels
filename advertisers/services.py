@@ -108,6 +108,12 @@ def sync_advertisers_and_contracts_from_ord(*, use_sandbox: bool) -> dict:
     # --- persons ---
     person_ids = vk_ord_client.list_v1_entity_external_ids(bearer, 'person', limit=1000, use_sandbox=use_sandbox)
     for pid in person_ids:
+        # Небольшая пауза, чтобы не упереться в 429
+        try:
+            import time as _time
+            _time.sleep(0.12)
+        except Exception:
+            pass
         pdata = vk_ord_client.get_v1_entity_json(bearer, 'person', pid, use_sandbox=use_sandbox)
         name = (pdata.get('name') or '').strip() or pid
         jd = pdata.get('juridical_details') if isinstance(pdata, dict) else None
@@ -157,6 +163,11 @@ def sync_advertisers_and_contracts_from_ord(*, use_sandbox: bool) -> dict:
     # --- contracts ---
     contract_ids = vk_ord_client.list_v1_entity_external_ids(bearer, 'contract', limit=1000, use_sandbox=use_sandbox)
     for cid in contract_ids:
+        try:
+            import time as _time
+            _time.sleep(0.12)
+        except Exception:
+            pass
         cdata = vk_ord_client.get_v1_entity_json(bearer, 'contract', cid, use_sandbox=use_sandbox)
         if not isinstance(cdata, dict):
             continue

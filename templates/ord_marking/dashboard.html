@@ -70,7 +70,39 @@
   <div class="card-header bg-transparent border-bottom py-3 d-flex justify-content-between align-items-center">
     <h6 class="fw-bold mb-0">Регистрации</h6>
   </div>
-  <div class="table-responsive">
+  <!-- Mobile: cards -->
+  <div class="d-md-none p-3">
+    {% for r in registrations %}
+      <div class="border rounded-3 p-3 mb-2 bg-white">
+        <div class="d-flex justify-content-between gap-2">
+          <div class="small">
+            <div class="fw-semibold">Пост #{{ r.post.pk }}</div>
+            <div class="text-muted text-truncate" style="max-width: 80vw;">{{ r.post.text|truncatechars:80 }}</div>
+            <div class="text-muted">{{ r.channel.name }} — {{ r.channel.get_platform_display }}</div>
+          </div>
+          <span class="badge {% if r.status == 'registered' %}bg-success-subtle text-success{% elif r.status == 'error' %}bg-danger-subtle text-danger{% else %}bg-secondary-subtle text-secondary{% endif %} align-self-start">
+            {{ r.get_status_display }}
+          </span>
+        </div>
+        <div class="mt-2 small">
+          <div><span class="text-muted">Рекламодатель:</span> {% if r.advertiser %}{{ r.advertiser.company_name }}{% else %}—{% endif %}</div>
+          <div class="font-monospace">
+            <span class="text-muted">ERID:</span>
+            {% if r.erid or r.ord_token %}<span class="user-select-all">{{ r.erid|default:r.ord_token }}</span>{% else %}—{% endif %}
+          </div>
+        </div>
+        <div class="mt-2 d-flex gap-2">
+          <a href="{% url 'ord_marking:detail' r.pk %}" class="btn btn-sm btn-outline-primary flex-grow-1">Открыть</a>
+          <a href="{% url 'ord_marking:edit' r.pk %}" class="btn btn-sm btn-outline-secondary">Правка</a>
+        </div>
+      </div>
+    {% empty %}
+      <div class="text-center text-muted py-4">Пока нет регистраций</div>
+    {% endfor %}
+  </div>
+
+  <!-- Desktop: table -->
+  <div class="table-responsive d-none d-md-block">
     <table class="table table-hover align-middle mb-0">
       <thead class="table-light">
         <tr>

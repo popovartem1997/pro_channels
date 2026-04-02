@@ -47,7 +47,7 @@ def ord_request(
         headers['Content-Type'] = 'application/json'
     req = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
     last_err = None
-    for attempt in range(4):
+    for attempt in range(6):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read().decode('utf-8', errors='replace')
@@ -59,6 +59,20 @@ def ord_request(
                 except json.JSONDecodeError:
                     return status, {'_raw': raw}
         except urllib.error.HTTPError as e:
+            # 429: троттлинг со стороны nginx/ОРД — делаем backoff и повторяем.
+            if e.code == 429 and attempt < 5:
+                retry_after = None
+                try:
+                    retry_after = e.headers.get('Retry-After')
+                except Exception:
+                    retry_after = None
+                try:
+                    ra = float(retry_after) if retry_after else None
+                except Exception:
+                    ra = None
+                time.sleep(ra if ra is not None else (1.5 + attempt * 1.7))
+                continue
+
             raw = e.read().decode('utf-8', errors='replace') if e.fp else ''
             parsed = None
             try:
@@ -70,13 +84,13 @@ def ord_request(
             # Временами nginx ОРД рвёт соединение (Errno 104). Делаем ретраи.
             last_err = e
             msg = str(e.reason or e)
-            if attempt < 3 and ('104' in msg or 'reset' in msg.lower()):
+            if attempt < 5 and ('104' in msg or 'reset' in msg.lower()):
                 time.sleep(0.6 + attempt * 0.8)
                 continue
             raise OrdVkApiError(0, msg, {'error': msg}) from e
         except ConnectionResetError as e:
             last_err = e
-            if attempt < 3:
+            if attempt < 5:
                 time.sleep(0.6 + attempt * 0.8)
                 continue
             raise OrdVkApiError(0, str(e), {'error': str(e)}) from e
