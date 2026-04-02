@@ -489,8 +489,14 @@
 // Simple WYSIWYG editor for posts: stores HTML for TG + plain for MAX/VK.
 (function () {
   function stripHtml(html) {
+    var raw = (html || '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>\s*<p>/gi, '\n\n')
+      .replace(/<\/?p>/gi, '\n')
+      .replace(/<\/div>\s*<div>/gi, '\n')
+      .replace(/<\/?div>/gi, '\n');
     var div = document.createElement('div');
-    div.innerHTML = html || '';
+    div.innerHTML = raw;
     return (div.textContent || div.innerText || '').replace(/\u00A0/g, ' ');
   }
 
@@ -565,18 +571,24 @@
 
     function sync() {
       var html = sanitizeForTelegram(ed.innerHTML || '');
+      // Многострочный ввод без тегов: в Telegram HTML перевод строки нужно задавать через <br>.
+      if (html && !/<[a-z][\s\S]*>/i.test(html) && /[\r\n]/.test(html)) {
+        html = html.replace(/\r\n|\r|\n/g, '<br>');
+      }
       hidden.value = html;
       plain.value = stripHtml(html).trim();
     }
     sync();
 
-    // Premium emoji: скрытое поле tg_entities заполняется из script#pc-tg-entities-initial (страницы поста)
+    // Premium emoji: подставляем сохранённые entities с сервера; пустой [] не трогаем поле (не затираем «Из Telegram»).
     var tgInit = document.getElementById('pc-tg-entities-initial');
     var tgHid = document.getElementById('id_tg_entities_hidden');
     if (tgInit && tgHid && tgInit.textContent) {
       try {
-        JSON.parse(tgInit.textContent);
-        tgHid.value = tgInit.textContent.trim();
+        var parsed = JSON.parse(tgInit.textContent);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          tgHid.value = tgInit.textContent.trim();
+        }
       } catch (e) {}
     }
 

@@ -617,6 +617,21 @@ def _tg_footer_plain_from_html(tg_footer_html: str) -> str:
     return plain.strip()
 
 
+def _tg_multipart_form(data: dict) -> dict:
+    """Поля multipart/form-data для Bot API: булевы как true/false, остальное — строки."""
+    out = {}
+    for k, v in data.items():
+        if v is None:
+            continue
+        if isinstance(v, bool):
+            out[k] = 'true' if v else 'false'
+        elif isinstance(v, (int, float)):
+            out[k] = str(v)
+        else:
+            out[k] = v
+    return out
+
+
 def _publish_telegram(post, channel):
     """Публикация в Telegram через Bot API."""
     import json as json_module
@@ -635,6 +650,11 @@ def _publish_telegram(post, channel):
     tg_entities_list = raw_entities if isinstance(raw_entities, list) else []
     use_entities = bool(getattr(post, 'has_premium_emoji', False) and tg_entities_list)
 
+    common = {
+        'chat_id': chat_id,
+        'disable_notification': post.disable_notification,
+    }
+
     if use_entities:
         # ВАЖНО: смещения entities привязаны к post.text из импорта, не к text_html.
         # Если слать text_html + entities, API игнорирует custom_emoji / показывает «сырой» HTML.
@@ -648,29 +668,35 @@ def _publish_telegram(post, channel):
             footer = _tg_footer_plain_from_html(channel.tg_footer)
             if footer:
                 text = f'{text}\n\n{footer}'
-        kwargs = {
-            'chat_id': chat_id,
-            'disable_notification': post.disable_notification,
+        # sendMessage: превью ссылок; sendPhoto/sendVideo/sendDocument — только параметры из спецификации API.
+        msg_kwargs = {
+            **common,
             'disable_web_page_preview': True,
             'entities': entities,
         }
+        media_form_base = dict(common)
+        entities_for_api = entities
     else:
         text = _build_text(post, channel)
-        kwargs = {
-            'chat_id': chat_id,
-            'disable_notification': post.disable_notification,
+        msg_kwargs = {
+            **common,
             'disable_web_page_preview': True,
             'parse_mode': 'HTML',
         }
+        media_form_base = {**common, 'parse_mode': 'HTML'}
+        entities_for_api = []
 
     if media_files:
         if len(media_files) == 1:
             mf = media_files[0]
             with open(mf.file.path, 'rb') as f:
-                send_data = {**kwargs, 'caption': text}
+                send_data = {**media_form_base, 'caption': text}
                 if use_entities:
-                    send_data['caption_entities'] = json_module.dumps(kwargs['entities'])
-                    send_data.pop('entities', None)
+                    send_data['caption_entities'] = json_module.dumps(
+                        entities_for_api,
+                        ensure_ascii=False,
+                    )
+                send_data = _tg_multipart_form(send_data)
                 if mf.media_type == 'photo':
                     resp = requests.post(f'{base_url}/sendPhoto', data=send_data, files={'photo': f})
                 elif mf.media_type == 'video':
@@ -690,23 +716,28 @@ def _publish_telegram(post, channel):
                         'caption': text if i == 0 else '',
                     }
                     if i == 0 and use_entities:
-                        item['caption_entities'] = kwargs['entities']
+                        item['caption_entities'] = entities_for_api
                     elif i == 0:
                         item['parse_mode'] = 'HTML'
                     media.append(item)
                     files[key] = open(mf.file.path, 'rb')
 
-                send_kwargs = {k: v for k, v in kwargs.items() if k not in ('parse_mode', 'entities')}
+                group_payload = _tg_multipart_form(
+                    {
+                        **common,
+                        'media': json_module.dumps(media, ensure_ascii=False),
+                    }
+                )
                 resp = requests.post(
                     f'{base_url}/sendMediaGroup',
-                    data={**send_kwargs, 'media': json_module.dumps(media)},
-                    files=files
+                    data=group_payload,
+                    files=files,
                 )
             finally:
                 for fp in files.values():
                     fp.close()
     else:
-        resp = requests.post(f'{base_url}/sendMessage', json={**kwargs, 'text': text})
+        resp = requests.post(f'{base_url}/sendMessage', json={**msg_kwargs, 'text': text})
 
     data = resp.json()
     if not data.get('ok'):
