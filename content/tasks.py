@@ -674,18 +674,18 @@ def _tg_entity_dicts_to_ptb(entities: list):
     return out
 
 
-def _tg_input_media_for_group(mf, *, caption: str | None, parse_mode, caption_entities):
+def _tg_input_media_for_group_item(media_obj, media_type: str, *, caption, parse_mode, caption_entities):
+    """InputMedia* только из уже подготовленного upload-объекта (без ORM)."""
     from telegram import InputMediaDocument, InputMediaPhoto, InputMediaVideo
     from .models import PostMedia
 
-    media_obj = _tg_file_for_telegram_upload(mf)
-    if mf.media_type == PostMedia.TYPE_VIDEO:
+    if media_type == PostMedia.TYPE_VIDEO:
         cls = InputMediaVideo
-    elif mf.media_type == PostMedia.TYPE_DOCUMENT:
+    elif media_type == PostMedia.TYPE_DOCUMENT:
         cls = InputMediaDocument
     else:
         cls = InputMediaPhoto
-    kw: dict = {'media': media_obj}
+    kw = {'media': media_obj}
     if caption is not None:
         kw['caption'] = caption
     if caption_entities is not None:
@@ -695,13 +695,14 @@ def _tg_input_media_for_group(mf, *, caption: str | None, parse_mode, caption_en
     return cls(**kw)
 
 
-async def _publish_telegram_async(post, channel):
-    """Публикация в Telegram через python-telegram-bot (корректные caption_entities и альбомы)."""
+def _prepare_telegram_publish_bundle(post, channel):
+    """
+    Вся работа с Django ORM и файлами — здесь, синхронно.
+    В async-части PTB нельзя трогать ORM: Django выдаёт
+    «You cannot call this from an async context».
+    """
     from channels.models import Channel as Ch
-    from telegram import Bot
-    from telegram.error import TelegramError
     from telegram.constants import ParseMode
-    from telegram.request import HTTPXRequest
     from .models import PostMedia
 
     if channel.platform != Ch.PLATFORM_TELEGRAM:
@@ -714,7 +715,6 @@ async def _publish_telegram_async(post, channel):
 
     raw_entities = getattr(post, 'tg_entities', None)
     tg_entities_list = raw_entities if isinstance(raw_entities, list) else []
-    # Достаточно непустого tg_entities; флаг has_premium_emoji может рассинхрониться с БД.
     use_entities = bool(tg_entities_list)
 
     if use_entities:
@@ -735,15 +735,53 @@ async def _publish_telegram_async(post, channel):
         ptb_entities = None
         parse_mode = ParseMode.HTML
 
+    media_rows = list(post.media_files.order_by('order', 'pk'))
+    media_payload = []
+    for mf in media_rows[:10]:
+        media_payload.append(
+            {
+                'type': mf.media_type,
+                'upload': _tg_file_for_telegram_upload(mf),
+            }
+        )
+
+    return {
+        'bot_token': bot_token,
+        'chat_id': chat_id,
+        'disable_notification': post.disable_notification,
+        'pin_message': post.pin_message,
+        'text': text,
+        'use_entities': use_entities,
+        'parse_mode': parse_mode,
+        'caption_entities': ptb_entities,
+        'media': media_payload,
+    }
+
+
+async def _publish_telegram_async_send(bundle: dict):
+    """Только HTTP через PTB: без ORM и без обращений к Django."""
+    from telegram import Bot
+    from telegram.error import TelegramError
+    from telegram.request import HTTPXRequest
+
+    bot_token = bundle['bot_token']
+    chat_id = bundle['chat_id']
+    disable_notification = bundle['disable_notification']
+    pin_message = bundle['pin_message']
+    text = bundle['text']
+    use_entities = bundle['use_entities']
+    parse_mode = bundle['parse_mode']
+    ptb_entities = bundle['caption_entities']
+    media = bundle['media']
+
     request = HTTPXRequest(connect_timeout=25.0, read_timeout=120.0)
     bot = Bot(token=bot_token, request=request)
-    media_files = list(post.media_files.order_by('order', 'pk'))
-    common_kw = {'chat_id': chat_id, 'disable_notification': post.disable_notification}
+    common_kw = {'chat_id': chat_id, 'disable_notification': disable_notification}
 
     try:
         async with bot:
             msg_id = None
-            if not media_files:
+            if not media:
                 if use_entities:
                     m = await bot.send_message(
                         text=text,
@@ -759,38 +797,44 @@ async def _publish_telegram_async(post, channel):
                         **common_kw,
                     )
                 msg_id = m.message_id
-            elif len(media_files) == 1:
-                mf = media_files[0]
-                media_obj = _tg_file_for_telegram_upload(mf)
-                cap_kw: dict = {**common_kw, 'caption': text}
+            elif len(media) == 1:
+                row = media[0]
+                media_obj = row['upload']
+                cap_kw = {**common_kw, 'caption': text}
                 if use_entities:
                     cap_kw['caption_entities'] = ptb_entities
                 else:
                     cap_kw['parse_mode'] = parse_mode
-                if mf.media_type == PostMedia.TYPE_PHOTO:
+                mt = row['type']
+                if mt == 'photo':
                     m = await bot.send_photo(photo=media_obj, **cap_kw)
-                elif mf.media_type == PostMedia.TYPE_VIDEO:
+                elif mt == 'video':
                     m = await bot.send_video(video=media_obj, **cap_kw)
                 else:
                     m = await bot.send_document(document=media_obj, **cap_kw)
                 msg_id = m.message_id
             else:
                 group = []
-                for i, mf in enumerate(media_files[:10]):
+                for i, row in enumerate(media):
+                    media_obj = row['upload']
+                    mt = row['type']
                     if i == 0:
-                        item = _tg_input_media_for_group(
-                            mf,
+                        item = _tg_input_media_for_group_item(
+                            media_obj,
+                            mt,
                             caption=text,
                             parse_mode=None if use_entities else parse_mode,
                             caption_entities=ptb_entities if use_entities else None,
                         )
                     else:
-                        item = _tg_input_media_for_group(mf, caption=None, parse_mode=None, caption_entities=None)
+                        item = _tg_input_media_for_group_item(
+                            media_obj, mt, caption=None, parse_mode=None, caption_entities=None
+                        )
                     group.append(item)
                 msgs = await bot.send_media_group(media=group, **common_kw)
                 msg_id = msgs[0].message_id if msgs else None
 
-            if post.pin_message and msg_id:
+            if pin_message and msg_id:
                 await bot.pin_chat_message(chat_id=chat_id, message_id=msg_id)
 
             return {'message_id': msg_id or ''}
@@ -800,11 +844,10 @@ async def _publish_telegram_async(post, channel):
 
 def _publish_telegram(post, channel):
     """
-    Публикация в Telegram (обёртка над async PTB).
+    Публикация в Telegram через PTB.
 
-    asyncio.run() нельзя вызывать из уже работающего event loop (async Celery, ASGI и т.д.),
-    поэтому выполняем корутину в отдельном потоке с новым loop. Объекты ORM перечитываем
-    в этом потоке — у каждого потока своё соединение с БД.
+    Пакет с текстом/файлами собирается синхронно (ORM). Отправка — в отдельном потоке
+    с asyncio.run, и только там async PTB (без ленивых запросов к БД внутри корутины).
     """
     post_id = int(post.pk)
     channel_id = int(channel.pk)
@@ -815,7 +858,8 @@ def _publish_telegram(post, channel):
 
         po = Post.objects.prefetch_related('media_files').get(pk=post_id)
         ch = Channel.objects.get(pk=channel_id)
-        return asyncio.run(_publish_telegram_async(po, ch))
+        bundle = _prepare_telegram_publish_bundle(po, ch)
+        return asyncio.run(_publish_telegram_async_send(bundle))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         fut = pool.submit(_runner)
