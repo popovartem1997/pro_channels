@@ -49,24 +49,28 @@
           <option value="parsing" {% if kind == 'parsing' %}selected{% endif %}>Парсинг</option>
         </select>
       </div>
-      <div class="col-12 col-md-2">
-        <label class="form-label small text-muted mb-1">Статус поста</label>
-        <select class="form-select form-select-sm" name="post_status">
-          <option value="" {% if not post_status_filter %}selected{% endif %}>Все</option>
-          <option value="draft" {% if post_status_filter == 'draft' %}selected{% endif %}>Черновик</option>
-          <option value="scheduled" {% if post_status_filter == 'scheduled' %}selected{% endif %}>Запланирован</option>
-          <option value="publishing" {% if post_status_filter == 'publishing' %}selected{% endif %}>Публикуется</option>
-          <option value="published" {% if post_status_filter == 'published' %}selected{% endif %}>Опубликован</option>
-          <option value="failed" {% if post_status_filter == 'failed' %}selected{% endif %}>Ошибка</option>
-        </select>
-      </div>
       <div class="col-12 col-md-3">
-        <label class="form-label small text-muted mb-1">Статус (для предложки/парсинга)</label>
+        <label class="form-label small text-muted mb-1">Статус</label>
         <select class="form-select form-select-sm" name="status">
           <option value="" {% if not status_filter %}selected{% endif %}>Все</option>
-          <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>Ожидают</option>
-          <option value="rejected" {% if status_filter == 'rejected' %}selected{% endif %}>Отклонены</option>
-          <option value="published" {% if status_filter == 'published' %}selected{% endif %}>Опубликованные</option>
+          <optgroup label="Посты">
+            <option value="draft" {% if status_filter == 'draft' %}selected{% endif %}>Черновик</option>
+            <option value="scheduled" {% if status_filter == 'scheduled' %}selected{% endif %}>Запланирован</option>
+            <option value="publishing" {% if status_filter == 'publishing' %}selected{% endif %}>Публикуется</option>
+            <option value="published" {% if status_filter == 'published' %}selected{% endif %}>Опубликован</option>
+            <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>Ошибка</option>
+          </optgroup>
+          <optgroup label="Предложка">
+            <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>На модерации</option>
+            <option value="approved" {% if status_filter == 'approved' %}selected{% endif %}>Одобрено</option>
+            <option value="rejected" {% if status_filter == 'rejected' %}selected{% endif %}>Отклонено</option>
+            <option value="published" {% if status_filter == 'published' %}selected{% endif %}>Опубликовано</option>
+          </optgroup>
+          <optgroup label="Парсинг">
+            <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>Новые</option>
+            <option value="published" {% if status_filter == 'published' %}selected{% endif %}>Использованы</option>
+            <option value="rejected" {% if status_filter == 'rejected' %}selected{% endif %}>Пропущены</option>
+          </optgroup>
         </select>
       </div>
       <div class="col-12 col-md-2">
