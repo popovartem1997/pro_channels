@@ -2,6 +2,7 @@
 Celery задачи для публикации постов.
 """
 import asyncio
+import concurrent.futures
 import io
 import logging
 import os
@@ -798,8 +799,27 @@ async def _publish_telegram_async(post, channel):
 
 
 def _publish_telegram(post, channel):
-    """Публикация в Telegram (обёртка над async PTB)."""
-    return asyncio.run(_publish_telegram_async(post, channel))
+    """
+    Публикация в Telegram (обёртка над async PTB).
+
+    asyncio.run() нельзя вызывать из уже работающего event loop (async Celery, ASGI и т.д.),
+    поэтому выполняем корутину в отдельном потоке с новым loop. Объекты ORM перечитываем
+    в этом потоке — у каждого потока своё соединение с БД.
+    """
+    post_id = int(post.pk)
+    channel_id = int(channel.pk)
+
+    def _runner():
+        from channels.models import Channel
+        from .models import Post
+
+        po = Post.objects.prefetch_related('media_files').get(pk=post_id)
+        ch = Channel.objects.get(pk=channel_id)
+        return asyncio.run(_publish_telegram_async(po, ch))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        fut = pool.submit(_runner)
+        return fut.result(timeout=300)
 
 
 def _publish_vk(post, channel):

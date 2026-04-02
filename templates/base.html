@@ -674,6 +674,100 @@
       });
     }
 
+    /*
+     * Вставка: без preventDefault Telegram/macOS часто подставляет HTML-документ и затирает
+     * весь contenteditable. Всегда вставляем в позицию каретки; пустой буфер — не трогаем текст.
+     */
+    ed.addEventListener('paste', function (e) {
+      var cd = e.clipboardData || window.clipboardData;
+      if (!cd) return;
+      e.preventDefault();
+      ed.focus();
+      var sel = window.getSelection();
+      if (!sel.rangeCount) return;
+      var range = sel.getRangeAt(0);
+      if (!ed.contains(range.commonAncestorContainer)) {
+        range = document.createRange();
+        range.selectNodeContents(ed);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+      var html = cd.getData('text/html') || '';
+      var plain = cd.getData('text/plain');
+      if (plain === null || plain === undefined) plain = '';
+      var toInsert = plain;
+      if (!toInsert && html) {
+        var hx = document.createElement('div');
+        hx.innerHTML = html;
+        toInsert = hx.innerText || hx.textContent || '';
+      }
+      var tgEid = '';
+      if (/tg-emoji/i.test(html)) {
+        var tp = document.createElement('div');
+        tp.innerHTML = html;
+        var emEl = tp.querySelector('tg-emoji');
+        if (emEl) {
+          tgEid = emEl.getAttribute('emoji-id') || emEl.getAttribute('emoji_id') || '';
+          var ech = (emEl.textContent || '').replace(/\uFEFF/g, '');
+          if (!ech.trim()) {
+            var im = emEl.querySelector('img');
+            if (im) ech = (im.getAttribute('alt') || '').trim();
+          }
+          if (tgEid && ech) toInsert = ech;
+          else if (!toInsert && ech) toInsert = ech;
+        }
+      }
+      if (!toInsert) return;
+
+      var beforeR = document.createRange();
+      beforeR.selectNodeContents(ed);
+      beforeR.setEnd(range.startContainer, range.startOffset);
+      var shift = beforeR.toString().length;
+      var removedLen = range.collapsed ? 0 : range.toString().length;
+
+      var insLen = toInsert.length;
+      var exist = parseTgEntitiesHidden();
+      /* Замена выделения ломает смещения — сбрасываем entities (кроме новой вставки с tg-emoji). */
+      if (!range.collapsed && exist.length) {
+        exist = [];
+      } else if (exist.length && insLen) {
+        var delta = insLen - removedLen;
+        exist = exist.map(function (ent) {
+          var ne = Object.assign({}, ent);
+          var o = ne.offset || 0;
+          if (o >= shift + removedLen) ne.offset = o + delta;
+          return ne;
+        });
+      }
+      if (tgEid && insLen) {
+        var dup = exist.some(function (e) {
+          return e && e.type === 'custom_emoji' && e.offset === shift && e.length === insLen &&
+            String(e.custom_emoji_id || '') === String(tgEid);
+        });
+        if (!dup) {
+          exist.push({
+            type: 'custom_emoji',
+            offset: shift,
+            length: insLen,
+            custom_emoji_id: String(tgEid)
+          });
+        }
+        exist.sort(function (a, b) { return (a.offset || 0) - (b.offset || 0); });
+      }
+      setTgEntitiesHidden(exist);
+
+      range.deleteContents();
+      var tn = document.createTextNode(toInsert);
+      range.insertNode(tn);
+      range.setStartAfter(tn);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+
+      sync();
+    });
+
     toolbar.addEventListener('mousedown', function(e){
       var btn = e.target.closest('button[data-action]');
       if (!btn) return;
