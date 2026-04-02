@@ -22,6 +22,8 @@
             <th>Статус</th>
             <th>Сумма</th>
             <th>Оплата</th>
+            <th>Публикации</th>
+            <th>Владелец канала</th>
             <th>Создана</th>
             <th class="pe-4"></th>
           </tr>
@@ -39,6 +41,31 @@
               {% elif a.payment_method == 'transfer' %}
                 Перевод{% if a.transfer_marked_received %} ✓{% endif %}
               {% else %}—{% endif %}
+            </td>
+            <td class="small">
+              {% with cps=a.campaign_posts.all %}
+                {% if cps|length %}
+                  {% for p in cps %}
+                    <span class="text-nowrap">#{{ p.pk }} {{ p.get_status_display }}</span>
+                    {% if p.scheduled_at %}<span class="text-muted"> · {{ p.scheduled_at|date:"d.m H:i" }}</span>{% endif %}
+                    {% if p.published_at %}<span class="text-muted"> · факт {{ p.published_at|date:"d.m H:i" }}</span>{% endif %}
+                    {% if not forloop.last %}<br>{% endif %}
+                  {% endfor %}
+                {% else %}
+                  {% if a.status == 'paid' or a.status == 'scheduled' or a.status == 'published' %}ожидают{% else %}—{% endif %}
+                {% endif %}
+              {% endwith %}
+            </td>
+            <td class="small">
+              {% with o=a.channel.owner %}
+                {% if o.ad_payment_phone %}
+                  <span class="text-nowrap">{{ o.ad_payment_phone }}</span>
+                {% elif o.email %}
+                  <a href="mailto:{{ o.email }}">{{ o.email }}</a>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              {% endwith %}
             </td>
             <td class="small text-muted">{{ a.created_at|date:"d.m.Y H:i" }}</td>
             <td class="pe-4 small">

@@ -399,7 +399,8 @@ def ad_application_list(request):
         return redirect('advertisers:register')
     applications = (
         AdApplication.objects.filter(advertiser=adv)
-        .select_related('channel', 'post', 'invoice')
+        .select_related('channel', 'channel__owner', 'post', 'invoice')
+        .prefetch_related('campaign_posts')
         .order_by('-created_at')
     )
     return render(
@@ -409,9 +410,50 @@ def ad_application_list(request):
     )
 
 
+def _owner_campaign_issue_labels(app):
+    """Короткие метки незавершённости для доски владельца."""
+    from content.models import Post
+    from .models import AdApplication
+
+    labels = []
+    if app.status == AdApplication.STATUS_DRAFT:
+        if not app.selected_slot_ids:
+            labels.append('слоты')
+        post = app.post
+        if not post or not (post.text or '').strip():
+            labels.append('контент')
+        if not app.ord_wizard_saved_at:
+            labels.append('ОРД')
+        if not app.contract_signed_at:
+            labels.append('договор')
+    elif app.status == AdApplication.STATUS_AWAITING_PAYMENT:
+        if not app.invoice_id:
+            labels.append('нет счёта')
+    elif app.status in (
+        AdApplication.STATUS_PAID,
+        AdApplication.STATUS_SCHEDULED,
+        AdApplication.STATUS_PUBLISHED,
+    ):
+        posts = list(app.campaign_posts.all())
+        if not posts:
+            labels.append('нет постов')
+        else:
+            pub = sum(1 for p in posts if p.status == Post.STATUS_PUBLISHED)
+            if pub < len(posts):
+                labels.append('публикация')
+            if app.status == AdApplication.STATUS_PUBLISHED:
+                for p in posts:
+                    if p.status == Post.STATUS_PUBLISHED and not list(p.ord_registrations.all()):
+                        labels.append('ОРД не заведён')
+                        break
+    return labels
+
+
 @login_required
 def owner_ad_applications(request):
     """Все заявки нового потока по каналам владельца."""
+    from django.db.models import Count, Sum
+
     from .models import AdApplication
     if not (request.user.is_staff or request.user.role == request.user.ROLE_OWNER):
         messages.error(request, 'Нет доступа.')
@@ -419,14 +461,41 @@ def owner_ad_applications(request):
     from channels.models import Channel
 
     ch_ids = Channel.objects.filter(owner=request.user).values_list('pk', flat=True)
-    applications = (
+    applications = list(
         AdApplication.objects.filter(channel_id__in=ch_ids)
         .select_related('advertiser', 'channel', 'post', 'invoice')
         .prefetch_related('campaign_posts__ord_registrations')
         .order_by('-created_at')
     )
+    paid_like = [
+        AdApplication.STATUS_PAID,
+        AdApplication.STATUS_SCHEDULED,
+        AdApplication.STATUS_PUBLISHED,
+        AdApplication.STATUS_COMPLETED,
+    ]
+    rev = AdApplication.objects.filter(channel_id__in=ch_ids, status__in=paid_like).aggregate(
+        s=Sum('total_amount'), c=Count('id')
+    )
+    pending = AdApplication.objects.filter(
+        channel_id__in=ch_ids, status=AdApplication.STATUS_AWAITING_PAYMENT
+    ).aggregate(s=Sum('total_amount'), c=Count('id'))
+    by_channel = (
+        AdApplication.objects.filter(channel_id__in=ch_ids, status__in=paid_like)
+        .values('channel__name')
+        .annotate(revenue=Sum('total_amount'), cnt=Count('id'))
+        .order_by('-revenue')
+    )
+    app_issues = {a.pk: _owner_campaign_issue_labels(a) for a in applications}
     return render(
         request,
         'advertisers/owner_ad_applications.html',
-        {'applications': applications},
+        {
+            'applications': applications,
+            'stats_paid_revenue': rev['s'] or 0,
+            'stats_paid_count': rev['c'] or 0,
+            'stats_pending_sum': pending['s'] or 0,
+            'stats_pending_count': pending['c'] or 0,
+            'stats_by_channel': list(by_channel),
+            'app_issues': app_issues,
+        },
     )

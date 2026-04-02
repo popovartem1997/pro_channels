@@ -10,6 +10,35 @@
   <a href="{% url 'advertisers:owner_orders' %}" class="btn btn-outline-secondary btn-sm">Старые заказы</a>
 </div>
 
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100"><div class="card-body py-3">
+      <div class="text-muted small">Выручка (оплачено+)</div>
+      <div class="fs-5 fw-semibold">{{ stats_paid_revenue }} ₽</div>
+      <div class="small text-muted">{{ stats_paid_count }} заявок</div>
+    </div></div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100"><div class="card-body py-3">
+      <div class="text-muted small">Ожидают оплаты</div>
+      <div class="fs-5 fw-semibold">{{ stats_pending_sum }} ₽</div>
+      <div class="small text-muted">{{ stats_pending_count }} заявок</div>
+    </div></div>
+  </div>
+  {% if stats_by_channel %}
+  <div class="col-xl-6">
+    <div class="card h-100"><div class="card-body py-3">
+      <div class="text-muted small mb-2">По каналам (оплачено+)</div>
+      <ul class="small mb-0 ps-3">
+        {% for row in stats_by_channel %}
+        <li>{{ row.channel__name }} — {{ row.revenue }} ₽ ({{ row.cnt }})</li>
+        {% endfor %}
+      </ul>
+    </div></div>
+  </div>
+  {% endif %}
+</div>
+
 <div class="card">
   <div class="card-body p-0">
     {% if applications %}
@@ -24,6 +53,7 @@
             <th>Сумма</th>
             <th>Договор</th>
             <th>ОРД (посты)</th>
+            <th>Контроль</th>
             <th class="pe-4">Обновлено</th>
             <th class="pe-4"></th>
           </tr>
@@ -46,6 +76,17 @@
                 {% endif %}
               {% empty %}
               <span class="text-muted">—</span>
+              {% endfor %}
+            </td>
+            <td class="small">
+              {% for key, labels in app_issues.items %}
+                {% if key == a.pk %}
+                  {% if labels %}
+                    {% for t in labels %}<span class="badge bg-warning text-dark me-1 mb-1">{{ t }}</span>{% endfor %}
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                {% endif %}
               {% endfor %}
             </td>
             <td class="small text-muted">{{ a.updated_at|date:"d.m.Y H:i" }}</td>
