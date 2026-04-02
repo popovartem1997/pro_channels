@@ -20,7 +20,11 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
+          # Лучше задавать порт явно в Secrets (SSH_PORT=22), без "|| 22" (иногда пустые строки ведут себя странно)
+          port: ${{ secrets.SSH_PORT }}
+          # Сетевые таймауты: помогают при медленном/нестабильном SSH
+          timeout: 120s
+          command_timeout: 30m
           script_stop: true
           script: |
             set -euo pipefail
