@@ -82,6 +82,10 @@
           {% if not can_edit_messages_only %}
           <div class="mb-3">
             <label class="form-label fw-semibold">Модераторы (сайт) — кому дублировать в Telegram</label>
+            <div class="form-text small text-muted mb-2">
+              В личку уйдёт копия заявки, если у менеджера указан <strong>Telegram ID</strong> в
+              «Команда → доступ к каналам» или выполнена привязка через «Импорт из Telegram».
+            </div>
             <select name="moderators" class="form-select" multiple size="5">
               {% for tm in team_members %}
                 <option value="{{ tm.member_id }}" {% if tm.member_id|stringformat:"s" in selected_moderators %}selected{% endif %}>

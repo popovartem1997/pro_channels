@@ -616,6 +616,22 @@ def tg_import_webhook_disable(request):
     return _tg_import_webhook_action_redirect(request)
 
 
+def _tg_import_bot_reply(token: str, chat_id: int, reply_text: str) -> None:
+    """Короткий ответ пользователю в чате импорт-бота (иначе кажется, что бот «молчит»)."""
+    if not token or not chat_id or not (reply_text or '').strip():
+        return
+    try:
+        import requests
+
+        requests.post(
+            f'https://api.telegram.org/bot{token}/sendMessage',
+            json={'chat_id': chat_id, 'text': (reply_text or '')[:3900]},
+            timeout=12,
+        )
+    except Exception:
+        pass
+
+
 @csrf_exempt
 def tg_import_webhook(request):
     """Webhook Telegram для служебного импорта entities/custom_emoji."""
@@ -632,7 +648,11 @@ def tg_import_webhook(request):
         return HttpResponse('ok', status=200)
 
     msg = update.get('message') or update.get('edited_message') or {}
+    if not isinstance(msg, dict):
+        msg = {}
     text = msg.get('text') or msg.get('caption') or ''
+    if text is None:
+        text = ''
     entities = msg.get('entities') or msg.get('caption_entities') or []
     from_user = (msg.get('from') or {})
     tg_user_id = from_user.get('id')
@@ -640,32 +660,77 @@ def tg_import_webhook(request):
     if not tg_user_id:
         return HttpResponse('ok', status=200)
 
+    from .models_imports import TelegramImportLink, TelegramImportedMessage
+
     # Команда /start <code> для привязки
     if isinstance(text, str) and text.startswith('/start'):
         parts = text.split()
         if len(parts) >= 2:
             code = parts[1].strip()
-            from .models_imports import TelegramImportLink
             try:
                 link = TelegramImportLink.objects.get(code=code)
                 link.telegram_user_id = int(tg_user_id)
                 link.linked_at = timezone.now()
                 link.save(update_fields=['telegram_user_id', 'linked_at'])
+                _tg_import_bot_reply(
+                    token,
+                    int(tg_user_id),
+                    'Аккаунт привязан. Перешлите сюда сообщение с Premium emoji (Forward), '
+                    'затем на сайте в редакторе поста нажмите «Вставить из Telegram».',
+                )
+            except TelegramImportLink.DoesNotExist:
+                _tg_import_bot_reply(
+                    token,
+                    int(tg_user_id),
+                    'Код не найден. Откройте на сайте: Контент → Импорт из Telegram, '
+                    'скопируйте команду /start с кодом целиком.',
+                )
             except Exception:
-                pass
+                _tg_import_bot_reply(
+                    token,
+                    int(tg_user_id),
+                    'Не удалось привязать аккаунт. Попробуйте снова с кодом со страницы «Импорт из Telegram».',
+                )
+        else:
+            _tg_import_bot_reply(
+                token,
+                int(tg_user_id),
+                'Откройте на сайте раздел «Импорт из Telegram» и отправьте сюда команду '
+                '/start вместе с кодом (одним сообщением), как показано на странице.',
+            )
         return HttpResponse('ok', status=200)
 
     # Сохраняем импорт только для привязанных
-    from .models_imports import TelegramImportLink, TelegramImportedMessage
     try:
         link = TelegramImportLink.objects.get(telegram_user_id=int(tg_user_id))
     except TelegramImportLink.DoesNotExist:
+        _tg_import_bot_reply(
+            token,
+            int(tg_user_id),
+            'Сначала привяжите аккаунт: на сайте Контент → Импорт из Telegram, '
+            'затем отправьте сюда /start с вашим кодом.',
+        )
+        return HttpResponse('ok', status=200)
+
+    # Пустой текст, но есть entities (частый случай Premium / custom_emoji)
+    if not (text or '').strip() and not (entities if isinstance(entities, list) else []):
+        _tg_import_bot_reply(
+            token,
+            int(tg_user_id),
+            'Пришлите пересланное сообщение с emoji или текст с оформлением. '
+            'Если пересылаете альбом — отдельно каждое сообщение.',
+        )
         return HttpResponse('ok', status=200)
 
     TelegramImportedMessage.objects.create(
         user=link.user,
         text=text or '',
         entities=entities if isinstance(entities, list) else [],
+    )
+    _tg_import_bot_reply(
+        token,
+        int(tg_user_id),
+        'Сохранено. Откройте редактор поста на сайте и нажмите «Вставить из Telegram».',
     )
     return HttpResponse('ok', status=200)
 

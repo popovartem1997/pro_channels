@@ -93,6 +93,9 @@
 
             <div class="mt-3">
               <label class="form-label fw-semibold">Модераторы (сайт) — кому дублировать модерацию</label>
+              <div class="form-text small text-muted mb-2">
+                Для Telegram: в личку — если у менеджера задан Telegram ID в карточке команды или привязка импорт-бота.
+              </div>
               <select name="moderators" class="form-select" multiple size="5">
                 {% for tm in team_members %}
                   <option value="{{ tm.member_id }}"

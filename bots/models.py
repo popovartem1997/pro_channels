@@ -169,6 +169,24 @@ class SuggestionBot(models.Model):
                 link = TelegramImportLink.objects.filter(user=u).first()
                 if link and link.telegram_user_id:
                     _add(link.telegram_user_id)
+                else:
+                    # Telegram ID из карточки члена команды (Команда → доступ), без привязки импорт-бота
+                    try:
+                        from managers.models import TeamMember
+
+                        tm = (
+                            TeamMember.objects.filter(
+                                owner_id=self.owner_id,
+                                member_id=u.id,
+                                is_active=True,
+                            )
+                            .exclude(telegram_user_id__isnull=True)
+                            .first()
+                        )
+                        if tm and tm.telegram_user_id:
+                            _add(str(int(tm.telegram_user_id)))
+                    except Exception:
+                        pass
 
         return ids
 
