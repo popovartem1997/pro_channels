@@ -535,13 +535,8 @@ def _publish_to_channel(post, channel):
         raise ValueError(f'Неизвестная платформа: {channel.platform}')
 
 
-def _tg_plain_to_html_caption(plain: str) -> str:
-    """
-    Plain → безопасный HTML для Telegram: переносы, множественные пробелы (колонки),
-    экранирование <>&.
-    """
-    from html import escape
-
+def _tg_plain_preserve_spaces(plain: str) -> str:
+    """Два пробела → пробел + NBSP; длина в UTF-16 не меняется — смещения entities сохраняются."""
     s = plain or ''
     s = s.replace('\r\n', '\n').replace('\r', '\n')
     lines = s.split('\n')
@@ -550,7 +545,41 @@ def _tg_plain_to_html_caption(plain: str) -> str:
         while '  ' in line:
             line = line.replace('  ', ' \u00a0')
         fixed.append(line)
-    s = '\n'.join(fixed)
+    return '\n'.join(fixed)
+
+
+def _tg_preserve_spaces_telegram_html(html: str) -> str:
+    """
+    В HTML-фрагменте Telegram схлопываются обычные пробелы.
+    Удваиваем пробелы в «текстовых» кусках (вне тегов). Не трогаем <pre>.
+    """
+    import re
+
+    if not (html or '').strip() or '<pre' in html.lower():
+        return html
+    parts = re.split(r'(<[^>]+>)', html)
+    out = []
+    for p in parts:
+        if not p:
+            continue
+        if p.startswith('<') and p.endswith('>'):
+            out.append(p)
+        else:
+            chunk = p
+            while '  ' in chunk:
+                chunk = chunk.replace('  ', ' \u00a0')
+            out.append(chunk)
+    return ''.join(out)
+
+
+def _tg_plain_to_html_caption(plain: str) -> str:
+    """
+    Plain → безопасный HTML для Telegram: переносы, множественные пробелы (колонки),
+    экранирование <>&.
+    """
+    from html import escape
+
+    s = _tg_plain_preserve_spaces(plain or '')
     s = escape(s, quote=False)
     return s.replace('\n', '<br>')
 
@@ -570,6 +599,8 @@ def _build_text(post, channel):
             text = post.text_html
             if '<pre' not in text.lower():
                 text = text.replace('\r\n', '\n').replace('\n', '<br>')
+                # Редактор почти всегда шлёт text_html — без NBSP колонки схлопываются в TG
+                text = _tg_preserve_spaces_telegram_html(text)
         else:
             # Только text: в parse_mode=HTML \n не переносит строку; пробелы схлопываются
             text = _tg_plain_to_html_caption(post.text or '')
@@ -772,7 +803,7 @@ def _prepare_telegram_publish_bundle(post, channel):
     parse_mode = ParseMode.HTML
 
     if use_entities:
-        text = post.text if post.text is not None else ''
+        text = _tg_plain_preserve_spaces(post.text if post.text is not None else '')
         entities = _tg_normalize_entities(tg_entities_list)
         if post.ord_label:
             prefix = f"{(post.ord_label or '').strip()}\n\n"
