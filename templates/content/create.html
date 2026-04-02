@@ -63,7 +63,11 @@
           {{ tg_entities_initial|json_script:"pc-tg-entities-initial" }}
           <div class="form-text">
             Premium / custom emoji: перешлите сообщение в <a href="{% url 'content:tg_import_link' %}">импорт-бота</a>,
-            затем нажмите «Из Telegram» и выберите запись — текст и emoji подставятся в пост (для канала Telegram).
+            затем «Из Telegram» — подставятся текст и сущности.
+            <strong class="d-block mt-1">Ограничение Bot API:</strong>
+            кастомные emoji в сообщениях бота разрешены только в личных чатах, группах и супергруппах
+            (при Telegram Premium у владельца бота или при привязке имени с Fragment) — в <em>каналах</em> API часто отображает обычный Unicode-эмодзи вместо premium.
+            См. «Formatting options» в <a href="https://core.telegram.org/bots/api#formatting-options" target="_blank" rel="noopener">документации Telegram Bot API</a>.
           </div>
         </div>
       </div>

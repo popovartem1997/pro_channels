@@ -8,8 +8,9 @@
       </div>
       <div class="modal-body">
         <p class="small text-muted">
-          Сначала перешлите сообщение с Premium emoji в <a href="{% url 'content:tg_import_link' %}" target="_blank" rel="noopener">импорт-бота</a>,
-          затем выберите запись ниже — подставятся текст и разметка для публикации в Telegram.
+          Перешлите сообщение с Premium emoji в <a href="{% url 'content:tg_import_link' %}" target="_blank" rel="noopener">импорт-бота</a>,
+          затем выберите запись — подставятся текст и <code>custom_emoji</code> entities.
+          В <strong>каналах</strong> Bot API по правилам Telegram не обязан показывать premium-emoji от бота (только личка / группы / супергруппы при Premium у владельца бота или Fragment).
         </p>
         <div id="pcTgImportLoading" class="small text-muted d-none">Загрузка…</div>
         <div id="pcTgImportError" class="alert alert-danger small d-none py-2"></div>

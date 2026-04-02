@@ -62,7 +62,11 @@
           {{ tg_entities_initial|json_script:"pc-tg-entities-initial" }}
           <div class="form-text">
             Premium / custom emoji: перешлите сообщение в <a href="{% url 'content:tg_import_link' %}">импорт-бота</a>,
-            затем «Из Telegram» — выберите запись (для публикации в Telegram).
+            затем «Из Telegram».
+            <strong class="d-block mt-1">Ограничение Bot API:</strong>
+            кастомные emoji для ботов в <em>каналах</em> не входят в перечень разрешённых чатов (личные, группы, супергруппы + Premium / Fragment) —
+            в канале обычно виден только запасной обычный смайл.
+            <a href="https://core.telegram.org/bots/api#formatting-options" target="_blank" rel="noopener">Документация</a>.
           </div>
         </div>
       </div>

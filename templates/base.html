@@ -505,7 +505,8 @@
   function sanitizeForTelegram(html) {
     // Very small whitelist similar to the footer sanitizer.
     var input = (html || '').replace(/\r\n/g, '\n');
-    var allowedTags = new Set(['B','STRONG','I','EM','U','S','STRIKE','DEL','A','CODE','PRE','BLOCKQUOTE','BR','SPAN']);
+    /* TG-EMOJI: см. Bot API HTML — <tg-emoji emoji-id="…">валидный эмодзи</tg-emoji> */
+    var allowedTags = new Set(['B','STRONG','I','EM','U','S','STRIKE','DEL','A','CODE','PRE','BLOCKQUOTE','BR','SPAN','TG-EMOJI']);
     var doc = new DOMParser().parseFromString('<div>' + input + '</div>', 'text/html');
     var root = doc.body.firstChild;
 
@@ -516,17 +517,27 @@
           node.replaceWith(txt);
           return;
         }
-        // Keep href only for A
+        var tgEmojiId = '';
+        if (node.tagName === 'TG-EMOJI') {
+          tgEmojiId = (node.getAttribute('emoji-id') || node.getAttribute('emoji_id') || '').trim();
+        }
+        var linkHref = '';
+        if (node.tagName === 'A') {
+          linkHref = (node.getAttribute('href') || '').trim();
+        }
         var attrs = Array.from(node.attributes || []);
         attrs.forEach(function(a){ node.removeAttribute(a.name); });
         if (node.tagName === 'A') {
-          var href = (node.getAttribute('href') || '').trim();
+          var href = linkHref;
           var safe = /^https?:\/\//i.test(href);
           if (!safe) {
             node.replaceWith(doc.createTextNode(node.textContent || href));
             return;
           }
           node.setAttribute('href', href);
+        }
+        if (node.tagName === 'TG-EMOJI' && tgEmojiId) {
+          node.setAttribute('emoji-id', tgEmojiId);
         }
         if (node.tagName === 'SPAN') {
           /* только обёртки вставки; атрибуты не сохраняем */
@@ -623,9 +634,18 @@
       root.innerHTML = html;
       var fragment = '';
       var frEnts = [];
+      var segments = [];
+      var textBuf = '';
+      function flushText() {
+        if (!textBuf) return;
+        segments.push({ type: 'text', value: textBuf });
+        textBuf = '';
+      }
       function walk(node) {
         if (node.nodeType === Node.TEXT_NODE) {
-          fragment += node.nodeValue || '';
+          var v = node.nodeValue || '';
+          fragment += v;
+          textBuf += v;
           return;
         }
         if (node.nodeType !== Node.ELEMENT_NODE) return;
@@ -634,6 +654,7 @@
           var eid = node.getAttribute('emoji-id') || node.getAttribute('emoji_id') || '';
           var ch = tgEmojiCharFromElement(node);
           if (eid && ch) {
+            flushText();
             frEnts.push({
               type: 'custom_emoji',
               offset: fragment.length,
@@ -641,19 +662,22 @@
               custom_emoji_id: String(eid)
             });
             fragment += ch;
+            segments.push({ type: 'tg', id: String(eid), ch: ch });
           }
           return;
         }
         if (tag === 'br') {
           fragment += '\n';
+          textBuf += '\n';
           return;
         }
         var chn = node.childNodes;
         for (var i = 0; i < chn.length; i++) walk(chn[i]);
       }
       walk(root);
+      flushText();
       if (!frEnts.length) return null;
-      return { fragment: fragment, entities: frEnts };
+      return { fragment: fragment, entities: frEnts, segments: segments };
     }
 
     /* После вставки из Telegram в DOM попадает <tg-emoji emoji-id>; без этого custom_emoji_id теряется. */
@@ -763,10 +787,8 @@
       if (plain === null || plain === undefined) plain = '';
       var parsedCE = parseTgEmojiClipboardHtml(html);
       var toInsert = '';
-      var pastedEntities = [];
       if (parsedCE) {
         toInsert = parsedCE.fragment;
-        pastedEntities = parsedCE.entities;
       } else {
         toInsert = plain;
         if (!toInsert && html) {
@@ -785,7 +807,6 @@
 
       var insLen = toInsert.length;
       var exist = parseTgEntitiesHidden();
-      /* Замена выделения ломает смещения — сбрасываем entities (кроме новой вставки с tg-emoji). */
       if (!range.collapsed && exist.length) {
         exist = [];
       } else if (exist.length && insLen) {
@@ -797,31 +818,31 @@
           return ne;
         });
       }
-      if (pastedEntities.length) {
-        pastedEntities.forEach(function (fe) {
-          var absOff = shift + (fe.offset || 0);
-          var dup = exist.some(function (e) {
-            return e && e.type === 'custom_emoji' && e.offset === absOff && e.length === fe.length &&
-              String(e.custom_emoji_id || '') === String(fe.custom_emoji_id || '');
-          });
-          if (!dup) {
-            exist.push({
-              type: 'custom_emoji',
-              offset: absOff,
-              length: fe.length,
-              custom_emoji_id: String(fe.custom_emoji_id)
-            });
-          }
-        });
-        exist.sort(function (a, b) { return (a.offset || 0) - (b.offset || 0); });
-      }
       setTgEntitiesHidden(exist);
 
       range.deleteContents();
-      var tn = document.createTextNode(toInsert);
-      range.insertNode(tn);
-      range.setStartAfter(tn);
-      range.collapse(true);
+      /* В DOM оставляем <tg-emoji> из буфера — normalizeTgEmojiNodes() сам проставит custom_emoji в hidden (как в Bot API). */
+      if (parsedCE && parsedCE.segments && parsedCE.segments.length) {
+        var frag = document.createDocumentFragment();
+        parsedCE.segments.forEach(function (seg) {
+          if (seg.type === 'text') frag.appendChild(document.createTextNode(seg.value));
+          else if (seg.type === 'tg') {
+            var tel = document.createElement('tg-emoji');
+            tel.setAttribute('emoji-id', seg.id);
+            tel.appendChild(document.createTextNode(seg.ch));
+            frag.appendChild(tel);
+          }
+        });
+        var lastIns = frag.lastChild;
+        range.insertNode(frag);
+        if (lastIns) range.setStartAfter(lastIns);
+        range.collapse(true);
+      } else {
+        var tn = document.createTextNode(toInsert);
+        range.insertNode(tn);
+        range.setStartAfter(tn);
+        range.collapse(true);
+      }
       sel.removeAllRanges();
       sel.addRange(range);
 

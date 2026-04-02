@@ -824,6 +824,10 @@ def _prepare_telegram_publish_bundle(post, channel):
     if not bot_token or not chat_id:
         raise ValueError('Не настроен токен бота или chat_id для Telegram')
 
+    # custom_emoji / <tg-emoji>: в Bot API указано, что такие сущности доступны боту при Fragment
+    # или в чатах private / group / supergroup при Premium владельца бота; каналы в списке нет —
+    # см. «Custom emoji entities can only be used…» в
+    # https://core.telegram.org/bots/api#formatting-options
     raw_entities = getattr(post, 'tg_entities', None)
     tg_entities_list = raw_entities if isinstance(raw_entities, list) else []
     use_entities = bool(tg_entities_list)
