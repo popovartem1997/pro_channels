@@ -182,7 +182,10 @@ def import_tg_history_to_max_task(self, run_id: int):
         pth = Path(file_path)
         if not pth.exists():
             return False
-        post = Post.objects.get(pk=post_id)
+        try:
+            post = Post.objects.get(pk=post_id)
+        except Post.DoesNotExist:
+            return False
         with pth.open('rb') as f:
             PostMedia.objects.create(
                 post=post,
@@ -195,13 +198,19 @@ def import_tg_history_to_max_task(self, run_id: int):
     @sync_to_async(thread_sensitive=True)
     def _normalize_media(post_id: int):
         from content.models import Post, normalize_post_media_orders
-        post = Post.objects.get(pk=post_id)
+        try:
+            post = Post.objects.get(pk=post_id)
+        except Post.DoesNotExist:
+            return
         normalize_post_media_orders(post)
 
     @sync_to_async(thread_sensitive=True)
     def _create_publish_result(post_id: int, ok: bool, platform_message_id: str = '', error_message: str = ''):
         from content.models import Post, PublishResult
-        post = Post.objects.get(pk=post_id)
+        try:
+            post = Post.objects.get(pk=post_id)
+        except Post.DoesNotExist:
+            return
         PublishResult.objects.create(
             post=post,
             channel=target,
@@ -213,7 +222,10 @@ def import_tg_history_to_max_task(self, run_id: int):
     @sync_to_async(thread_sensitive=True)
     def _set_post_status(post_id: int, *, status: str, published_at=None):
         from content.models import Post
-        post = Post.objects.get(pk=post_id)
+        try:
+            post = Post.objects.get(pk=post_id)
+        except Post.DoesNotExist:
+            return
         post.status = status
         if published_at is not None:
             post.published_at = published_at
@@ -224,7 +236,11 @@ def import_tg_history_to_max_task(self, run_id: int):
     @sync_to_async(thread_sensitive=True)
     def _publish_max_sync(post_id: int):
         from content.models import Post
-        post = Post.objects.prefetch_related('media_files', 'channels').get(pk=post_id)
+        try:
+            post = Post.objects.prefetch_related('media_files', 'channels').get(pk=post_id)
+        except Post.DoesNotExist:
+            # Пост мог быть удалён вручную во время импорта — пропускаем без падения всей задачи.
+            raise RuntimeError('Post was deleted during import')
         return _publish_max(post, target)
 
     async def _do_import():
