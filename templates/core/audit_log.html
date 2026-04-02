@@ -137,9 +137,11 @@
           <li class="list-group-item px-4 py-3">
             <div class="small text-muted">{{ v.created_at|date:"d.m H:i:s" }}</div>
             <div class="fw-semibold">
-              {{ v.method }} {{ v.path }}
+              <a href="{{ v.path }}" class="text-decoration-none" target="_blank" rel="noopener">
+                {{ v.method }} {{ v.path }}
+              </a>
               {% if item.view_name %}
-                <span class="badge bg-light text-dark border ms-1">{{ item.view_name }}</span>
+                <span class="badge bg-light text-dark border ms-1">{{ item.view_label|default:item.view_name }}</span>
               {% endif %}
             </div>
             <div class="text-muted small">

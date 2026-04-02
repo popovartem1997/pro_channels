@@ -153,12 +153,12 @@ def _get_subscribers_count(channel):
 def sync_post_stats():
     """Собирает статистику опубликованных постов (просмотры, реакции).
 
-    Обрабатывает посты, опубликованные за последние 7 дней.
+    Обрабатывает посты, опубликованные за последние 120 дней (под периоды 7/30/90).
     """
     from content.models import Post, PublishResult
     from .models import PostStat, PostStatSnapshot
 
-    cutoff = timezone.now() - timedelta(days=7)
+    cutoff = timezone.now() - timedelta(days=120)
     results = PublishResult.objects.filter(
         status=PublishResult.STATUS_OK,
         post__published_at__gte=cutoff,

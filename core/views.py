@@ -204,11 +204,23 @@ def audit_log(request):
             return ''
         return ''
 
+    def _view_label(view_name: str) -> str:
+        """
+        Читабельное название для view_name (best-effort).
+        Пример: 'channels:detail' -> 'channels → detail'
+        """
+        s = (view_name or '').strip()
+        if not s:
+            return ''
+        return s.replace(':', ' → ').replace('_', ' ')
+
     visits_enriched = []
     for v in visits:
+        vn = _resolve_name(v.path)
         visits_enriched.append({
             'obj': v,
-            'view_name': _resolve_name(v.path),
+            'view_name': vn,
+            'view_label': _view_label(vn),
         })
 
     def _audit_base_qs():
