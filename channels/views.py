@@ -583,20 +583,30 @@ def import_history_start(request):
         if existing:
             return JsonResponse({'ok': True, 'run_id': existing.pk, 'message': 'Импорт уже запущен.'})
 
-        # Continue-from: если уже были попытки импорта для этой пары каналов — продолжим с последнего TG message_id.
+        # Continue-from: если уже были попытки импорта для этой пары каналов — продолжим с максимального
+        # last_tg_message_id (вдруг последний run завершился ошибкой/остановкой, но прогресс успел сохраниться).
         prev_last_id = None
         try:
-            prev = (
+            prev_runs = (
                 HistoryImportRun.objects
                 .filter(source_channel=source, target_channel=target)
-                .exclude(progress_json__isnull=True)
-                .order_by('-updated_at', '-created_at')
-                .first()
+                .order_by('-updated_at', '-created_at')[:25]
             )
-            if prev and isinstance(prev.progress_json, dict):
-                raw = prev.progress_json.get('last_tg_message_id')
-                if raw is not None and str(raw).strip().isdigit():
-                    prev_last_id = int(raw)
+            best = None
+            for r in prev_runs:
+                pj = getattr(r, 'progress_json', None)
+                if not isinstance(pj, dict):
+                    continue
+                raw = pj.get('last_tg_message_id')
+                if raw is None:
+                    continue
+                s = str(raw).strip()
+                if not s.isdigit():
+                    continue
+                n = int(s)
+                if best is None or n > best:
+                    best = n
+            prev_last_id = best
         except Exception:
             prev_last_id = None
 
