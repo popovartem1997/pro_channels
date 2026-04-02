@@ -26,19 +26,27 @@ def _strip_simple_markdown(text: str) -> str:
     if not s.strip():
         return ''
 
+    def _sub(pattern: str, repl: str):
+        nonlocal s
+        try:
+            s = re.sub(pattern, repl, s)
+        except re.error:
+            # Best-effort: don't break import on malformed regex
+            pass
+
     # Code blocks / inline code
-    s = re.sub(r"```([\\s\\S]*?)```", r"\\1", s)
-    s = re.sub(r"`([^`\\n]+?)`", r"\\1", s)
+    _sub(r"```([\s\S]*?)```", r"\1")
+    _sub(r"`([^`\n]+?)`", r"\1")
 
     # Links: [text](url) -> text (url)
-    s = re.sub(r"\\[([^\\]]+?)\\]\\((https?://[^\\s)]+)\\)", r"\\1 (\\2)", s)
+    _sub(r"\[([^\]]+?)\]\((https?://[^\s)]+)\)", r"\1 (\2)")
 
     # Bold/italic/underline/strike (common markdown)
-    s = re.sub(r"\\*\\*([^*\\n]+?)\\*\\*", r"\\1", s)
-    s = re.sub(r"__([^_\\n]+?)__", r"\\1", s)
-    s = re.sub(r"~~([^~\\n]+?)~~", r"\\1", s)
-    s = re.sub(r"\\*([^*\\n]+?)\\*", r"\\1", s)
-    s = re.sub(r"_([^_\\n]+?)_", r"\\1", s)
+    _sub(r"\*\*([^*\n]+?)\*\*", r"\1")
+    _sub(r"__([^_\n]+?)__", r"\1")
+    _sub(r"~~([^~\n]+?)~~", r"\1")
+    _sub(r"\*([^*\n]+?)\*", r"\1")
+    _sub(r"_([^_\n]+?)_", r"\1")
 
     # Cleanup stray markers
     s = s.replace('\\u2060', '')  # word-joiner
