@@ -417,6 +417,145 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
 
     return imported, warnings
 
+
+def _parsed_media_entries(raw) -> list[str]:
+    """Нормализует ParsedItem.media (list/str/dict) в список URL или путей."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        s = raw.strip()
+        return [s] if s else []
+    if isinstance(raw, dict):
+        u = (raw.get('url') or raw.get('src') or '').strip()
+        return [u] if u else []
+    if isinstance(raw, (list, tuple)):
+        out: list[str] = []
+        for x in raw:
+            out.extend(_parsed_media_entries(x))
+        return out
+    return []
+
+
+def _postmedia_type_from_filename(name: str) -> str:
+    from .models import PostMedia
+
+    n = (name or '').lower()
+    for ext in ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic', '.tiff'):
+        if n.endswith(ext):
+            return PostMedia.TYPE_PHOTO
+    for ext in ('.mp4', '.mov', '.webm', '.mkv', '.m4v'):
+        if n.endswith(ext):
+            return PostMedia.TYPE_VIDEO
+    return PostMedia.TYPE_DOCUMENT
+
+
+def _load_bytes_for_parsed_media_url(url: str) -> tuple[bytes | None, str]:
+    """Загружает файл по http(s) или из MEDIA_ROOT для путей вида /media/..."""
+    from pathlib import Path
+    from urllib.parse import urlparse
+
+    from django.conf import settings
+
+    import requests
+
+    u = (url or '').strip()
+    if not u:
+        return None, 'file.bin'
+
+    if u.startswith('http://') or u.startswith('https://'):
+        try:
+            r = requests.get(
+                u,
+                timeout=45,
+                headers={'User-Agent': 'Mozilla/5.0 (compatible; ProChannels/1.0)'},
+            )
+            r.raise_for_status()
+            name = Path(urlparse(u).path).name
+            if not name or '.' not in name:
+                ct = (r.headers.get('Content-Type') or '').split(';')[0].strip().lower()
+                if 'jpeg' in ct or 'jpg' in ct:
+                    name = 'image.jpg'
+                elif 'png' in ct:
+                    name = 'image.png'
+                elif 'webp' in ct:
+                    name = 'image.webp'
+                elif 'mp4' in ct:
+                    name = 'video.mp4'
+                else:
+                    name = 'download.bin'
+            return r.content, name[:200]
+        except Exception:
+            return None, 'file.bin'
+
+    media_root = Path(settings.MEDIA_ROOT).resolve()
+    rel = None
+    media_url = (settings.MEDIA_URL or '/media/').strip()
+    if not media_url.startswith('/'):
+        media_url = '/' + media_url
+    media_url = media_url.rstrip('/') + '/'
+    if u.startswith(media_url):
+        rel = u[len(media_url) :].lstrip('/')
+    elif u.startswith('/media/'):
+        rel = u[len('/media/') :].lstrip('/')
+    else:
+        rel = u.lstrip('/')
+
+    if not rel:
+        return None, 'file.bin'
+    path = (media_root / rel).resolve()
+    try:
+        path.relative_to(media_root)
+    except ValueError:
+        return None, 'file.bin'
+    if not path.is_file():
+        return None, 'file.bin'
+    return path.read_bytes(), path.name
+
+
+def import_parsed_item_media_into_post(post_id: int, parsed_item) -> tuple[int, list[str]]:
+    """
+    Копирует медиа из ParsedItem.media в PostMedia (локальные файлы парсера или URL).
+    Возвращает (число вложений, предупреждения).
+    """
+    from django.core.files.base import ContentFile
+
+    from .models import Post, PostMedia, normalize_post_media_orders
+
+    warnings: list[str] = []
+    try:
+        post = Post.objects.get(pk=post_id)
+    except Post.DoesNotExist:
+        return 0, ['Пост не найден для импорта медиа']
+
+    urls = _parsed_media_entries(parsed_item.media)
+    if not urls:
+        return 0, []
+
+    max_order = PostMedia.objects.filter(post=post).aggregate(m=Max('order'))['m']
+    order = int(max_order) if max_order else 0
+
+    imported = 0
+    prefix = f'parsed_{parsed_item.pk}_'
+    for u in urls:
+        try:
+            data, base_name = _load_bytes_for_parsed_media_url(u)
+            if not data:
+                warnings.append(f'Файл недоступен: {u[:120]}')
+                continue
+            safe_name = prefix + (base_name or 'file.bin').replace('..', '_').replace('/', '_')
+            media_type = _postmedia_type_from_filename(safe_name)
+            order += 1
+            pm = PostMedia(post=post, media_type=media_type, order=order)
+            pm.file.save(safe_name, ContentFile(data), save=True)
+            imported += 1
+        except Exception as exc:
+            warnings.append(f'{u[:80]}: {exc}')
+
+    if imported:
+        normalize_post_media_orders(post)
+    return imported, warnings
+
+
 @shared_task(bind=True, max_retries=2, default_retry_delay=60)
 def import_media_from_suggestion_task(self, post_id: int):
     """

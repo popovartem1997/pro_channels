@@ -784,6 +784,7 @@ def item_to_post(request, pk):
         pk=pk,
     )
     from content.models import Post
+    from content.tasks import import_parsed_item_media_into_post
 
     # Текст: AI версия приоритетнее
     text = (item.ai_rewrite or '').strip() or item.text
@@ -797,12 +798,17 @@ def item_to_post(request, pk):
     post = Post.objects.create(
         author=post_author,
         text=text,
+        text_html='',
         status=Post.STATUS_DRAFT,
     )
 
     ch_ids = _channel_ids_for_new_post_from_parsed_item(item, request.user)
     if ch_ids:
         post.channels.set(ch_ids)
+
+    _imp, media_warnings = import_parsed_item_media_into_post(post.pk, item)
+    for w in media_warnings[:12]:
+        messages.warning(request, w)
 
     item.status = ParsedItem.STATUS_USED
     item.save(update_fields=['status'])
@@ -814,10 +820,18 @@ def item_to_post(request, pk):
 @login_required
 @require_POST
 def item_ai_to_post(request, pk):
-    """DeepSeek: короткий пост + редирект на создание поста с предзаполненным текстом."""
+    """DeepSeek: текст в выбранном тоне + черновик поста с медиа из парсинга → редактор."""
+    import re
+
     from django.conf import settings
 
-    item = get_object_or_404(_parsed_items_base_qs(request.user), pk=pk)
+    from content.models import Post
+    from content.tasks import import_parsed_item_media_into_post
+
+    item = get_object_or_404(
+        _parsed_items_base_qs(request.user).select_related('keyword', 'keyword__channel'),
+        pk=pk,
+    )
     from core.models import get_global_api_keys
 
     keys = get_global_api_keys()
@@ -844,25 +858,45 @@ def item_ai_to_post(request, pk):
         messages.error(request, f'Не удалось сгенерировать текст: {exc}')
         return redirect(request.META.get('HTTP_REFERER') or reverse('core:feed'))
 
-    from content.views import POST_CREATE_SESSION_PREFILL
+    if not (plain or '').strip() and not (ht or '').strip():
+        messages.error(request, 'AI вернул пустой текст.')
+        return redirect(request.META.get('HTTP_REFERER') or reverse('core:feed'))
 
+    text_plain = (plain or '').strip() or re.sub(r'<[^>]+>', ' ', ht or '').strip()
+    text_html = (ht or '').strip()
+
+    kw_channel = item.keyword.channel
+    if request.user.role in ('manager', 'assistant_admin'):
+        post_author = kw_channel.owner if kw_channel else request.user
+    else:
+        post_author = request.user
+
+    post = Post.objects.create(
+        author=post_author,
+        text=text_plain,
+        text_html=text_html,
+        status=Post.STATUS_DRAFT,
+    )
     ch_ids = _channel_ids_for_new_post_from_parsed_item(item, request.user)
-    request.session[POST_CREATE_SESSION_PREFILL] = {
-        'text': plain,
-        'text_html': ht or plain,
-        'channel_ids': ch_ids,
-    }
+    if ch_ids:
+        post.channels.set(ch_ids)
+
+    _imp, media_warnings = import_parsed_item_media_into_post(post.pk, item)
+    for w in media_warnings[:12]:
+        messages.warning(request, w)
+
     try:
         item.ai_rewrite = (plain or '')[:5000]
-        item.save(update_fields=['ai_rewrite'])
+        item.status = ParsedItem.STATUS_USED
+        item.save(update_fields=['ai_rewrite', 'status'])
     except Exception:
         pass
 
     messages.success(
         request,
-        f'Черновик подготовлен (тон: «{ai_tone_label(tone)}») — проверьте текст и каналы перед публикацией.',
+        f'Черновик создан (тон: «{ai_tone_label(tone)}»), медиа из материала прикреплены при наличии файлов.',
     )
-    return redirect('content:create')
+    return redirect('content:edit', pk=post.pk)
 
 @login_required
 def parse_tasks_list(request):
