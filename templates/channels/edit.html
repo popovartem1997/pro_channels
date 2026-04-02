@@ -117,6 +117,29 @@
                      value="{{ channel.ord_pad_external_id|default:'' }}"
                      placeholder="Если задан — используется при передаче статистики по этому каналу">
             </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold" for="id_ad_slot_schedule_json">Расписание слотов для рекламы (JSON)</label>
+              <textarea class="form-control font-monospace" id="id_ad_slot_schedule_json" name="ad_slot_schedule_json"
+                        rows="8" spellcheck="false"
+                        placeholder='[{"weekday": 0, "times": ["10:00", "18:00"]}, {"weekday": 3, "times": ["12:00"]}]'>{{ ad_slot_json_text|default:'[]' }}</textarea>
+              <div class="form-text">
+                По этому расписанию генерируются <strong>свободные слоты</strong>, которые рекламодатель выбирает в заявке.
+                <code>weekday</code>: пн = 0 … вс = 6. <code>times</code>: локальное время сервера (часы:минуты).
+                Пустой массив <code>[]</code> — слотов не будет.
+              </div>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-semibold" for="id_ad_slot_horizon_days">Слоты на сколько дней вперёд</label>
+              <input type="number" class="form-control" id="id_ad_slot_horizon_days" name="ad_slot_horizon_days"
+                     min="1" max="366" value="{{ channel.ad_slot_horizon_days|default:56 }}">
+              <div class="form-text">Обычно 4–8 недель.</div>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-semibold" for="id_ad_post_lifetime_days">Срок размещения для акта (дней)</label>
+              <input type="number" class="form-control" id="id_ad_post_lifetime_days" name="ad_post_lifetime_days"
+                     min="1" max="365" value="{{ channel.ad_post_lifetime_days|default:7 }}">
+              <div class="form-text">После публикации — период для закрытия кампании и акта.</div>
+            </div>
           </div>
 
           <!-- Контакты админа -->

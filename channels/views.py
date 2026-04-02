@@ -1,8 +1,9 @@
 """
 Управление каналами и пабликами.
 """
+import json
 from decimal import Decimal, InvalidOperation
-from typing import Optional
+from typing import Optional, Tuple
 
 import requests as http_requests
 from django.shortcuts import render, redirect, get_object_or_404
@@ -20,6 +21,39 @@ def _team_channel_editor_user(user) -> bool:
     return getattr(user, 'role', '') in ('manager', 'assistant_admin') and not (
         user.is_staff or user.is_superuser
     )
+
+
+def _parse_ad_slot_schedule_json(raw) -> Tuple[Optional[list], Optional[str]]:
+    """
+    Парсит JSON расписания слотов рекламы.
+    Формат: [{"weekday": 0, "times": ["10:00", "14:00"]}, ...] — weekday пн=0 … вс=6.
+    """
+    if raw is None:
+        return [], None
+    s = str(raw).strip()
+    if not s:
+        return [], None
+    try:
+        data = json.loads(s)
+    except json.JSONDecodeError as e:
+        return None, f'Некорректный JSON: {e}'
+    if not isinstance(data, list):
+        return None, 'Ожидается JSON-массив [...]'
+    for i, block in enumerate(data):
+        if not isinstance(block, dict):
+            return None, f'Элемент {i}: нужен объект {{ "weekday", "times" }}'
+        wd = block.get('weekday')
+        if wd is not None:
+            try:
+                wdi = int(wd)
+            except (TypeError, ValueError):
+                return None, f'Элемент {i}: weekday должен быть числом 0–6'
+            if wdi < 0 or wdi > 6:
+                return None, f'Элемент {i}: weekday в диапазоне 0 (пн) … 6 (вс)'
+        times = block.get('times')
+        if times is not None and not isinstance(times, list):
+            return None, f'Элемент {i}: times — массив строк времени (например "10:30")'
+    return data, None
 
 
 def _parse_ad_price(raw) -> Optional[Decimal]:
@@ -277,6 +311,19 @@ def channel_edit(request, pk):
             channel.ad_price = parsed_price
         channel.ord_pad_external_id = (request.POST.get('ord_pad_external_id') or '').strip()
 
+        sched_list, sched_err = _parse_ad_slot_schedule_json(request.POST.get('ad_slot_schedule_json'))
+        if sched_err:
+            messages.warning(request, f'Расписание слотов не обновлено: {sched_err}')
+        else:
+            channel.ad_slot_schedule_json = sched_list
+
+        h_raw = (request.POST.get('ad_slot_horizon_days') or '').strip()
+        if h_raw.isdigit():
+            channel.ad_slot_horizon_days = max(1, min(366, int(h_raw)))
+        lt_raw = (request.POST.get('ad_post_lifetime_days') or '').strip()
+        if lt_raw.isdigit():
+            channel.ad_post_lifetime_days = max(1, min(365, int(lt_raw)))
+
         if channel.platform == Channel.PLATFORM_TELEGRAM:
             new_token = request.POST.get('tg_bot_token', '').strip()
             channel.tg_chat_id = request.POST.get('tg_chat_id', channel.tg_chat_id).strip()
@@ -320,11 +367,17 @@ def channel_edit(request, pk):
         return redirect('channels:detail', pk=pk)
 
     groups = ChannelGroup.objects.filter(owner=request.user).order_by('name', 'pk')
-    return render(request, 'channels/edit.html', {
-        'channel': channel,
-        'footer_only': footer_only,
-        'channel_groups': groups,
-    })
+    ad_slot_json_text = json.dumps(channel.ad_slot_schedule_json or [], ensure_ascii=False, indent=2)
+    return render(
+        request,
+        'channels/edit.html',
+        {
+            'channel': channel,
+            'footer_only': footer_only,
+            'channel_groups': groups,
+            'ad_slot_json_text': ad_slot_json_text,
+        },
+    )
 
 
 @login_required
