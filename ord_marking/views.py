@@ -3,9 +3,10 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.views.decorators.http import require_POST
 from django.http import HttpResponseForbidden
+from django.http import JsonResponse
 from django.utils import timezone
 
-from .models import ORDRegistration
+from .models import ORDRegistration, OrdSyncRun
 from .services import (
     register_creative_for_registration,
     refresh_erid_from_api,
@@ -45,27 +46,46 @@ def ord_dashboard(request):
     )
 
 
+def _can_sync_ord(user) -> bool:
+    return bool(user.is_staff or user.is_superuser or getattr(user, 'role', '') == 'owner')
+
+
 @login_required
 @require_POST
-def ord_sync_catalog(request):
-    """Подтянуть контрагентов/договоры из ЛК ОРД в нашу БД."""
-    if not (request.user.is_staff or request.user.is_superuser or getattr(request.user, 'role', '') == 'owner'):
-        return HttpResponseForbidden('Forbidden')
-    _, sandbox = _ord_keys_flags()
-    from advertisers.services import sync_advertisers_and_contracts_from_ord
-
+def ord_sync_start(request):
+    """Запуск синхронизации ОРД в фоне (Celery). Возвращает JSON с id запуска."""
+    if not _can_sync_ord(request.user):
+        return JsonResponse({'ok': False, 'error': 'Forbidden'}, status=403)
+    run = OrdSyncRun.objects.create(created_by=request.user, status=OrdSyncRun.STATUS_PENDING)
     try:
-        res = sync_advertisers_and_contracts_from_ord(use_sandbox=sandbox)
-        if not res.get('ok'):
-            messages.error(request, res.get('error') or 'Ошибка синхронизации')
-        else:
-            messages.success(
-                request,
-                f"Синхронизация ОРД: рекламодатели +{res.get('created', 0)}, обновлено {res.get('updated', 0)}, договоров {res.get('contracts', 0)}.",
-            )
+        from ord_marking.tasks import sync_ord_catalog_task
+
+        sync_ord_catalog_task.delay(run.pk)
     except Exception as e:
-        messages.error(request, f'Ошибка синхронизации ОРД: {e}')
-    return redirect('ord_marking:dashboard')
+        run.status = OrdSyncRun.STATUS_ERROR
+        run.error_message = str(e)[:2000]
+        run.finished_at = timezone.now()
+        run.save(update_fields=['status', 'error_message', 'finished_at'])
+        return JsonResponse({'ok': False, 'error': f'Не удалось запустить задачу: {e}'}, status=500)
+    return JsonResponse({'ok': True, 'run_id': run.pk})
+
+
+@login_required
+def ord_sync_status(request, pk: int):
+    """Статус фоновой синхронизации ОРД."""
+    if not _can_sync_ord(request.user):
+        return JsonResponse({'ok': False, 'error': 'Forbidden'}, status=403)
+    run = get_object_or_404(OrdSyncRun, pk=pk)
+    return JsonResponse(
+        {
+            'ok': True,
+            'status': run.status,
+            'error_message': run.error_message,
+            'result': run.result,
+            'started_at': run.started_at.isoformat() if run.started_at else None,
+            'finished_at': run.finished_at.isoformat() if run.finished_at else None,
+        }
+    )
 
 
 @login_required

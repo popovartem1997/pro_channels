@@ -95,6 +95,7 @@ def post_create(request):
 
     if request.method == 'POST':
         text = request.POST.get('text', '').strip()
+        text_html = (request.POST.get('text_html') or '').strip()
         channel_ids = request.POST.getlist('channels')
         scheduled_at_str = request.POST.get('scheduled_at', '').strip()
         repeat_enabled = request.POST.get('repeat_enabled') == 'on'
@@ -129,6 +130,7 @@ def post_create(request):
         post = Post(
             author=request.user,
             text=text,
+            text_html=text_html,
             repeat_enabled=repeat_enabled,
             repeat_type=repeat_type,
             repeat_interval_days=repeat_interval_days,
@@ -384,6 +386,7 @@ def post_edit(request, pk):
 
         channel_ids = request.POST.getlist('channels')
         post.text = request.POST.get('text', post.text).strip()
+        post.text_html = (request.POST.get('text_html') or '').strip()
         post.pin_message = request.POST.get('pin_message') == 'on'
         post.disable_notification = request.POST.get('disable_notification') == 'on'
         post.ord_label = request.POST.get('ord_label', '').strip()

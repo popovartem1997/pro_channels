@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+import time
 from typing import Any
 from urllib.parse import quote, urlencode
 
@@ -45,24 +46,41 @@ def ord_request(
         data = json.dumps(json_body, ensure_ascii=False).encode('utf-8')
         headers['Content-Type'] = 'application/json'
     req = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read().decode('utf-8', errors='replace')
-            status = resp.getcode() or 200
-            if not raw.strip():
-                return status, {}
-            try:
-                return status, json.loads(raw)
-            except json.JSONDecodeError:
-                return status, {'_raw': raw}
-    except urllib.error.HTTPError as e:
-        raw = e.read().decode('utf-8', errors='replace') if e.fp else ''
-        parsed = None
+    last_err = None
+    for attempt in range(4):
         try:
-            parsed = json.loads(raw) if raw.strip() else {}
-        except json.JSONDecodeError:
-            parsed = {'_raw': raw}
-        raise OrdVkApiError(e.code, raw, parsed) from e
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read().decode('utf-8', errors='replace')
+                status = resp.getcode() or 200
+                if not raw.strip():
+                    return status, {}
+                try:
+                    return status, json.loads(raw)
+                except json.JSONDecodeError:
+                    return status, {'_raw': raw}
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode('utf-8', errors='replace') if e.fp else ''
+            parsed = None
+            try:
+                parsed = json.loads(raw) if raw.strip() else {}
+            except json.JSONDecodeError:
+                parsed = {'_raw': raw}
+            raise OrdVkApiError(e.code, raw, parsed) from e
+        except urllib.error.URLError as e:
+            # Временами nginx ОРД рвёт соединение (Errno 104). Делаем ретраи.
+            last_err = e
+            msg = str(e.reason or e)
+            if attempt < 3 and ('104' in msg or 'reset' in msg.lower()):
+                time.sleep(0.6 + attempt * 0.8)
+                continue
+            raise OrdVkApiError(0, msg, {'error': msg}) from e
+        except ConnectionResetError as e:
+            last_err = e
+            if attempt < 3:
+                time.sleep(0.6 + attempt * 0.8)
+                continue
+            raise OrdVkApiError(0, str(e), {'error': str(e)}) from e
+    raise OrdVkApiError(0, str(last_err or 'network error'), {'error': str(last_err or 'network error')})
 
 
 def put_creative_v2(

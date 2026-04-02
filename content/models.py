@@ -37,7 +37,10 @@ class Post(models.Model):
     )
     channels = models.ManyToManyField('channels.Channel', related_name='posts', verbose_name='Каналы для публикации')
 
+    # text: plain text (для MAX/VK и общего отображения)
     text = models.TextField(verbose_name='Текст поста')
+    # text_html: HTML (для Telegram parse_mode=HTML и предпросмотра)
+    text_html = models.TextField(blank=True, verbose_name='Текст поста (HTML для Telegram)')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True, verbose_name='Статус')
 
     # Планирование

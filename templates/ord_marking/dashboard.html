@@ -13,18 +13,20 @@
   </div>
   <div class="d-flex gap-2 flex-wrap">
     {% if user.is_staff or user.is_superuser or user.role == 'owner' %}
-    <form method="post" action="{% url 'ord_marking:sync' %}">
-      {% csrf_token %}
-      <button type="submit" class="btn btn-outline-secondary">
-        <i class="bi bi-arrow-repeat me-1"></i> Синхронизировать контрагентов/договоры
+      <button type="button" class="btn btn-outline-secondary" id="btn-ord-sync">
+        <span class="spinner-border spinner-border-sm me-2 d-none" role="status" aria-hidden="true" id="ord-sync-spinner"></span>
+        <i class="bi bi-arrow-repeat me-1" id="ord-sync-ico"></i> Синхронизировать контрагентов/договоры
       </button>
-    </form>
     {% endif %}
     <a href="{% url 'ord_marking:create' %}" class="btn btn-brand">
       <i class="bi bi-plus-lg me-1"></i> Новая регистрация
     </a>
   </div>
 </div>
+
+{% if user.is_staff or user.is_superuser or user.role == 'owner' %}
+  <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+{% endif %}
 
 <div class="row g-3 mb-4">
   <div class="col-12 col-md-6">
@@ -116,4 +118,68 @@
     </table>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var btn = document.getElementById('btn-ord-sync');
+  if (!btn) return;
+  var spinner = document.getElementById('ord-sync-spinner');
+  var ico = document.getElementById('ord-sync-ico');
+
+  function setLoading(on) {
+    btn.disabled = !!on;
+    if (spinner) spinner.classList.toggle('d-none', !on);
+    if (ico) ico.classList.toggle('d-none', !!on);
+  }
+
+  function flash(kind, text) {
+    // kind: success|danger|warning|info
+    var wrap = document.querySelector('.main-content');
+    if (!wrap) return;
+    var el = document.createElement('div');
+    el.className = 'alert alert-' + kind + ' alert-dismissible fade show';
+    el.innerHTML = text + ' <button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+    wrap.insertBefore(el, wrap.firstChild);
+    setTimeout(function(){ try { bootstrap.Alert.getOrCreateInstance(el).close(); } catch(e){} }, 8000);
+  }
+
+  async function poll(runId) {
+    for (var i = 0; i < 300; i++) { // ~10 минут
+      await new Promise(function(r){ setTimeout(r, 2000); });
+      var r = await fetch('{% url "ord_marking:sync_status" 1 %}'.replace('/1/', '/' + runId + '/'), { credentials: 'same-origin' });
+      var data = await r.json();
+      if (!data.ok) throw new Error(data.error || 'status error');
+      if (data.status === 'done') return data;
+      if (data.status === 'error') return data;
+    }
+    throw new Error('timeout');
+  }
+
+  btn.addEventListener('click', async function () {
+    try {
+      setLoading(true);
+      var r = await fetch('{% url "ord_marking:sync_start" %}', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'X-CSRFToken': (document.querySelector('input[name=csrfmiddlewaretoken]') || {}).value || '' },
+      });
+      var data = await r.json();
+      if (!data.ok) throw new Error(data.error || 'start error');
+      var res = await poll(data.run_id);
+      if (res.status === 'done') {
+        var rr = res.result || {};
+        flash('success', 'Синхронизация ОРД завершена: рекламодатели +' + (rr.created||0) + ', обновлено ' + (rr.updated||0) + ', договоров ' + (rr.contracts||0) + '.');
+      } else {
+        flash('danger', 'Синхронизация ОРД: ошибка: ' + (res.error_message || 'unknown'));
+      }
+    } catch (e) {
+      flash('danger', 'Синхронизация ОРД: ошибка запуска/проверки: ' + (e && e.message ? e.message : e));
+    } finally {
+      setLoading(false);
+    }
+  });
+})();
+</script>
 {% endblock %}

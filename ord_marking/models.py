@@ -54,3 +54,37 @@ class ORDRegistration(models.Model):
 
     def __str__(self):
         return f'ОРД: {self.post} → {self.channel} ({self.get_status_display()})'
+
+
+class OrdSyncRun(models.Model):
+    """Фоновая синхронизация кабинета ОРД (контрагенты/договоры) в нашу БД."""
+    STATUS_PENDING = 'pending'
+    STATUS_RUNNING = 'running'
+    STATUS_DONE = 'done'
+    STATUS_ERROR = 'error'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'В очереди'),
+        (STATUS_RUNNING, 'В работе'),
+        (STATUS_DONE, 'Готово'),
+        (STATUS_ERROR, 'Ошибка'),
+    ]
+
+    created_by = models.ForeignKey(
+        'accounts.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='ord_sync_runs',
+        verbose_name='Запустил',
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    result = models.JSONField(default=dict)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'ОРД синхронизация'
+        verbose_name_plural = 'ОРД синхронизации'
+        ordering = ['-created_at']

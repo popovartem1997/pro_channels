@@ -31,3 +31,37 @@ def submit_previous_month_ord_statistics():
             submit_statistics_for_month(reg, y, m, use_sandbox=sandbox)
         except Exception:
             continue
+
+
+@shared_task(ignore_result=True)
+def sync_ord_catalog_task(run_id: int):
+    """Фоновая синхронизация контрагентов/договоров из ОРД."""
+    from django.utils import timezone
+    from ord_marking.models import OrdSyncRun
+    from advertisers.services import sync_advertisers_and_contracts_from_ord
+    from core.models import get_global_api_keys
+
+    run = OrdSyncRun.objects.filter(pk=run_id).first()
+    if not run:
+        return
+    keys = get_global_api_keys()
+    sandbox = bool(getattr(keys, 'vk_ord_use_sandbox', False))
+    run.status = OrdSyncRun.STATUS_RUNNING
+    run.started_at = timezone.now()
+    run.error_message = ''
+    run.save(update_fields=['status', 'started_at', 'error_message'])
+
+    try:
+        res = sync_advertisers_and_contracts_from_ord(use_sandbox=sandbox)
+        if not res.get('ok'):
+            run.status = OrdSyncRun.STATUS_ERROR
+            run.error_message = (res.get('error') or 'Ошибка синхронизации')[:2000]
+            run.result = res
+        else:
+            run.status = OrdSyncRun.STATUS_DONE
+            run.result = res
+    except Exception as e:
+        run.status = OrdSyncRun.STATUS_ERROR
+        run.error_message = str(e)[:2000]
+    run.finished_at = timezone.now()
+    run.save(update_fields=['status', 'result', 'error_message', 'finished_at'])

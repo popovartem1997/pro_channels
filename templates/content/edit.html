@@ -7,6 +7,14 @@
   .channel-check-item:has(input:checked) { border-color: var(--brand); background: var(--brand-light); }
   .post-edit-wrap { max-width: 1100px; margin-left: auto; margin-right: auto; }
   .media-preview-thumb { width: 120px; height: 120px; object-fit: cover; border-radius: 10px; border: 1px solid #e2e8f0; flex-shrink: 0; }
+  .fmt-toolbar { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+  .fmt-btn {
+    border: 1px solid #dee2e6; background: #fff; border-radius: 6px;
+    padding: 3px 9px; font-size: .8rem; cursor: pointer; color: #374151;
+    transition: all .1s;
+  }
+  .fmt-btn:hover { background: var(--brand-light); border-color: var(--brand); color: var(--brand); }
+  [contenteditable][data-placeholder]:empty:before { content: attr(data-placeholder); color: #94a3b8; }
 </style>
 {% endblock %}
 
@@ -28,9 +36,25 @@
       <div class="card mb-4">
         <div class="card-body p-4">
           <label class="form-label fw-semibold" for="id_text">Текст поста</label>
-          <textarea name="text" id="id_text" rows="10"
-                    class="form-control"
-                    placeholder="Напишите текст поста...">{{ request.POST.text|default:post.text }}</textarea>
+          <div class="fmt-toolbar js-post-toolbar mb-2" data-target="id_text_editor" data-hidden="id_text_html" data-plain="id_text">
+            <button type="button" class="fmt-btn" data-action="bold" title="Жирный"><b>Ж</b></button>
+            <button type="button" class="fmt-btn" data-action="italic" title="Курсив"><i>К</i></button>
+            <button type="button" class="fmt-btn" data-action="underline" title="Подчёркнутый"><u>П</u></button>
+            <button type="button" class="fmt-btn" data-action="strike" title="Зачёркнутый"><s>З</s></button>
+            <button type="button" class="fmt-btn" data-action="link" title="Ссылка"><i class="bi bi-link-45deg"></i></button>
+            <button type="button" class="fmt-btn" data-action="quote" title="Цитата"><i class="bi bi-quote"></i></button>
+            <button type="button" class="fmt-btn" data-action="code" title="Код"><i class="bi bi-code"></i></button>
+            <button type="button" class="fmt-btn text-danger" data-action="clear" title="Очистить"><i class="bi bi-x-lg"></i></button>
+            <button type="button" class="btn btn-outline-secondary btn-sm ms-auto" id="btn-preview-post">
+              <i class="bi bi-eye me-1"></i> Предпросмотр
+            </button>
+          </div>
+
+          <div id="id_text_editor" class="form-control" contenteditable="true"
+               style="min-height: 240px; white-space: pre-wrap;"
+               data-placeholder="Напишите текст поста..."></div>
+          <textarea name="text" id="id_text" class="d-none">{{ request.POST.text|default:post.text }}</textarea>
+          <input type="hidden" name="text_html" id="id_text_html" value="{{ request.POST.text_html|default:post.text_html|default:'' }}">
           <input type="hidden" name="tg_entities" id="id_tg_entities_hidden" value="">
           <div class="form-text">
             Premium/Custom emoji: используйте <a href="{% url 'content:tg_import_link' %}">импорт из Telegram</a>.

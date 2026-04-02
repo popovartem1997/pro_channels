@@ -539,7 +539,11 @@ def _build_text(post, channel):
     Подпись НЕ добавляется к рекламным постам (ord_label задан).
     """
     from channels.models import Channel as Ch
-    text = post.text
+    # Для TG используем HTML-версию, для остальных — plain
+    if channel.platform == Ch.PLATFORM_TELEGRAM and (post.text_html or '').strip():
+        text = post.text_html
+    else:
+        text = post.text
 
     if post.ord_label:
         # Рекламный пост — ОРД метка в начало, подпись не добавляем
@@ -982,6 +986,7 @@ def _publish_max(post, channel):
 
     from channels.models import Channel as Ch
 
+    # MAX всегда получает plain text (HTML-теги из редактора вырезаны на сохранении).
     if post.ord_label:
         main_raw = f'{post.ord_label}\n\n{post.text}'
     else:

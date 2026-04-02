@@ -486,6 +486,189 @@
   });
 })();
 </script>
+
+<script>
+// Simple WYSIWYG editor for posts: stores HTML for TG + plain for MAX/VK.
+(function () {
+  function stripHtml(html) {
+    var div = document.createElement('div');
+    div.innerHTML = html || '';
+    return (div.textContent || div.innerText || '').replace(/\u00A0/g, ' ');
+  }
+
+  function sanitizeForTelegram(html) {
+    // Very small whitelist similar to the footer sanitizer.
+    var input = (html || '').replace(/\r\n/g, '\n');
+    var allowedTags = new Set(['B','STRONG','I','EM','U','S','STRIKE','DEL','A','CODE','PRE','BLOCKQUOTE','BR']);
+    var doc = new DOMParser().parseFromString('<div>' + input + '</div>', 'text/html');
+    var root = doc.body.firstChild;
+
+    function walk(node) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        if (!allowedTags.has(node.tagName)) {
+          var txt = doc.createTextNode(node.textContent || '');
+          node.replaceWith(txt);
+          return;
+        }
+        // Keep href only for A
+        var attrs = Array.from(node.attributes || []);
+        attrs.forEach(function(a){ node.removeAttribute(a.name); });
+        if (node.tagName === 'A') {
+          var href = (node.getAttribute('href') || '').trim();
+          var safe = /^https?:\/\//i.test(href);
+          if (!safe) {
+            node.replaceWith(doc.createTextNode(node.textContent || href));
+            return;
+          }
+          node.setAttribute('href', href);
+        }
+      }
+      Array.from(node.childNodes || []).forEach(walk);
+    }
+    walk(root);
+
+    // Convert div/p to line breaks (contenteditable often inserts those)
+    var out = root.innerHTML;
+    out = out.replace(/<div><br><\/div>/gi, '<br>');
+    out = out.replace(/<\/div>\s*<div>/gi, '<br>');
+    out = out.replace(/<\/div>/gi, '');
+    out = out.replace(/<div>/gi, '');
+    out = out.replace(/<\/p>\s*<p>/gi, '<br><br>');
+    out = out.replace(/<\/?p>/gi, '');
+    return out.trim();
+  }
+
+  function exec(cmd) {
+    try { document.execCommand(cmd, false, null); } catch (e) {}
+  }
+
+  function execLink() {
+    var url = prompt('Введите URL ссылки (https://...)');
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url.trim())) {
+      url = 'https://' + url.trim();
+    }
+    try { document.execCommand('createLink', false, url); } catch (e) {}
+  }
+
+  function initEditor(toolbar) {
+    var targetId = toolbar.getAttribute('data-target');
+    var hiddenId = toolbar.getAttribute('data-hidden');
+    var plainId = toolbar.getAttribute('data-plain');
+    var ed = targetId ? document.getElementById(targetId) : null;
+    var hidden = hiddenId ? document.getElementById(hiddenId) : null;
+    var plain = plainId ? document.getElementById(plainId) : null;
+    if (!ed || !hidden || !plain) return;
+
+    // Hydrate editor from saved html/plain
+    var initialHtml = (hidden.value || '').trim();
+    if (initialHtml) ed.innerHTML = initialHtml;
+    else ed.textContent = plain.value || '';
+
+    function sync() {
+      var html = sanitizeForTelegram(ed.innerHTML || '');
+      hidden.value = html;
+      plain.value = stripHtml(html).trim();
+    }
+    sync();
+
+    ed.addEventListener('input', sync);
+    ed.addEventListener('blur', sync);
+
+    // Prevent rich paste
+    ed.addEventListener('paste', function (e) {
+      e.preventDefault();
+      var text = (e.clipboardData || window.clipboardData).getData('text/plain');
+      document.execCommand('insertText', false, text);
+    });
+
+    toolbar.addEventListener('mousedown', function(e){
+      var btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      e.preventDefault();
+    });
+    toolbar.addEventListener('click', function(e){
+      var btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      e.preventDefault();
+      ed.focus();
+      var a = btn.getAttribute('data-action');
+      if (a === 'bold') exec('bold');
+      else if (a === 'italic') exec('italic');
+      else if (a === 'underline') exec('underline');
+      else if (a === 'strike') exec('strikeThrough');
+      else if (a === 'quote') exec('formatBlock'); // best-effort
+      else if (a === 'code') exec('formatBlock'); // best-effort
+      else if (a === 'link') execLink();
+      else if (a === 'clear') { ed.textContent = ''; }
+      sync();
+    });
+
+    // Preview modal
+    var btnPrev = document.getElementById('btn-preview-post');
+    if (btnPrev) {
+      btnPrev.addEventListener('click', function(){
+        sync();
+        var tg = hidden.value || '';
+        var mx = plain.value || '';
+        // Reuse global media modal styles: simple bootstrap modal injected on demand
+        var m = document.getElementById('pcPostPreviewModal');
+        if (!m) {
+          m = document.createElement('div');
+          m.className = 'modal fade';
+          m.id = 'pcPostPreviewModal';
+          m.tabIndex = -1;
+          m.innerHTML = '' +
+            '<div class="modal-dialog modal-dialog-centered modal-lg">' +
+              '<div class="modal-content">' +
+                '<div class="modal-header">' +
+                  '<h6 class="modal-title">Предпросмотр</h6>' +
+                  '<button type="button" class="btn-close" data-bs-dismiss="modal"></button>' +
+                '</div>' +
+                '<div class="modal-body">' +
+                  '<div id="pcPostPreviewCarousel" class="carousel slide" data-bs-ride="false">' +
+                    '<div class="carousel-inner">' +
+                      '<div class="carousel-item active">' +
+                        '<div class="small text-muted mb-2">Telegram (HTML)</div>' +
+                        '<div class="border rounded p-3" style="background:#f8fafc;white-space:pre-wrap;" id="pcPrevTg"></div>' +
+                      '</div>' +
+                      '<div class="carousel-item">' +
+                        '<div class="small text-muted mb-2">MAX (plain)</div>' +
+                        '<div class="border rounded p-3" style="background:#f8fafc;white-space:pre-wrap;" id="pcPrevMax"></div>' +
+                      '</div>' +
+                      '<div class="carousel-item">' +
+                        '<div class="small text-muted mb-2">VK (plain)</div>' +
+                        '<div class="border rounded p-3" style="background:#f8fafc;white-space:pre-wrap;" id="pcPrevVk"></div>' +
+                      '</div>' +
+                    '</div>' +
+                    '<button class="carousel-control-prev" type="button" data-bs-target="#pcPostPreviewCarousel" data-bs-slide="prev">' +
+                      '<span class="carousel-control-prev-icon" aria-hidden="true"></span>' +
+                      '<span class="visually-hidden">Previous</span>' +
+                    '</button>' +
+                    '<button class="carousel-control-next" type="button" data-bs-target="#pcPostPreviewCarousel" data-bs-slide="next">' +
+                      '<span class="carousel-control-next-icon" aria-hidden="true"></span>' +
+                      '<span class="visually-hidden">Next</span>' +
+                    '</button>' +
+                  '</div>' +
+                  '<div class="small text-muted mt-2">Листайте вправо/влево (как слайды).</div>' +
+                '</div>' +
+              '</div>' +
+            '</div>';
+          document.body.appendChild(m);
+        }
+        document.getElementById('pcPrevTg').innerHTML = sanitizeForTelegram(tg).replace(/\n/g, '<br>');
+        document.getElementById('pcPrevMax').textContent = mx;
+        document.getElementById('pcPrevVk').textContent = mx;
+        new bootstrap.Modal(m).show();
+      });
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.js-post-toolbar').forEach(initEditor);
+  });
+})();
+</script>
 {% block extra_js %}{% endblock %}
 </body>
 </html>
