@@ -180,11 +180,6 @@
         <i class="bi bi-robot"></i> Боты предложки
       </a></li>
       {% endif %}
-      {% if manager_can_manage_bots %}
-      <li><a class="nav-link {% if '/bots/conversations/' in request.path %}active{% endif %}" href="{% url 'bots:conversations' %}">
-        <i class="bi bi-chat-left-text"></i> Диалоги
-      </a></li>
-      {% endif %}
     </ul>
 
     <span class="nav-section">Контент</span>

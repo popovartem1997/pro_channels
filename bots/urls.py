@@ -14,6 +14,7 @@ urlpatterns = [
     path('suggestions/all/', views.suggestions_all, name='suggestions_all'),
     path('suggestions/<int:pk>/moderate/', views.suggestion_moderate, name='moderate'),
     path('suggestions/<int:pk>/media/<int:idx>/', views.suggestion_media, name='suggestion_media'),
+    path('suggestions/<int:pk>/view/', views.suggestion_detail, name='suggestion_detail'),
     path('conversations/', views.conversations_list, name='conversations'),
     path('conversations/<int:pk>/', views.conversation_detail, name='conversation_detail'),
 

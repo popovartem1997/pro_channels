@@ -404,11 +404,17 @@ def _is_admin_chat(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> bool:
 
 
 def _extract_user_id_from_admin_caption(text: str) -> str | None:
-    # caption содержит строку: 🆔 `123456`
+    """
+    В уведомлениях модерации строка с ID пользователя: 🆔 `123` или 🆔 <code>123</code>
+    (в reply_to_message Telegram часто отдаёт уже обычный текст без разметки).
+    """
     import re
     if not text:
         return None
     m = re.search(r'🆔\s*`(\d+)`', text)
+    if m:
+        return m.group(1)
+    m = re.search(r'🆔\s*(\d{4,20})\b', text)
     if m:
         return m.group(1)
     return None
@@ -559,60 +565,46 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if message.text and str(message.text).strip().startswith('/'):
             return
 
-        # Contact flow: user wants to talk to manager (MVP: text only)
+        # Contact flow: текст уходит в группы модерации; ответ только через Reply на это сообщение.
         if context.user_data.get('contact_mode'):
             if not message.text:
                 await message.reply_text('Пожалуйста, отправьте текстовое сообщение для менеджера.')
                 return
 
-            @sync_to_async
-            def save_dialog():
-                from bots.models import BotConversation, BotConversationMessage
-                conv, _ = BotConversation.objects.get_or_create(
-                    bot=bot_config,
-                    platform_user_id=str(user.id),
-                    defaults={
-                        'platform_username': user.username or '',
-                        'display_name': _build_display_name(user),
-                        'last_message_at': timezone.now(),
-                    }
-                )
-                conv.platform_username = user.username or conv.platform_username
-                conv.display_name = _build_display_name(user)
-                conv.last_message_at = timezone.now()
-                conv.status = 'open'
-                conv.save(update_fields=['platform_username', 'display_name', 'last_message_at', 'status'])
-                BotConversationMessage.objects.create(
-                    conversation=conv,
-                    direction='in',
-                    text=message.text or '',
-                    raw_data=message.to_dict(),
-                )
-                return conv.pk
+            sender = _build_display_name(user)
+            who = html.escape(sender)
+            if user.username:
+                who += f' (@{html.escape(user.username)})'
+            body = html.escape(message.text or '')
+            caption = (
+                '💬 <b>Сообщение подписчика</b> (связь с админом)\n\n'
+                f'👤 {who}\n'
+                f'🆔 <code>{user.id}</code>\n\n'
+                f'📝 {body}'
+            )
 
-            conv_id = await save_dialog()
-            context.user_data['contact_mode'] = False
-
-            await message.reply_text('Сообщение отправлено менеджеру. Мы ответим здесь в чате.')
-
-            # Notify moderation chats with link to site dialog
             admin_chat_ids = []
             try:
                 admin_chat_ids = bot_config.get_moderation_chat_ids()
             except Exception:
                 admin_chat_ids = [bot_config.admin_chat_id] if bot_config.admin_chat_id else []
-            try:
-                from django.conf import settings
-                url = f'{settings.SITE_URL}/bots/conversations/{conv_id}/'
-            except Exception:
-                url = ''
-            if admin_chat_ids:
-                text_notify = f'💬 Новое сообщение для менеджера от @{user.username or user.id}\nДиалог: {url}'.strip()
-                for admin_chat_id in admin_chat_ids:
-                    try:
-                        await context.bot.send_message(chat_id=admin_chat_id, text=text_notify)
-                    except Exception:
-                        pass
+
+            for admin_chat_id in admin_chat_ids:
+                try:
+                    await context.bot.send_message(
+                        chat_id=admin_chat_id,
+                        text=caption,
+                        parse_mode='HTML',
+                    )
+                except Exception:
+                    pass
+
+            context.user_data['contact_mode'] = False
+            await message.reply_text(
+                'Сообщение передано менеджерам. Ответ придёт сюда, когда модератор в '
+                '<b>группе модерации</b> нажмёт «Ответить» (Reply) на служебное сообщение с вашим ID.',
+                parse_mode='HTML',
+            )
             return
 
         # Explicit "send news" mode (optional). If user clicked menu_send we ask to send content;

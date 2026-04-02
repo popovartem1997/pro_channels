@@ -858,6 +858,45 @@ def suggestions_all(request):
 
 
 @login_required
+def suggestion_detail(request, pk: int):
+    """Карточка предложения из ленты: полный текст, действия, контакты админа канала."""
+    from .models import Suggestion
+    from django.urls import reverse
+
+    suggestion = get_object_or_404(
+        Suggestion.objects.select_related('bot', 'bot__channel', 'bot__owner', 'moderated_by'),
+        pk=pk,
+    )
+    if not _can_moderate_suggestion(request.user, suggestion):
+        return HttpResponse(status=403)
+
+    channel = getattr(suggestion.bot, 'channel', None)
+    can_edit_contacts = bool(
+        channel
+        and (
+            request.user.is_staff
+            or request.user.is_superuser
+            or channel.owner_id == request.user.id
+        )
+    )
+
+    detail_url = reverse('bots:suggestion_detail', args=[suggestion.pk])
+    media_ids = list(suggestion.media_file_ids or [])
+    media_indices = list(range(len(media_ids)))
+    return render(
+        request,
+        'bots/suggestion_detail.html',
+        {
+            'suggestion': suggestion,
+            'channel': channel,
+            'can_edit_contacts': can_edit_contacts,
+            'detail_url': detail_url,
+            'media_indices': media_indices,
+        },
+    )
+
+
+@login_required
 def suggestion_moderate(request, pk):
     from .models import Suggestion
     suggestion = get_object_or_404(Suggestion, pk=pk)
@@ -891,6 +930,13 @@ def suggestion_moderate(request, pk):
             except Exception:
                 pass
             messages.success(request, f'Предложение #{suggestion.short_tracking_id} отклонено.')
+            next_url = (request.POST.get('next') or '').strip()
+            if next_url and url_has_allowed_host_and_scheme(
+                next_url,
+                allowed_hosts={request.get_host()},
+                require_https=request.is_secure(),
+            ):
+                return redirect(next_url)
     return redirect(request.META.get('HTTP_REFERER', 'bots:suggestions'))
 
 

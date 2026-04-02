@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+{% load platform_icons %}
+{% block title %}Предложение #{{ suggestion.short_tracking_id }}{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex flex-wrap align-items-start justify-content-between gap-3">
+  <div>
+    <a href="{% url 'core:feed' %}?kind=subscriber" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+      <i class="bi bi-arrow-left me-1"></i> К ленте (от подписчиков)
+    </a>
+    <h1 class="h3 mb-1">Предложение <span class="text-muted">#{{ suggestion.short_tracking_id }}</span></h1>
+    <div class="text-muted small">{{ suggestion.bot.name }} · {{ suggestion.sender_display }}</div>
+  </div>
+  <div class="d-flex flex-wrap gap-2 align-items-center">
+    <span class="badge bg-secondary-subtle text-secondary">{{ suggestion.get_status_display }}</span>
+    <a href="#admin-contacts" class="btn btn-brand btn-sm">
+      <i class="bi bi-person-lines-fill me-1"></i> Связаться с админом
+    </a>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-8">
+    <div class="card">
+      <div class="card-body">
+        <div class="small text-muted mb-2">
+          Подано: {{ suggestion.submitted_at|date:"d.m.Y H:i" }}
+          {% if suggestion.moderated_at %}
+            · Модерация: {{ suggestion.moderated_at|date:"d.m.Y H:i" }}
+            {% if suggestion.moderated_by %}· {{ suggestion.moderated_by.username }}{% endif %}
+          {% endif %}
+        </div>
+        {% if suggestion.bot.channel %}
+          <div class="small mb-3">
+            Канал:
+            <a href="{% url 'channels:detail' suggestion.bot.channel.pk %}">{{ suggestion.bot.channel.name }}</a>
+            {% platform_badge suggestion.bot.channel.platform %}
+          </div>
+        {% endif %}
+        <div class="mb-2"><span class="badge bg-light text-dark border">{{ suggestion.get_content_type_display }}</span></div>
+        <div class="mb-0" style="white-space:pre-wrap;">{{ suggestion.text|default:"—" }}</div>
+
+        {% if suggestion.media_file_ids %}
+          <div class="mt-3 d-flex gap-2 flex-wrap">
+            {% if suggestion.content_type == 'photo' or suggestion.content_type == 'mixed' %}
+              {% for idx in media_indices %}
+                <a href="{% url 'bots:suggestion_media' suggestion.pk idx %}" target="_blank" rel="noopener" class="d-inline-block">
+                  <img src="{% url 'bots:suggestion_media' suggestion.pk idx %}" alt=""
+                       style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;">
+                </a>
+              {% endfor %}
+            {% else %}
+              <span class="badge bg-light text-dark border">Вложения × {{ suggestion.media_file_ids|length }}</span>
+            {% endif %}
+          </div>
+        {% endif %}
+
+        {% if suggestion.status == 'rejected' and suggestion.rejection_reason %}
+          <div class="alert alert-warning mt-3 mb-0 small">
+            <strong>Причина отклонения:</strong> {{ suggestion.rejection_reason }}
+          </div>
+        {% endif %}
+
+        {% if suggestion.status == 'pending' %}
+          <div class="mt-4 d-flex flex-column gap-3">
+            <div class="d-flex gap-2 flex-wrap">
+              <form method="post" action="{% url 'bots:moderate' suggestion.pk %}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="approve">
+                <input type="hidden" name="next" value="{% url 'content:create_from_suggestion' tracking_id=suggestion.tracking_id %}">
+                <button type="submit" class="btn btn-success btn-sm"><i class="bi bi-check2 me-1"></i> Одобрить</button>
+              </form>
+            </div>
+            <form method="post" action="{% url 'bots:moderate' suggestion.pk %}" class="border rounded p-3 bg-light">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="reject">
+              <input type="hidden" name="next" value="{{ detail_url }}">
+              <label class="form-label small text-muted mb-1">Отклонить с причиной (необязательно)</label>
+              <textarea name="reason" class="form-control form-control-sm mb-2" rows="2" placeholder="Коротко для подписчика…"></textarea>
+              <button type="submit" class="btn btn-outline-danger btn-sm"><i class="bi bi-x-lg me-1"></i> Отклонить</button>
+            </form>
+          </div>
+        {% endif %}
+
+        {% if suggestion.status == 'approved' or suggestion.status == 'published' %}
+          <div class="mt-4">
+            <a href="{% url 'content:create_from_suggestion' tracking_id=suggestion.tracking_id %}" class="btn btn-outline-primary btn-sm">
+              <i class="bi bi-pencil-square me-1"></i> В пост
+            </a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-4">
+    <div class="card border-0 shadow-sm" id="admin-contacts">
+      <div class="card-header bg-transparent border-bottom py-3">
+        <h2 class="h6 fw-bold mb-0">Контакты администратора канала</h2>
+      </div>
+      <div class="card-body">
+        {% if not channel %}
+          <p class="small text-muted mb-0">К боту не привязан канал — контакты в кабинете не заданы.</p>
+        {% else %}
+          {% with site=channel.admin_contact_site tg=channel.admin_contact_tg vk=channel.admin_contact_vk mx=channel.admin_contact_max_phone %}
+            {% if site or tg or vk or mx %}
+              <ul class="list-unstyled small mb-0">
+                {% if site %}<li class="mb-2"><span class="text-muted">Сайт:</span> {{ site }}</li>{% endif %}
+                {% if tg %}<li class="mb-2"><span class="text-muted">Telegram:</span> {{ tg }}</li>{% endif %}
+                {% if vk %}<li class="mb-2"><span class="text-muted">VK:</span> {{ vk }}</li>{% endif %}
+                {% if mx %}<li class="mb-2"><span class="text-muted">MAX:</span> {{ mx }}</li>{% endif %}
+              </ul>
+            {% else %}
+              <p class="small text-muted mb-2">В настройках канала ещё не указаны контакты для блока «Контакты админа».</p>
+            {% endif %}
+            {% if can_edit_contacts %}
+              <a href="{% url 'channels:edit' channel.pk %}" class="btn btn-outline-secondary btn-sm mt-2">
+                <i class="bi bi-gear me-1"></i> Изменить в настройках канала
+              </a>
+            {% endif %}
+          {% endwith %}
+        {% endif %}
+        <p class="small text-muted mt-3 mb-0">
+          Чтобы ответить подписчику из Telegram, в <strong>группе модерации</strong> ответьте (Reply) на служебное сообщение с его ID.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

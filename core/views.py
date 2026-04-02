@@ -457,7 +457,7 @@ def feed(request):
                 'status': s.status,
                 'status_display': s.get_status_display(),
                 'channels': [s.bot.channel] if getattr(s.bot, 'channel', None) else [],
-                'url': '',
+                'url': reverse('bots:suggestion_detail', args=[s.pk]),
                 'meta': f'{s.bot.name} · {s.sender_display}',
                 'obj': s,
             })

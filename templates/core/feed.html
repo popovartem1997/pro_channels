@@ -251,7 +251,7 @@
             {% endif %}
 
             {% if it.url and it.kind != 'parsing' %}
-              <div class="mt-2 small"><a href="{{ it.url }}" target="_blank" rel="noopener">Открыть</a></div>
+              <div class="mt-2 small"><a href="{{ it.url }}" {% if '://' in it.url %}target="_blank" rel="noopener"{% endif %}>Открыть</a></div>
             {% endif %}
           </div>
 
@@ -279,8 +279,8 @@
               {% endif %}
             </div>
           {% elif it.url and it.kind != 'parsing' %}
-            <a href="{{ it.url }}" class="btn btn-outline-secondary btn-sm flex-shrink-0" target="_blank" rel="noopener">
-              <i class="bi bi-box-arrow-up-right"></i>
+            <a href="{{ it.url }}" class="btn btn-outline-secondary btn-sm flex-shrink-0" {% if '://' in it.url %}target="_blank" rel="noopener"{% endif %} title="Открыть">
+              <i class="bi bi-{% if it.kind == 'subscriber' %}eye{% else %}box-arrow-up-right{% endif %}"></i>
             </a>
           {% endif %}
         </div>
