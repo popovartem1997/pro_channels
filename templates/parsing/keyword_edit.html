@@ -9,17 +9,44 @@
   <h1>Редактировать ключевое слово</h1>
 </div>
 
-{% include 'parsing/includes/chgroup_filter.html' %}
-
 <div class="row justify-content-center">
-  <div class="col-12 col-lg-5">
+  <div class="col-12 col-lg-6">
+    <div class="card border-0 bg-light mb-3">
+      <div class="card-body py-3">
+        <div class="fw-semibold small text-muted mb-2">Для чего этот ключевик</div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          {% if keyword_obj.channel_group %}
+            <span class="badge rounded-pill bg-primary-subtle text-primary border border-primary-subtle">
+              Проект: {{ keyword_obj.channel_group.name }}
+            </span>
+          {% elif keyword_obj.channel %}
+            <span class="badge rounded-pill bg-secondary-subtle text-secondary border border-secondary-subtle">
+              Без группы (один канал)
+            </span>
+          {% endif %}
+          {% if keyword_obj.channel %}
+            <span class="badge rounded-pill bg-secondary-subtle text-secondary border">
+              Публикация: {{ keyword_obj.channel.name }} · {{ keyword_obj.channel.get_platform_display }}
+            </span>
+          {% endif %}
+          {% if kw_source_attachment_count %}
+            <span class="badge rounded-pill bg-warning-subtle text-warning-emphasis border border-warning-subtle">
+              Источники: выбрано {{ kw_source_attachment_count }} (не все в проекте)
+            </span>
+          {% else %}
+            <span class="badge rounded-pill bg-info-subtle text-info-emphasis border border-info-subtle">
+              Источники: все доступные в этом проекте
+            </span>
+          {% endif %}
+        </div>
+        <p class="small text-muted mb-0 mt-2">Ниже можно изменить формулировку и сузить список источников для этого канала.</p>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-body p-4 p-md-5">
         <form method="post" novalidate>
           {% csrf_token %}
-          {% if selected_channel %}
-            <p class="small text-muted mb-3">Канал: <strong>{{ selected_channel.name }}</strong> ({{ selected_channel.get_platform_display }})</p>
-          {% endif %}
           <div class="mb-4">
             <label class="form-label fw-semibold" for="id_word">Ключевое слово или фраза</label>
             <input type="text" name="keyword" id="id_word"
@@ -29,18 +56,20 @@
           </div>
 
           <div class="mb-4">
-            <label class="form-label fw-semibold">Источники</label>
-            <div class="text-muted small mb-2">Можно выбрать один или несколько. Если не выбирать — без привязки к источникам.</div>
-            <div class="d-flex flex-column gap-2">
-              {% for source in sources %}
-              <label class="d-flex align-items-center gap-2">
-                <input type="checkbox" class="form-check-input mt-0" name="sources" value="{{ source.pk }}"
-                  {% if source.pk in selected_source_ids %}checked{% endif %}>
-                <span class="small">{{ source.name }} <span class="text-muted">({{ source.source_id }})</span></span>
-              </label>
-              {% empty %}
-              <div class="text-muted small">Нет источников. Добавьте источник на странице «Парсинг».</div>
-              {% endfor %}
+            <label class="form-label fw-semibold">Источники в этом проекте</label>
+            <div class="form-text small mb-2">Ничего не отмечено — привязки к конкретным источникам нет; в списке ключевиков это показывается как «все источники проекта».</div>
+            <div class="border rounded-3 p-3 bg-light" style="max-height:280px;overflow-y:auto;">
+              <div class="d-flex flex-column gap-2">
+                {% for source in sources %}
+                <label class="d-flex align-items-center gap-2 mb-0">
+                  <input type="checkbox" class="form-check-input mt-0" name="sources" value="{{ source.pk }}"
+                    {% if source.pk in selected_source_ids %}checked{% endif %}>
+                  <span class="small">{{ source.name }} <span class="text-muted">({{ source.source_id }})</span></span>
+                </label>
+                {% empty %}
+                <div class="text-muted small">Нет источников для этого проекта. Добавьте источник на странице «Парсинг».</div>
+                {% endfor %}
+              </div>
             </div>
           </div>
           <div class="d-flex gap-2">

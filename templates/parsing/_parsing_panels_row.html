@@ -1,0 +1,165 @@
+{# Два столбца: источники и ключевики (общий фрагмент для страницы и AJAX) #}
+{% load platform_icons %}
+<div class="row g-4" id="parsing-panels-row">
+  <!-- Sources -->
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header bg-transparent border-bottom d-flex align-items-center justify-content-between py-3">
+        <h6 class="fw-bold mb-0"><i class="bi bi-link-45deg me-1"></i> Источники</h6>
+        <a href="{% url 'parsing:source_create' %}{{ parsing_scope_query }}" class="btn btn-brand btn-sm">
+          <i class="bi bi-plus me-1"></i> Добавить
+        </a>
+      </div>
+      <div class="card-body p-0">
+        {% if sources %}
+        <ul class="list-group list-group-flush">
+          {% for source in sources %}
+          <li class="list-group-item px-4 py-3 d-flex align-items-center justify-content-between gap-2">
+            <div class="min-w-0">
+              <div class="fw-semibold small d-flex align-items-center gap-2 flex-wrap">
+                <span class="text-truncate">{{ source.name }}</span>
+                <span class="badge bg-secondary-subtle text-secondary rounded-pill flex-shrink-0">{{ source.keyword_count }}</span>
+                {% platform_badge source.platform %}
+                {% if source.channel_group %}
+                <span class="badge bg-light text-dark border flex-shrink-0"><i class="bi bi-diagram-3 me-1"></i>{{ source.channel_group.name }}</span>
+                {% endif %}
+              </div>
+              <div class="text-muted" style="font-size:.75rem;">{{ source.source_id }}</div>
+              {% if source.channel_group %}
+              <div class="text-muted small mt-1">Публикация: {{ source.channel_group.name }}</div>
+              {% elif source.channel %}
+              <div class="text-muted small mt-1">Публикация: {{ source.channel.name }}</div>
+              {% endif %}
+              <div class="text-muted mt-1" style="font-size:.7rem;">
+                {% if source.last_parsed_at %}
+                  Последний парсинг: {{ source.last_parsed_at|date:"d.m.Y H:i" }}
+                  · новых материалов: {{ source.last_parse_new_items }}
+                  · уникальных ключевых слов (срабатывания): {{ source.last_parse_keywords_matched }}
+                {% else %}
+                  Ещё не парсился
+                {% endif %}
+              </div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <span class="status-dot {% if source.is_active %}published{% else %}draft{% endif %}"></span>
+              <form method="post" action="{% url 'parsing:source_delete' source.pk %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline-danger btn-sm">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% if src_page_obj and src_page_obj.paginator and src_page_obj.paginator.num_pages > 1 %}
+        <div class="p-3 border-top d-flex gap-2 justify-content-between align-items-center flex-wrap">
+          <div class="small text-muted">
+            Источники: страница {{ src_page_obj.number }} из {{ src_page_obj.paginator.num_pages }}
+          </div>
+          <div class="btn-group btn-group-sm">
+            {% if src_page_obj.has_previous %}
+              <a class="btn btn-outline-secondary parsing-ajax-nav"
+                 href="?{% if parse_scope.chgroup_param != 'all' %}chgroup={{ parse_scope.chgroup_param }}&{% endif %}src_page={{ src_page_obj.previous_page_number }}&kw_page={{ kw_page_obj.number }}&per_page={{ per_page }}">Назад</a>
+            {% else %}
+              <button class="btn btn-outline-secondary" disabled type="button">Назад</button>
+            {% endif %}
+            {% if src_page_obj.has_next %}
+              <a class="btn btn-outline-secondary parsing-ajax-nav"
+                 href="?{% if parse_scope.chgroup_param != 'all' %}chgroup={{ parse_scope.chgroup_param }}&{% endif %}src_page={{ src_page_obj.next_page_number }}&kw_page={{ kw_page_obj.number }}&per_page={{ per_page }}">Вперёд</a>
+            {% else %}
+              <button class="btn btn-outline-secondary" disabled type="button">Вперёд</button>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="text-center py-4 text-muted">
+          <i class="bi bi-link-45deg fs-3 d-block mb-2"></i>
+          <span class="small">Источников нет. <a href="{% url 'parsing:source_create' %}{{ parsing_scope_query }}">Добавить</a></span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Keywords -->
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header bg-transparent border-bottom d-flex align-items-center justify-content-between py-3">
+        <h6 class="fw-bold mb-0"><i class="bi bi-tag me-1"></i> Ключевые слова</h6>
+        <a href="{% url 'parsing:keyword_create' %}{{ parsing_scope_query }}" class="btn btn-brand btn-sm">
+          <i class="bi bi-plus me-1"></i> Добавить
+        </a>
+      </div>
+      <div class="card-body p-0">
+        {% if keywords %}
+        <ul class="list-group list-group-flush">
+          {% for kw in keywords %}
+          <li class="list-group-item px-4 py-3 d-flex align-items-start justify-content-between gap-3">
+            <div class="min-w-0">
+              <div class="fw-semibold small d-flex align-items-center gap-2 flex-wrap">
+                <span class="text-break">{{ kw.keyword }}</span>
+                <span class="badge bg-secondary-subtle text-secondary rounded-pill flex-shrink-0">{{ kw.source_count }}</span>
+              </div>
+              <div class="d-flex flex-wrap gap-1 align-items-center mt-2">
+                {% if kw.channel_group %}
+                  <span class="badge rounded-pill bg-primary-subtle text-primary border border-primary-subtle small">Проект: {{ kw.channel_group.name }}</span>
+                {% elif kw.channel %}
+                  <span class="badge rounded-pill bg-light text-dark border small">Без группы</span>
+                {% endif %}
+                {% if kw.channel %}
+                  <span class="badge rounded-pill bg-secondary-subtle text-secondary border border-secondary-subtle small">Канал: {{ kw.channel.name }}</span>
+                {% endif %}
+                {% if kw.source_count == 0 %}
+                  <span class="badge rounded-pill bg-info-subtle text-info-emphasis border border-info-subtle small">Источники: все в проекте</span>
+                {% else %}
+                  <span class="badge rounded-pill bg-warning-subtle text-warning-emphasis border border-warning-subtle small">Источники: выбрано {{ kw.source_count }}</span>
+                {% endif %}
+              </div>
+            </div>
+            <div class="d-flex align-items-center gap-1 flex-shrink-0">
+              <a href="{% url 'parsing:keyword_edit' kw.pk %}{{ parsing_scope_query }}" class="btn btn-outline-secondary btn-sm" title="Редактировать">
+                <i class="bi bi-pencil"></i>
+              </a>
+              <form method="post" action="{% url 'parsing:keyword_delete' kw.pk %}" class="d-inline">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline-danger btn-sm" title="Удалить">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% if kw_page_obj and kw_page_obj.paginator and kw_page_obj.paginator.num_pages > 1 %}
+        <div class="p-3 border-top d-flex gap-2 justify-content-between align-items-center flex-wrap">
+          <div class="small text-muted">
+            Ключевые слова: страница {{ kw_page_obj.number }} из {{ kw_page_obj.paginator.num_pages }}
+          </div>
+          <div class="btn-group btn-group-sm">
+            {% if kw_page_obj.has_previous %}
+              <a class="btn btn-outline-secondary parsing-ajax-nav"
+                 href="?{% if parse_scope.chgroup_param != 'all' %}chgroup={{ parse_scope.chgroup_param }}&{% endif %}src_page={{ src_page_obj.number }}&kw_page={{ kw_page_obj.previous_page_number }}&per_page={{ per_page }}">Назад</a>
+            {% else %}
+              <button class="btn btn-outline-secondary" disabled type="button">Назад</button>
+            {% endif %}
+            {% if kw_page_obj.has_next %}
+              <a class="btn btn-outline-secondary parsing-ajax-nav"
+                 href="?{% if parse_scope.chgroup_param != 'all' %}chgroup={{ parse_scope.chgroup_param }}&{% endif %}src_page={{ src_page_obj.number }}&kw_page={{ kw_page_obj.next_page_number }}&per_page={{ per_page }}">Вперёд</a>
+            {% else %}
+              <button class="btn btn-outline-secondary" disabled type="button">Вперёд</button>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="text-center py-4 text-muted">
+          <i class="bi bi-tag fs-3 d-block mb-2"></i>
+          <span class="small">Ключевых слов нет. <a href="{% url 'parsing:keyword_create' %}{{ parsing_scope_query }}">Добавить</a></span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>

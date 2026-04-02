@@ -55,14 +55,6 @@
         <form method="post" novalidate>
           {% csrf_token %}
 
-          {% if footer_only %}
-          <div class="alert alert-info py-2">
-            <div class="small mb-0">
-              Доступ ограничен: вы можете редактировать только подпись к постам для этого канала.
-            </div>
-          </div>
-          {% endif %}
-
           <!-- Название -->
           {% if not footer_only %}
           <div class="mb-3">

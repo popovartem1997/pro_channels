@@ -6,7 +6,9 @@ import re
 from django.shortcuts import render, redirect, get_object_or_404
 from django.db import transaction
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_http_methods
+from django.template.loader import render_to_string
+from django.http import JsonResponse
 from django.contrib import messages
 from django.utils import timezone
 from .models import Post, PostMedia, PublishResult, normalize_post_media_orders
@@ -15,6 +17,7 @@ from django.core.files.base import ContentFile
 from django.db.models import Max, Q
 
 POST_CREATE_SESSION_PREFILL = 'post_create_prefill_v1'
+POST_LIST_PAGE_SIZE = 30
 
 
 def _manager_content_channel_ids(user):
@@ -130,22 +133,67 @@ def _run_suggestion_media_import(request, post_pk: int, bot) -> None:
         pass
 
 
-@login_required
-def post_list(request):
-    from channels.models import Channel
+def _post_list_base_queryset(request):
+    """Посты, видимые пользователю на странице списка (без среза)."""
     if request.user.role in ('manager', 'assistant_admin'):
         allowed_channel_ids = _manager_content_channel_ids(request.user)
-        posts = Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct().order_by('-created_at')
+        qs = Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct()
     else:
-        posts = Post.objects.filter(author=request.user).order_by('-created_at')
+        qs = Post.objects.filter(author=request.user)
     status_filter = request.GET.get('status', '')
     if status_filter:
-        posts = posts.filter(status=status_filter)
-    return render(request, 'content/list.html', {
-        'posts': posts,
-        'status_filter': status_filter,
-        'statuses': Post.STATUS_CHOICES,
-    })
+        qs = qs.filter(status=status_filter)
+    return (
+        qs.select_related('author', 'published_by')
+        .prefetch_related('channels')
+        .order_by('-created_at', '-pk'),
+        status_filter,
+    )
+
+
+@login_required
+def post_list(request):
+    posts_qs, status_filter = _post_list_base_queryset(request)
+    batch = list(posts_qs[: POST_LIST_PAGE_SIZE + 1])
+    has_more = len(batch) > POST_LIST_PAGE_SIZE
+    posts = batch[:POST_LIST_PAGE_SIZE]
+    return render(
+        request,
+        'content/list.html',
+        {
+            'posts': posts,
+            'status_filter': status_filter,
+            'statuses': Post.STATUS_CHOICES,
+            'post_list_has_more': has_more,
+            'post_list_next_offset': len(posts),
+            'post_list_page_size': POST_LIST_PAGE_SIZE,
+        },
+    )
+
+
+@login_required
+@require_http_methods(['GET'])
+def post_list_more(request):
+    try:
+        offset = max(0, int(request.GET.get('offset', 0)))
+    except (TypeError, ValueError):
+        offset = 0
+    posts_qs, _status_filter = _post_list_base_queryset(request)
+    batch = list(posts_qs[offset : offset + POST_LIST_PAGE_SIZE + 1])
+    has_more = len(batch) > POST_LIST_PAGE_SIZE
+    posts = batch[:POST_LIST_PAGE_SIZE]
+    html = render_to_string(
+        'content/_post_list_items.html',
+        {'posts': posts},
+        request=request,
+    )
+    return JsonResponse(
+        {
+            'html': html,
+            'next_offset': offset + len(posts),
+            'has_more': has_more,
+        }
+    )
 
 
 @login_required

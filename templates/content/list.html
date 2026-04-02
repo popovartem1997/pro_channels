@@ -1,5 +1,4 @@
 {% extends 'base.html' %}
-{% load platform_icons %}
 {% block title %}Посты{% endblock %}
 
 {% block content %}
@@ -28,59 +27,24 @@
 
 {% if posts %}
 <div class="card p-0">
-  <ul class="list-group list-group-flush">
-    {% for post in posts %}
-    <li class="list-group-item px-3 px-md-4 py-3 position-relative overflow-hidden">
-      <a href="{% url 'content:detail' post.pk %}" class="stretched-link" aria-label="Открыть пост"></a>
-      <div class="d-flex align-items-start gap-2 gap-md-3 min-w-0">
-        <div class="pt-1 flex-shrink-0">
-          <span class="status-dot {{ post.status }}"></span>
-        </div>
-
-        <div class="flex-grow-1 min-w-0">
-          <p class="mb-1 small text-break" style="overflow-wrap:anywhere;">
-            {{ post.text|truncatechars:100 }}
-          </p>
-          <div class="d-flex gap-2 gap-md-3 flex-wrap align-items-center min-w-0">
-            <div class="d-flex gap-1 flex-wrap min-w-0">
-              {% for channel in post.channels.all %}
-                {% platform_badge channel.platform %}
-              {% endfor %}
-            </div>
-
-            <span class="text-muted text-break" style="font-size:.75rem;">
-              Автор: {{ post.author.username|default:"—" }}
-              {% if post.published_by %}
-                · Опубликовал: {{ post.published_by.username }}
-              {% endif %}
-            </span>
-
-            {% if post.status == 'published' %}
-              <span class="badge bg-success-subtle text-success">Опубликован</span>
-            {% elif post.status == 'scheduled' %}
-              <span class="badge bg-warning-subtle text-warning">
-                <i class="bi bi-clock me-1"></i>{{ post.scheduled_at|date:"d.m H:i" }}
-              </span>
-            {% elif post.status == 'draft' %}
-              <span class="badge bg-secondary-subtle text-secondary">Черновик</span>
-            {% elif post.status == 'failed' %}
-              <span class="badge bg-danger-subtle text-danger">Ошибка</span>
-            {% endif %}
-
-            <span class="text-muted text-break" style="font-size:.75rem;">
-              {{ post.created_at|date:"d.m.Y H:i" }}
-            </span>
-          </div>
-        </div>
-
-        <a href="{% url 'content:detail' post.pk %}" class="btn btn-outline-secondary btn-sm flex-shrink-0 position-relative" style="z-index:2;">
-          <i class="bi bi-eye"></i>
-        </a>
-      </div>
-    </li>
-    {% endfor %}
+  <ul id="post-list-ul" class="list-group list-group-flush">
+    {% include 'content/_post_list_items.html' %}
   </ul>
 </div>
+{% if post_list_has_more %}
+<div class="text-center mt-3 mb-2">
+  <button type="button"
+          id="post-list-load-more"
+          class="btn btn-outline-secondary"
+          data-base-url="{% url 'content:list_more' %}"
+          data-offset="{{ post_list_next_offset }}"
+          data-status="{{ status_filter }}">
+    <span class="post-list-load-label">Показать ещё</span>
+    <span class="post-list-load-spinner spinner-border spinner-border-sm d-none ms-1" role="status" aria-hidden="true"></span>
+  </button>
+  <p id="post-list-load-error" class="small text-danger mt-2 mb-0 d-none"></p>
+</div>
+{% endif %}
 {% else %}
 <div class="card">
   <div class="card-body text-center py-5">
@@ -95,5 +59,57 @@
     </a>
   </div>
 </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if posts and post_list_has_more %}
+<script>
+(function () {
+  var btn = document.getElementById('post-list-load-more');
+  var ul = document.getElementById('post-list-ul');
+  var errEl = document.getElementById('post-list-load-error');
+  if (!btn || !ul) return;
+  var label = btn.querySelector('.post-list-load-label');
+  var spin = btn.querySelector('.post-list-load-spinner');
+
+  function setLoading(on) {
+    btn.disabled = on;
+    if (spin) spin.classList.toggle('d-none', !on);
+    if (label) label.classList.toggle('opacity-50', on);
+  }
+
+  btn.addEventListener('click', function () {
+    errEl.classList.add('d-none');
+    setLoading(true);
+    var url = new URL(btn.dataset.baseUrl, window.location.origin);
+    url.searchParams.set('offset', String(btn.dataset.offset || '0'));
+    var st = btn.dataset.status;
+    if (st) url.searchParams.set('status', st);
+
+    fetch(url.toString(), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('Ошибка загрузки');
+        return r.json();
+      })
+      .then(function (data) {
+        if (data.html) {
+          ul.insertAdjacentHTML('beforeend', data.html);
+        }
+        btn.dataset.offset = String(data.next_offset != null ? data.next_offset : btn.dataset.offset);
+        if (!data.has_more) {
+          btn.closest('.text-center').remove();
+        }
+      })
+      .catch(function () {
+        errEl.textContent = 'Не удалось подгрузить посты. Попробуйте ещё раз.';
+        errEl.classList.remove('d-none');
+      })
+      .finally(function () {
+        if (document.getElementById('post-list-load-more')) setLoading(false);
+      });
+  });
+})();
+</script>
 {% endif %}
 {% endblock %}

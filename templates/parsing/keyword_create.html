@@ -9,10 +9,8 @@
   <h1>Добавить ключевое слово</h1>
 </div>
 
-{% include 'parsing/includes/chgroup_filter.html' %}
-
 <div class="row justify-content-center">
-  <div class="col-12 col-lg-5">
+  <div class="col-12 col-lg-6">
     <div class="card">
       <div class="card-body p-4 p-md-5">
         <form method="post" novalidate id="kw-create-form">
@@ -23,12 +21,42 @@
                    class="form-control form-control-lg"
                    value="{{ request.POST.keyword|default:'' }}"
                    placeholder="Например: нейросеть, ИИ, ChatGPT" autofocus required>
-            <div class="form-text">Материалы, содержащие это слово, будут попадать в ленту</div>
+            <div class="form-text">Материалы, содержащие это слово, будут попадать в ленту парсинга</div>
           </div>
 
           <div class="mb-4">
+            <div class="fw-semibold mb-2">Как привязать ключевик?</div>
+            <div class="list-group list-group-flush border rounded-3 overflow-hidden">
+              <label class="list-group-item list-group-item-action d-flex gap-2 align-items-start mb-0">
+                <input class="form-check-input mt-1" type="radio" name="target_mode" value="group_all"
+                       {% if request.POST.target_mode == 'group_all' or not request.POST.target_mode %}checked{% endif %}>
+                <span>
+                  <span class="fw-semibold d-block">Весь проект</span>
+                  <span class="small text-muted">Один и тот же ключевик для всех каналов выбранной группы (TG, VK, RSS…)</span>
+                </span>
+              </label>
+              <label class="list-group-item list-group-item-action d-flex gap-2 align-items-start mb-0 border-top">
+                <input class="form-check-input mt-1" type="radio" name="target_mode" value="group_channel"
+                       {% if request.POST.target_mode == 'group_channel' %}checked{% endif %}>
+                <span>
+                  <span class="fw-semibold d-block">Один канал в проекте</span>
+                  <span class="small text-muted">Только для выбранного канала внутри группы</span>
+                </span>
+              </label>
+              <label class="list-group-item list-group-item-action d-flex gap-2 align-items-start mb-0 border-top">
+                <input class="form-check-input mt-1" type="radio" name="target_mode" value="sources_only"
+                       {% if request.POST.target_mode == 'sources_only' %}checked{% endif %}>
+                <span>
+                  <span class="fw-semibold d-block">Только выбранные источники</span>
+                  <span class="small text-muted">Создаётся привязка по тем источникам, которые вы отметите (канал берётся из каждого источника)</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div id="kw-block-group" class="mb-4 d-none">
             <label class="form-label fw-semibold" for="id_channel_group_id_kw">Проект (группа каналов)</label>
-            <select name="channel_group_id" id="id_channel_group_id_kw" class="form-select" required>
+            <select name="channel_group_id" id="id_channel_group_id_kw" class="form-select">
               <option value="">— Выберите группу —</option>
               {% for g in channel_groups_in_scope %}
               <option value="{{ g.channel_group__pk }}" {% if request.POST.channel_group_id == g.channel_group__pk|stringformat:"d" %}selected{% endif %}>
@@ -38,46 +66,59 @@
             </select>
           </div>
 
-          <div class="mb-4">
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" id="id_apply_all_group" name="apply_all_group"
-                     {% if request.POST.apply_all_group or not request.POST %}checked{% endif %}>
-              <label class="form-check-label" for="id_apply_all_group">
-                Применить ко всей группе
-              </label>
-            </div>
-            <div class="form-text">
-              Если выключить — ключевик будет создан только для выбранного канала внутри этой группы.
-            </div>
-          </div>
-
-          <div class="mb-4" id="single-channel-wrap">
-            <label class="form-label fw-semibold" for="id_channel_id_kw">Канал (внутри группы)</label>
+          <div id="kw-block-one-channel" class="mb-4 d-none">
+            <label class="form-label fw-semibold" for="id_channel_id_kw">Канал в этом проекте</label>
             <select name="channel_id" id="id_channel_id_kw" class="form-select">
               <option value="">— Выберите канал —</option>
               {% for ch in channels_in_scope %}
-              <option value="{{ ch.pk }}" {% if request.POST.channel_id == ch.pk|stringformat:"d" %}selected{% endif %}>{{ ch.name }} ({{ ch.get_platform_display }})</option>
+              {% if ch.channel_group_id %}
+              <option value="{{ ch.pk }}" data-group-id="{{ ch.channel_group_id }}"
+                      {% if request.POST.channel_id == ch.pk|stringformat:"d" %}selected{% endif %}>
+                {{ ch.name }} ({{ ch.get_platform_display }})
+              </option>
+              {% endif %}
               {% endfor %}
             </select>
           </div>
 
-          <div class="mb-4">
-            <label class="form-label fw-semibold">Источники</label>
-            <div class="text-muted small mb-2">Можно выбрать один или несколько. Если не выбирать — применится ко всем источникам в выбранной группе.</div>
-            <div class="d-flex flex-column gap-2">
-              {% for source in sources %}
-              <label class="d-flex align-items-center gap-2">
-                <input type="checkbox" class="form-check-input mt-0" name="sources" value="{{ source.pk }}">
-                <span class="small">{{ source.name }} <span class="text-muted">({{ source.source_id }})</span>
-                  {% if source.channel %}<span class="text-muted">· {{ source.channel.get_platform_display }}</span>{% endif %}
-                </span>
-              </label>
-              {% empty %}
-              <div class="text-muted small">Нет источников. Добавьте источник на странице «Парсинг».</div>
-              {% endfor %}
+          <div id="kw-block-sources-project" class="mb-4 d-none">
+            <label class="form-label fw-semibold">Ограничить источниками <span class="text-muted fw-normal">(необязательно)</span></label>
+            <div class="form-text small mb-2">Если ничего не отметить — учитываются все источники проекта.</div>
+            <div class="border rounded-3 p-3 bg-light" style="max-height:220px;overflow-y:auto;">
+              <div class="d-flex flex-column gap-2" id="kw-sources-project-list">
+                {% for source in sources %}
+                <label class="d-flex align-items-center gap-2 mb-0 kw-src-project-item d-none"
+                       data-src-group="{{ source.channel_group_id|default:'' }}">
+                  <input type="checkbox" class="form-check-input mt-0" name="sources" value="{{ source.pk }}">
+                  <span class="small">{{ source.name }} <span class="text-muted">({{ source.source_id }})</span></span>
+                </label>
+                {% empty %}
+                <div class="text-muted small">Нет источников в текущем фильтре.</div>
+                {% endfor %}
+              </div>
             </div>
           </div>
-          <div class="d-flex gap-2">
+
+          <div id="kw-block-sources-only" class="mb-4 d-none">
+            <label class="form-label fw-semibold">Источники <span class="text-danger">*</span></label>
+            <div class="form-text small mb-2">Отметьте один или несколько источников. Для каждого канала будет создан свой ключевик с выбранными источниками.</div>
+            <div class="border rounded-3 p-3 bg-light" style="max-height:280px;overflow-y:auto;">
+              <div class="d-flex flex-column gap-2">
+                {% for source in sources %}
+                <label class="d-flex align-items-center gap-2 mb-0">
+                  <input type="checkbox" class="form-check-input mt-0" name="sources" value="{{ source.pk }}">
+                  <span class="small">{{ source.name }} <span class="text-muted">({{ source.source_id }})</span>
+                    {% if source.channel_group %}<span class="badge bg-light text-dark border ms-1">{{ source.channel_group.name }}</span>{% endif %}
+                  </span>
+                </label>
+                {% empty %}
+                <div class="text-muted small">Нет источников. Добавьте источник на странице «Парсинг».</div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+
+          <div class="d-flex gap-2 flex-wrap">
             <button type="submit" class="btn btn-brand px-4 fw-semibold">
               <i class="bi bi-plus-lg me-1"></i> Добавить
             </button>
@@ -92,19 +133,119 @@
 
 {% block extra_js %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-  var allG = document.getElementById('id_apply_all_group');
-  var wrap = document.getElementById('single-channel-wrap');
-  var sel = document.getElementById('id_channel_id_kw');
-  function sync() {
-    if (!wrap || !sel) return;
-    var on = allG && allG.checked;
-    wrap.classList.toggle('d-none', on);
-    sel.disabled = on;
-    if (on) sel.removeAttribute('required'); else sel.setAttribute('required', 'required');
+document.addEventListener('DOMContentLoaded', function () {
+  var form = document.getElementById('kw-create-form');
+  if (!form) return;
+
+  var modes = form.querySelectorAll('input[name="target_mode"]');
+  var blockGroup = document.getElementById('kw-block-group');
+  var blockOneCh = document.getElementById('kw-block-one-channel');
+  var blockSrcProj = document.getElementById('kw-block-sources-project');
+  var blockSrcOnly = document.getElementById('kw-block-sources-only');
+  var selGroup = document.getElementById('id_channel_group_id_kw');
+  var selChannel = document.getElementById('id_channel_id_kw');
+
+  function currentMode() {
+    var m = form.querySelector('input[name="target_mode"]:checked');
+    return m ? m.value : 'group_all';
   }
-  if (allG) allG.addEventListener('change', sync);
-  sync();
+
+  function setDisabled(el, on) {
+    if (!el) return;
+    el.disabled = !!on;
+    if (on) el.setAttribute('disabled', 'disabled');
+    else el.removeAttribute('disabled');
+  }
+
+  function filterProjectSources() {
+    var gid = (selGroup && selGroup.value) || '';
+    form.querySelectorAll('.kw-src-project-item').forEach(function (row) {
+      var g = row.getAttribute('data-src-group') || '';
+      var show = gid && String(g) === String(gid);
+      row.classList.toggle('d-none', !show);
+      if (!show) {
+        var cb = row.querySelector('input[type="checkbox"]');
+        if (cb) cb.checked = false;
+      }
+    });
+  }
+
+  function filterChannelOptions() {
+    var gid = (selGroup && selGroup.value) || '';
+    if (!selChannel) return;
+    var any = false;
+    Array.prototype.forEach.call(selChannel.options, function (opt) {
+      if (!opt.value) {
+        opt.hidden = false;
+        return;
+      }
+      var og = opt.getAttribute('data-group-id') || '';
+      var ok = gid && String(og) === String(gid);
+      opt.hidden = !ok;
+      if (!ok && opt.selected) {
+        opt.selected = false;
+        selChannel.selectedIndex = 0;
+      }
+      if (ok) any = true;
+    });
+    if (!gid) selChannel.selectedIndex = 0;
+  }
+
+  function syncMode() {
+    var mode = currentMode();
+    var showGroup = mode === 'group_all' || mode === 'group_channel';
+    blockGroup.classList.toggle('d-none', !showGroup);
+    blockOneCh.classList.toggle('d-none', mode !== 'group_channel');
+    blockSrcProj.classList.toggle('d-none', mode !== 'group_all' && mode !== 'group_channel');
+    blockSrcOnly.classList.toggle('d-none', mode !== 'sources_only');
+
+    setDisabled(selGroup, mode === 'sources_only');
+    if (selGroup) {
+      if (mode === 'sources_only') selGroup.removeAttribute('required');
+      else selGroup.setAttribute('required', 'required');
+    }
+    if (selChannel) {
+      if (mode === 'group_channel') {
+        selChannel.removeAttribute('disabled');
+        selChannel.setAttribute('required', 'required');
+      } else {
+        setDisabled(selChannel, true);
+        selChannel.removeAttribute('required');
+      }
+    }
+
+    // Только один набор чекбоксов name=sources уезжает в POST: в режиме sources_only отключаем проектные
+    form.querySelectorAll('#kw-sources-project-list input[name="sources"]').forEach(function (cb) {
+      cb.disabled = mode !== 'group_all' && mode !== 'group_channel';
+      if (cb.disabled) cb.checked = false;
+    });
+    form.querySelectorAll('#kw-block-sources-only input[name="sources"]').forEach(function (cb) {
+      cb.disabled = mode !== 'sources_only';
+      if (cb.disabled) cb.checked = false;
+    });
+
+    filterChannelOptions();
+    filterProjectSources();
+  }
+
+  modes.forEach(function (r) { r.addEventListener('change', syncMode); });
+  if (selGroup) selGroup.addEventListener('change', function () {
+    filterChannelOptions();
+    filterProjectSources();
+  });
+
+  form.addEventListener('submit', function (e) {
+    var mode = currentMode();
+    if (mode === 'sources_only') {
+      var n = form.querySelectorAll('#kw-block-sources-only input[name="sources"]:checked').length;
+      if (!n) {
+        e.preventDefault();
+        alert('Отметьте хотя бы один источник.');
+      }
+    }
+  });
+
+  syncMode();
 });
 </script>
 {% endblock %}

@@ -5,6 +5,7 @@ app_name = 'content'
 
 urlpatterns = [
     path('', views.post_list, name='list'),
+    path('more/', views.post_list_more, name='list_more'),
     path('create/', views.post_create, name='create'),
     path('from-suggestion/<uuid:tracking_id>/', views.post_create_from_suggestion, name='create_from_suggestion'),
     path('from-suggestion/<uuid:tracking_id>/ai/', views.post_ai_from_suggestion, name='ai_from_suggestion'),

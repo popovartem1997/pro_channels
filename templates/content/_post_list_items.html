@@ -1,0 +1,51 @@
+{% load platform_icons %}
+{% for post in posts %}
+<li class="list-group-item px-3 px-md-4 py-3 position-relative overflow-hidden">
+  <a href="{% url 'content:detail' post.pk %}" class="stretched-link" aria-label="Открыть пост"></a>
+  <div class="d-flex align-items-start gap-2 gap-md-3 min-w-0">
+    <div class="pt-1 flex-shrink-0">
+      <span class="status-dot {{ post.status }}"></span>
+    </div>
+
+    <div class="flex-grow-1 min-w-0">
+      <p class="mb-1 small text-break" style="overflow-wrap:anywhere;">
+        {{ post.text|truncatechars:100 }}
+      </p>
+      <div class="d-flex gap-2 gap-md-3 flex-wrap align-items-center min-w-0">
+        <div class="d-flex gap-1 flex-wrap min-w-0">
+          {% for channel in post.channels.all %}
+            {% platform_badge channel.platform %}
+          {% endfor %}
+        </div>
+
+        <span class="text-muted text-break" style="font-size:.75rem;">
+          Автор: {{ post.author.username|default:"—" }}
+          {% if post.published_by %}
+            · Опубликовал: {{ post.published_by.username }}
+          {% endif %}
+        </span>
+
+        {% if post.status == 'published' %}
+          <span class="badge bg-success-subtle text-success">Опубликован</span>
+        {% elif post.status == 'scheduled' %}
+          <span class="badge bg-warning-subtle text-warning">
+            <i class="bi bi-clock me-1"></i>{{ post.scheduled_at|date:"d.m H:i" }}
+          </span>
+        {% elif post.status == 'draft' %}
+          <span class="badge bg-secondary-subtle text-secondary">Черновик</span>
+        {% elif post.status == 'failed' %}
+          <span class="badge bg-danger-subtle text-danger">Ошибка</span>
+        {% endif %}
+
+        <span class="text-muted text-break" style="font-size:.75rem;">
+          {{ post.created_at|date:"d.m.Y H:i" }}
+        </span>
+      </div>
+    </div>
+
+    <a href="{% url 'content:detail' post.pk %}" class="btn btn-outline-secondary btn-sm flex-shrink-0 position-relative" style="z-index:2;">
+      <i class="bi bi-eye"></i>
+    </a>
+  </div>
+</li>
+{% endfor %}

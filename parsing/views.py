@@ -10,7 +10,8 @@ from django.db.models import Q, Count
 from .models import ParseSource, ParseKeyword, ParsedItem, ParseTask, AIRewriteJob
 from django.http import JsonResponse
 from django.http import HttpResponse
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_http_methods
+from django.template.loader import render_to_string
 import os
 
 
@@ -240,18 +241,20 @@ def _telethon_session_exists_for_user(user_id: int) -> bool:
     return bool(_telethon_session_state_for_user(user_id).get('connected'))
 
 
-@login_required
-def sources_list(request):
+def _sources_list_page_context(request):
+    """Пагинация источников и ключевиков на странице парсинга."""
     scope = _get_parse_scope(request)
     from django.core.paginator import Paginator
 
     sources_qs = (
         _parse_sources_qs(request.user, scope)
+        .select_related('channel', 'channel_group')
         .annotate(keyword_count=Count('keywords', distinct=True))
         .order_by('name', 'pk')
     )
     keywords_qs = (
         _parse_keywords_qs(request.user, scope)
+        .select_related('channel', 'channel_group')
         .annotate(source_count=Count('sources', distinct=True))
         .order_by('keyword', 'pk')
     )
@@ -269,7 +272,8 @@ def sources_list(request):
     kw_p = Paginator(keywords_qs, per_page)
     sources = src_p.get_page(src_page)
     keywords = kw_p.get_page(kw_page)
-    ctx = {
+    return {
+        'parse_scope': scope,
         'sources': sources,
         'keywords': keywords,
         'src_paginator': src_p,
@@ -277,11 +281,32 @@ def sources_list(request):
         'src_page_obj': sources,
         'kw_page_obj': keywords,
         'per_page': per_page,
-        'telethon_state': _telethon_session_state_for_user(request.user.id),
-        'telethon_connected': _telethon_session_exists_for_user(request.user.id),
     }
+
+
+@login_required
+def sources_list(request):
+    ctx = _sources_list_page_context(request)
+    scope = ctx['parse_scope']
+    ctx.update(
+        {
+            'telethon_state': _telethon_session_state_for_user(request.user.id),
+            'telethon_connected': _telethon_session_exists_for_user(request.user.id),
+        }
+    )
     ctx.update(_parsing_template_extra(request, scope))
     return render(request, 'parsing/sources.html', ctx)
+
+
+@login_required
+@require_http_methods(['GET'])
+def sources_list_fragments(request):
+    """Тот же контент, что у списка источников, но только блок с двумя колонками (для AJAX)."""
+    ctx = _sources_list_page_context(request)
+    scope = ctx['parse_scope']
+    ctx.update(_parsing_template_extra(request, scope))
+    html = render_to_string('parsing/_parsing_panels_row.html', ctx, request=request)
+    return JsonResponse({'html': html})
 
 
 @login_required
@@ -537,90 +562,147 @@ def keyword_create(request):
     channels_in_scope = _channels_in_scope(request.user, scope)
     allowed_ch_ids = list(channels_in_scope.values_list('pk', flat=True))
     if request.method == 'POST':
+        from collections import defaultdict
+
+        from channels.models import Channel, ChannelGroup
+
         keyword = request.POST.get('keyword', '').strip()
         source_ids = request.POST.getlist('sources')
+        target_mode = (request.POST.get('target_mode') or 'group_all').strip()
         target_gid = (request.POST.get('channel_group_id') or '').strip()
-        apply_all_group = request.POST.get('apply_all_group') == 'on'
         target_cid = (request.POST.get('channel_id') or '').strip()
+
         if not keyword:
             messages.error(request, 'Введите ключевое слово.')
-        else:
-            from channels.models import Channel
-            from channels.models import ChannelGroup
+            return redirect(_parsing_sources_redirect(request, scope))
 
-            if not allowed_ch_ids:
-                messages.error(request, 'Нет доступных каналов в текущем фильтре.')
-                return redirect(_parsing_sources_redirect(request, scope))
+        if not allowed_ch_ids:
+            messages.error(request, 'Нет доступных каналов в текущем фильтре.')
+            return redirect(_parsing_sources_redirect(request, scope))
 
-            if not target_gid.isdigit():
-                messages.error(request, 'Выберите группу каналов (проект) для ключевого слова.')
+        if target_mode == 'sources_only':
+            if not source_ids:
+                messages.error(request, 'Выберите хотя бы один источник.')
                 return redirect(_parse_url('parsing:keyword_create', scope))
-            group = ChannelGroup.objects.filter(pk=int(target_gid)).first()
-            if not group:
-                messages.error(request, 'Группа не найдена.')
-                return redirect(_parse_url('parsing:keyword_create', scope))
-
-            # Ключевики создаём только для каналов, которые реально участвуют в парсинге
-            # (MAX/Instagram не парсим, но при создании поста всё равно выделим всю группу).
-            group_channels = list(
-                channels_in_scope.select_related('channel_group')
-                .filter(channel_group=group)
-                .exclude(platform__in=(Channel.PLATFORM_MAX, Channel.PLATFORM_INSTAGRAM))
-                .values_list('pk', flat=True)
+            raw_ids = [int(x) for x in source_ids if str(x).isdigit()]
+            sources_pick = (
+                _parse_sources_qs(request.user, scope)
+                .filter(pk__in=raw_ids, is_active=True)
+                .select_related('channel', 'channel_group')
             )
-            if not group_channels:
-                messages.error(request, 'В выбранной группе нет доступных каналов.')
+            found_ids = set(sources_pick.values_list('pk', flat=True))
+            if not raw_ids or set(raw_ids) != found_ids:
+                messages.error(request, 'Недопустимый набор источников.')
                 return redirect(_parse_url('parsing:keyword_create', scope))
-
-            # Источники: если ничего не выбрано — применяем ко всем источникам в выбранной группе.
-            sources_qs = _parse_sources_qs(request.user, scope).filter(is_active=True)
-            sources_qs = sources_qs.filter(channel_group=group)
-            if source_ids:
-                allowed_src = set(sources_qs.values_list('pk', flat=True))
-                safe = [int(x) for x in source_ids if str(x).isdigit() and int(x) in allowed_src]
-            else:
-                safe = list(sources_qs.values_list('pk', flat=True))
-
-            if apply_all_group:
-                created = 0
-                for cid in group_channels:
-                    ch = Channel.objects.get(pk=cid)
-                    data_owner = _parsing_data_owner(request.user, ch)
-                    kw = ParseKeyword.objects.create(
-                        owner=data_owner,
-                        channel_id=cid,
-                        channel_group=group,
-                        keyword=keyword,
+            by_channel = defaultdict(list)
+            for src in sources_pick:
+                if not src.channel_id:
+                    messages.error(
+                        request,
+                        'У одного из источников не задан канал публикации. Укажите канал в настройках источника.',
                     )
-                    if safe:
-                        kw.sources.set(safe)
-                    created += 1
-                    try:
-                        _ensure_auto_parse_task(data_owner, kw.channel)
-                    except Exception:
-                        pass
-                messages.success(request, f'Ключевое слово «{keyword}» добавлено для {created} канал(ов) группы.')
-            else:
-                if not target_cid.isdigit() or int(target_cid) not in set(group_channels):
-                    messages.error(request, 'Выберите конкретный канал из выбранной группы.')
                     return redirect(_parse_url('parsing:keyword_create', scope))
-                ch = Channel.objects.get(pk=int(target_cid))
+                by_channel[src.channel_id].append(src.pk)
+            created = 0
+            for cid, pks in by_channel.items():
+                ch = Channel.objects.filter(pk=cid, pk__in=allowed_ch_ids).first()
+                if not ch or ch.platform in (Channel.PLATFORM_MAX, Channel.PLATFORM_INSTAGRAM):
+                    continue
                 data_owner = _parsing_data_owner(request.user, ch)
                 kw = ParseKeyword.objects.create(
                     owner=data_owner,
                     channel=ch,
+                    channel_group=ch.channel_group,
+                    keyword=keyword,
+                )
+                kw.sources.set(pks)
+                created += 1
+                try:
+                    _ensure_auto_parse_task(data_owner, ch)
+                except Exception:
+                    pass
+            if created == 0:
+                messages.error(
+                    request,
+                    'Не удалось создать ключевик: нет подходящих каналов (платформы MAX/Instagram не участвуют в парсинге).',
+                )
+            else:
+                messages.success(
+                    request,
+                    f'Ключевое слово «{keyword}» добавлено для {created} канал(ов) по выбранным источникам.',
+                )
+            return redirect(_parsing_sources_redirect(request, scope))
+
+        if target_mode not in ('group_all', 'group_channel'):
+            messages.error(request, 'Выберите способ привязки ключевого слова.')
+            return redirect(_parse_url('parsing:keyword_create', scope))
+
+        if not target_gid.isdigit():
+            messages.error(request, 'Выберите группу каналов (проект).')
+            return redirect(_parse_url('parsing:keyword_create', scope))
+        group = ChannelGroup.objects.filter(pk=int(target_gid)).first()
+        if not group:
+            messages.error(request, 'Группа не найдена.')
+            return redirect(_parse_url('parsing:keyword_create', scope))
+
+        group_channels = list(
+            channels_in_scope.select_related('channel_group')
+            .filter(channel_group=group)
+            .exclude(platform__in=(Channel.PLATFORM_MAX, Channel.PLATFORM_INSTAGRAM))
+            .values_list('pk', flat=True)
+        )
+        if not group_channels:
+            messages.error(request, 'В выбранной группе нет доступных каналов.')
+            return redirect(_parse_url('parsing:keyword_create', scope))
+
+        sources_qs = _parse_sources_qs(request.user, scope).filter(is_active=True)
+        sources_qs = sources_qs.filter(channel_group=group)
+        if source_ids:
+            allowed_src = set(sources_qs.values_list('pk', flat=True))
+            safe = [int(x) for x in source_ids if str(x).isdigit() and int(x) in allowed_src]
+        else:
+            safe = list(sources_qs.values_list('pk', flat=True))
+
+        if target_mode == 'group_all':
+            created = 0
+            for cid in group_channels:
+                ch = Channel.objects.get(pk=cid)
+                data_owner = _parsing_data_owner(request.user, ch)
+                kw = ParseKeyword.objects.create(
+                    owner=data_owner,
+                    channel_id=cid,
                     channel_group=group,
                     keyword=keyword,
                 )
                 if safe:
                     kw.sources.set(safe)
+                created += 1
                 try:
                     _ensure_auto_parse_task(data_owner, kw.channel)
                 except Exception:
                     pass
-                messages.success(request, f'Ключевое слово «{keyword}» добавлено.')
+            messages.success(request, f'Ключевое слово «{keyword}» добавлено для {created} канал(ов) группы.')
+        else:
+            if not target_cid.isdigit() or int(target_cid) not in set(group_channels):
+                messages.error(request, 'Выберите канал из выбранной группы.')
+                return redirect(_parse_url('parsing:keyword_create', scope))
+            ch = Channel.objects.get(pk=int(target_cid))
+            data_owner = _parsing_data_owner(request.user, ch)
+            kw = ParseKeyword.objects.create(
+                owner=data_owner,
+                channel=ch,
+                channel_group=group,
+                keyword=keyword,
+            )
+            if safe:
+                kw.sources.set(safe)
+            try:
+                _ensure_auto_parse_task(data_owner, kw.channel)
+            except Exception:
+                pass
+            messages.success(request, f'Ключевое слово «{keyword}» добавлено.')
         return redirect(_parsing_sources_redirect(request, scope))
-    sources = _parse_sources_qs(request.user, scope)
+    sources = _parse_sources_qs(request.user, scope).select_related('channel', 'channel_group')
     ctx = {'sources': sources}
     ctx.update(_parsing_template_extra(request, scope))
     return render(request, 'parsing/keyword_create.html', ctx)
@@ -630,11 +712,18 @@ def keyword_create(request):
 def keyword_edit(request, pk):
     scope = _get_parse_scope(request)
     kw = get_object_or_404(
-        _parse_keywords_qs(request.user, scope).select_related('channel').prefetch_related('sources'),
+        _parse_keywords_qs(request.user, scope)
+        .select_related('channel', 'channel_group')
+        .prefetch_related('sources'),
         pk=pk,
     )
     selected_channel = kw.channel
-    sources = _parse_sources_qs(request.user, scope)
+    sources = _parse_sources_qs(request.user, scope).select_related('channel', 'channel_group')
+    if selected_channel:
+        if selected_channel.channel_group_id:
+            sources = sources.filter(channel_group_id=selected_channel.channel_group_id)
+        else:
+            sources = sources.filter(channel_id=selected_channel.pk)
     selected_source_ids = set(kw.sources.values_list('pk', flat=True))
 
     if request.method == 'POST':
@@ -662,6 +751,7 @@ def keyword_edit(request, pk):
         'keyword_obj': kw,
         'selected_channel': selected_channel,
         'selected_source_ids': selected_source_ids,
+        'kw_source_attachment_count': len(selected_source_ids),
     }
     ctx.update(_parsing_template_extra(request, scope))
     return render(request, 'parsing/keyword_edit.html', ctx)
