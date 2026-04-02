@@ -3,12 +3,12 @@
 {% block title %}Посты{% endblock %}
 
 {% block content %}
-<div class="page-header d-flex align-items-center justify-content-between">
-  <div>
-    <h1><i class="bi bi-pencil-square me-2" style="color:var(--brand)"></i>Посты</h1>
+<div class="page-header d-flex flex-column flex-md-row align-items-stretch align-items-md-center justify-content-between gap-3">
+  <div class="min-w-0">
+    <h1 class="mb-1"><i class="bi bi-pencil-square me-2" style="color:var(--brand)"></i>Посты</h1>
     <p class="text-muted small mb-0">Управляйте публикациями и расписанием</p>
   </div>
-  <a href="{% url 'content:create' %}" class="btn btn-brand">
+  <a href="{% url 'content:create' %}" class="btn btn-brand flex-shrink-0 w-100 w-md-auto text-center">
     <i class="bi bi-plus-lg me-1"></i> Создать пост
   </a>
 </div>
@@ -30,25 +30,25 @@
 <div class="card p-0">
   <ul class="list-group list-group-flush">
     {% for post in posts %}
-    <li class="list-group-item px-4 py-3 position-relative">
+    <li class="list-group-item px-3 px-md-4 py-3 position-relative overflow-hidden">
       <a href="{% url 'content:detail' post.pk %}" class="stretched-link" aria-label="Открыть пост"></a>
-      <div class="d-flex align-items-start gap-3">
+      <div class="d-flex align-items-start gap-2 gap-md-3 min-w-0">
         <div class="pt-1 flex-shrink-0">
           <span class="status-dot {{ post.status }}"></span>
         </div>
 
         <div class="flex-grow-1 min-w-0">
-          <p class="mb-1 text-truncate" style="max-width:100%;">
+          <p class="mb-1 small text-break" style="overflow-wrap:anywhere;">
             {{ post.text|truncatechars:100 }}
           </p>
-          <div class="d-flex gap-3 flex-wrap align-items-center">
-            <div class="d-flex gap-1 flex-wrap">
+          <div class="d-flex gap-2 gap-md-3 flex-wrap align-items-center min-w-0">
+            <div class="d-flex gap-1 flex-wrap min-w-0">
               {% for channel in post.channels.all %}
                 {% platform_badge channel.platform %}
               {% endfor %}
             </div>
 
-            <span class="text-muted" style="font-size:.75rem;">
+            <span class="text-muted text-break" style="font-size:.75rem;">
               Автор: {{ post.author.username|default:"—" }}
               {% if post.published_by %}
                 · Опубликовал: {{ post.published_by.username }}
@@ -67,7 +67,7 @@
               <span class="badge bg-danger-subtle text-danger">Ошибка</span>
             {% endif %}
 
-            <span class="text-muted" style="font-size:.75rem;">
+            <span class="text-muted text-break" style="font-size:.75rem;">
               {{ post.created_at|date:"d.m.Y H:i" }}
             </span>
           </div>
