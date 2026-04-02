@@ -143,7 +143,7 @@ class ParseTask(models.Model):
 
 
 class AIRewriteJob(models.Model):
-    """Задача генерации/рерайта текста через нейросеть (OpenAI)."""
+    """Задача генерации/рерайта текста через DeepSeek API."""
     STATUS_PENDING = 'pending'
     STATUS_PROCESSING = 'processing'
     STATUS_DONE = 'done'
@@ -161,7 +161,7 @@ class AIRewriteJob(models.Model):
     original_text = models.TextField('Исходный текст')
     result_text = models.TextField('Результат AI', blank=True)
     prompt = models.TextField('Кастомный промпт', blank=True)
-    model_name = models.CharField('Модель AI', max_length=100, default='gpt-4o-mini')
+    model_name = models.CharField('Модель AI', max_length=100, default='deepseek-chat')
     status = models.CharField('Статус', max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
     error = models.TextField('Ошибка', blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

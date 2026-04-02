@@ -194,9 +194,10 @@ CACHES = {
     },
 }
 
-# ─── OpenAI ───────────────────────────────────────────────────────────────────
-OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
-OPENAI_MODEL = 'gpt-4o-mini'
+# ─── DeepSeek (рерайт / AI пост; OpenAI-совместимый endpoint) ────────────────
+DEEPSEEK_API_KEY = config('DEEPSEEK_API_KEY', default='')
+DEEPSEEK_API_BASE = config('DEEPSEEK_API_BASE', default='https://api.deepseek.com')
+DEEPSEEK_MODEL = config('DEEPSEEK_MODEL', default='deepseek-chat')
 AI_REWRITE_ENABLED = config('AI_REWRITE_ENABLED', default=False, cast=bool)
 
 # ─── TBank ────────────────────────────────────────────────────────────────────

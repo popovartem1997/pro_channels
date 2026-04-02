@@ -37,19 +37,21 @@
             Не меняйте ключи без необходимости.
           </div>
 
-          <!-- OpenAI -->
-          <h6 class="fw-bold mb-2">OpenAI</h6>
+          <!-- DeepSeek -->
+          <h6 class="fw-bold mb-2">DeepSeek</h6>
           <div class="text-muted small mb-3">
-            Используется для AI-рерайта в парсинге и кнопки «AI» в ленте (краткий пост из спарсенного материала).
+            Рерайт в парсинге и кнопка «AI» в ленте (краткий пост из материала) идут через
+            <a href="https://api-docs.deepseek.com/" target="_blank" rel="noopener">DeepSeek API</a>
+            (совместимый с OpenAI SDK, <code>base_url=https://api.deepseek.com</code>).
           </div>
           <div class="mb-3">
-            <label class="form-label fw-semibold">{{ form.openai_api_key.label }}</label>
-            {{ form.openai_api_key }}
+            <label class="form-label fw-semibold">{{ form.deepseek_api_key.label }}</label>
+            {{ form.deepseek_api_key }}
             <div class="form-text">
-              Как получить ключ: в кабинете OpenAI → API keys.
+              Ключ: личный кабинет DeepSeek → API keys. При пустом поле можно задать <code>DEEPSEEK_API_KEY</code> в .env.
             </div>
-            {% if obj.openai_api_key_enc %}
-              <div class="form-text"><i class="bi bi-check-circle-fill text-success me-1"></i>Ключ задан (не отображается).</div>
+            {% if obj.deepseek_api_key_enc %}
+              <div class="form-text"><i class="bi bi-check-circle-fill text-success me-1"></i>Ключ в базе задан (не отображается).</div>
             {% endif %}
           </div>
           <div class="form-check form-switch mb-4">

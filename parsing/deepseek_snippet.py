@@ -1,5 +1,5 @@
 """
-Краткий рерайт спарсенного материала в текст поста (OpenAI).
+Краткий рерайт спарсенного материала в текст поста (DeepSeek API, OpenAI-совместимый клиент).
 """
 from __future__ import annotations
 
@@ -7,6 +7,14 @@ import html
 import json
 import re
 from typing import Any
+
+
+def build_deepseek_client(api_key: str):
+    from django.conf import settings
+    from openai import OpenAI
+
+    base = (getattr(settings, 'DEEPSEEK_API_BASE', '') or 'https://api.deepseek.com').rstrip('/')
+    return OpenAI(api_key=api_key, base_url=base)
 
 
 def _strip_json_fence(raw: str) -> str:
@@ -27,8 +35,6 @@ def rewrite_for_feed_post(
     """
     Возвращает (plain_text, html_for_telegram).
     """
-    from openai import OpenAI
-
     safe_text = html.escape((original_text or '').strip()[:8000], quote=False)
     url = (source_url or '').strip()
     safe_url = html.escape(url, quote=True) if url else ''
@@ -51,7 +57,7 @@ def rewrite_for_feed_post(
 
     user_msg = f'Исходный текст:\n{safe_text}\n\nURL оригинала (если пусто — ссылку не вставляй): {safe_url}'
 
-    client = OpenAI(api_key=api_key)
+    client = build_deepseek_client(api_key)
     response = client.chat.completions.create(
         model=model_name,
         messages=[
@@ -66,7 +72,6 @@ def rewrite_for_feed_post(
     try:
         data: dict[str, Any] = json.loads(cleaned)
     except json.JSONDecodeError:
-        # fallback: весь ответ как plain
         t = re.sub(r'<[^>]+>', '', cleaned).strip() or cleaned.strip()
         return t, cleaned
 

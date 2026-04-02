@@ -12,8 +12,8 @@ class GlobalApiKeys(models.Model):
     - Код должен читать ключи ТОЛЬКО отсюда; если пусто — выдавать явную ошибку.
     """
 
-    # OpenAI
-    openai_api_key_enc = models.TextField(blank=True, verbose_name='OPENAI_API_KEY (enc)')
+    # DeepSeek (чат / рерайт; OpenAI-совместимый API)
+    deepseek_api_key_enc = models.TextField(blank=True, verbose_name='DEEPSEEK_API_KEY (enc)')
     ai_rewrite_enabled = models.BooleanField(default=False, verbose_name='AI_REWRITE_ENABLED')
 
     # TBank
@@ -60,8 +60,15 @@ class GlobalApiKeys(models.Model):
         verbose_name_plural = 'Глобальные ключи API'
 
     # ── helpers (decrypt) ────────────────────────────────────────────────────
-    def get_openai_api_key(self) -> str:
-        return decrypt_token(self.openai_api_key_enc)
+    def get_deepseek_api_key(self) -> str:
+        k = decrypt_token(self.deepseek_api_key_enc)
+        if (k or '').strip():
+            return k.strip()
+        try:
+            from django.conf import settings
+            return (getattr(settings, 'DEEPSEEK_API_KEY', '') or '').strip()
+        except Exception:
+            return ''
 
     def get_tbank_terminal_key(self) -> str:
         return decrypt_token(self.tbank_terminal_key_enc)
@@ -79,8 +86,8 @@ class GlobalApiKeys(models.Model):
         return decrypt_token(self.vk_parse_access_token_enc)
 
     # ── helpers (encrypt) ────────────────────────────────────────────────────
-    def set_openai_api_key(self, value: str):
-        self.openai_api_key_enc = encrypt_token((value or '').strip())
+    def set_deepseek_api_key(self, value: str):
+        self.deepseek_api_key_enc = encrypt_token((value or '').strip())
 
     def set_tbank_terminal_key(self, value: str):
         self.tbank_terminal_key_enc = encrypt_token((value or '').strip())

@@ -5,10 +5,10 @@ from .models import GlobalApiKeys
 
 class GlobalApiKeysForm(forms.ModelForm):
     # Secret inputs (raw)
-    openai_api_key = forms.CharField(
+    deepseek_api_key = forms.CharField(
         required=False,
         widget=forms.PasswordInput(render_value=True),
-        label='OpenAI API key',
+        label='DeepSeek API key',
     )
     tbank_terminal_key = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='TBANK_TERMINAL_KEY')
     tbank_secret_key = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='TBANK_SECRET_KEY')
@@ -50,7 +50,7 @@ class GlobalApiKeysForm(forms.ModelForm):
             if val:
                 setter(val)
 
-        _set_if_provided('openai_api_key', obj.set_openai_api_key)
+        _set_if_provided('deepseek_api_key', obj.set_deepseek_api_key)
         _set_if_provided('tbank_terminal_key', obj.set_tbank_terminal_key)
         _set_if_provided('tbank_secret_key', obj.set_tbank_secret_key)
         _set_if_provided('vk_ord_access_token', obj.set_vk_ord_access_token)

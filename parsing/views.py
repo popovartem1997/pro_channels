@@ -814,29 +814,29 @@ def item_to_post(request, pk):
 @login_required
 @require_POST
 def item_ai_to_post(request, pk):
-    """OpenAI: короткий пост + редирект на создание поста с предзаполненным текстом."""
+    """DeepSeek: короткий пост + редирект на создание поста с предзаполненным текстом."""
     from django.conf import settings
 
     item = get_object_or_404(_parsed_items_base_qs(request.user), pk=pk)
     from core.models import get_global_api_keys
 
     keys = get_global_api_keys()
-    api_key = keys.get_openai_api_key()
+    api_key = keys.get_deepseek_api_key()
     if not api_key or not keys.ai_rewrite_enabled:
         messages.error(
             request,
-            'Включите «AI рерайт» и сохраните ключ OpenAI в разделе «Ключи API».',
+            'Включите «AI рерайт» и сохраните ключ DeepSeek в разделе «Ключи API».',
         )
         return redirect(request.META.get('HTTP_REFERER') or reverse('core:feed'))
 
     try:
-        from .openai_snippet import rewrite_for_feed_post
+        from .deepseek_snippet import rewrite_for_feed_post
 
         plain, ht = rewrite_for_feed_post(
             original_text=item.text or '',
             source_url=item.original_url or '',
             api_key=api_key,
-            model_name=getattr(settings, 'OPENAI_MODEL', 'gpt-4o-mini'),
+            model_name=getattr(settings, 'DEEPSEEK_MODEL', 'deepseek-chat'),
         )
     except Exception as exc:
         messages.error(request, f'Не удалось сгенерировать текст: {exc}')
