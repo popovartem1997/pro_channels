@@ -604,6 +604,58 @@
       tgHid.value = JSON.stringify(list || []);
     }
 
+    function tgEmojiCharFromElement(el) {
+      var ch = (el.textContent || '').replace(/\uFEFF/g, '');
+      if (!ch.trim()) {
+        var im = el.querySelector('img');
+        if (im) ch = (im.getAttribute('alt') || '').trim();
+      }
+      return ch || '';
+    }
+
+    /**
+     * Буфер Telegram/macOS может содержать несколько <tg-emoji> подряд; querySelector брал только первый.
+     * Обходим дерево в порядке документа и собираем plain + custom_emoji entities с offset в UTF-16.
+     */
+    function parseTgEmojiClipboardHtml(html) {
+      if (!html || !/tg-emoji/i.test(html)) return null;
+      var root = document.createElement('div');
+      root.innerHTML = html;
+      var fragment = '';
+      var frEnts = [];
+      function walk(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          fragment += node.nodeValue || '';
+          return;
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) return;
+        var tag = (node.tagName || '').toLowerCase();
+        if (tag === 'tg-emoji') {
+          var eid = node.getAttribute('emoji-id') || node.getAttribute('emoji_id') || '';
+          var ch = tgEmojiCharFromElement(node);
+          if (eid && ch) {
+            frEnts.push({
+              type: 'custom_emoji',
+              offset: fragment.length,
+              length: ch.length,
+              custom_emoji_id: String(eid)
+            });
+            fragment += ch;
+          }
+          return;
+        }
+        if (tag === 'br') {
+          fragment += '\n';
+          return;
+        }
+        var chn = node.childNodes;
+        for (var i = 0; i < chn.length; i++) walk(chn[i]);
+      }
+      walk(root);
+      if (!frEnts.length) return null;
+      return { fragment: fragment, entities: frEnts };
+    }
+
     /* После вставки из Telegram в DOM попадает <tg-emoji emoji-id>; без этого custom_emoji_id теряется. */
     function normalizeTgEmojiNodes() {
       if (!tgHid) return;
@@ -616,11 +668,7 @@
         r.setEndBefore(el);
         var off = r.toString().length;
         var eid = el.getAttribute('emoji-id') || el.getAttribute('emoji_id') || '';
-        var ch = (el.textContent || '').replace(/\uFEFF/g, '');
-        if (!ch.trim()) {
-          var im = el.querySelector('img');
-          if (im) ch = (im.getAttribute('alt') || '').trim();
-        }
+        var ch = tgEmojiCharFromElement(el);
         if (eid && ch) ops.push({ el: el, off: off, id: eid, ch: ch });
       });
       ops.sort(function (a, b) { return b.off - a.off; });
@@ -713,26 +761,18 @@
       var html = cd.getData('text/html') || '';
       var plain = cd.getData('text/plain');
       if (plain === null || plain === undefined) plain = '';
-      var toInsert = plain;
-      if (!toInsert && html) {
-        var hx = document.createElement('div');
-        hx.innerHTML = html;
-        toInsert = hx.innerText || hx.textContent || '';
-      }
-      var tgEid = '';
-      if (/tg-emoji/i.test(html)) {
-        var tp = document.createElement('div');
-        tp.innerHTML = html;
-        var emEl = tp.querySelector('tg-emoji');
-        if (emEl) {
-          tgEid = emEl.getAttribute('emoji-id') || emEl.getAttribute('emoji_id') || '';
-          var ech = (emEl.textContent || '').replace(/\uFEFF/g, '');
-          if (!ech.trim()) {
-            var im = emEl.querySelector('img');
-            if (im) ech = (im.getAttribute('alt') || '').trim();
-          }
-          if (tgEid && ech) toInsert = ech;
-          else if (!toInsert && ech) toInsert = ech;
+      var parsedCE = parseTgEmojiClipboardHtml(html);
+      var toInsert = '';
+      var pastedEntities = [];
+      if (parsedCE) {
+        toInsert = parsedCE.fragment;
+        pastedEntities = parsedCE.entities;
+      } else {
+        toInsert = plain;
+        if (!toInsert && html) {
+          var hx = document.createElement('div');
+          hx.innerHTML = html;
+          toInsert = hx.innerText || hx.textContent || '';
         }
       }
       if (!toInsert) return;
@@ -757,19 +797,22 @@
           return ne;
         });
       }
-      if (tgEid && insLen) {
-        var dup = exist.some(function (e) {
-          return e && e.type === 'custom_emoji' && e.offset === shift && e.length === insLen &&
-            String(e.custom_emoji_id || '') === String(tgEid);
-        });
-        if (!dup) {
-          exist.push({
-            type: 'custom_emoji',
-            offset: shift,
-            length: insLen,
-            custom_emoji_id: String(tgEid)
+      if (pastedEntities.length) {
+        pastedEntities.forEach(function (fe) {
+          var absOff = shift + (fe.offset || 0);
+          var dup = exist.some(function (e) {
+            return e && e.type === 'custom_emoji' && e.offset === absOff && e.length === fe.length &&
+              String(e.custom_emoji_id || '') === String(fe.custom_emoji_id || '');
           });
-        }
+          if (!dup) {
+            exist.push({
+              type: 'custom_emoji',
+              offset: absOff,
+              length: fe.length,
+              custom_emoji_id: String(fe.custom_emoji_id)
+            });
+          }
+        });
         exist.sort(function (a, b) { return (a.offset || 0) - (b.offset || 0); });
       }
       setTgEntitiesHidden(exist);
