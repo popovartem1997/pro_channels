@@ -583,12 +583,29 @@ def import_history_start(request):
         if existing:
             return JsonResponse({'ok': True, 'run_id': existing.pk, 'message': 'Импорт уже запущен.'})
 
+        # Continue-from: если уже были попытки импорта для этой пары каналов — продолжим с последнего TG message_id.
+        prev_last_id = None
+        try:
+            prev = (
+                HistoryImportRun.objects
+                .filter(source_channel=source, target_channel=target)
+                .exclude(progress_json__isnull=True)
+                .order_by('-updated_at', '-created_at')
+                .first()
+            )
+            if prev and isinstance(prev.progress_json, dict):
+                raw = prev.progress_json.get('last_tg_message_id')
+                if raw is not None and str(raw).strip().isdigit():
+                    prev_last_id = int(raw)
+        except Exception:
+            prev_last_id = None
+
         run = HistoryImportRun.objects.create(
             created_by=request.user,
             source_channel=source,
             target_channel=target,
             status=HistoryImportRun.STATUS_PENDING,
-            progress_json={'sent': 0, 'errors': 0, 'last_tg_message_id': None},
+            progress_json={'sent': 0, 'errors': 0, 'last_tg_message_id': prev_last_id},
         )
 
     try:
