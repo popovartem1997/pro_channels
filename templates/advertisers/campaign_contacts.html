@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block title %}Контакты · заявка #{{ app.pk }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Контакты по заявке #{{ app.pk }}</h1>
+  <p class="text-muted small mb-0">{{ app.channel.name }} · {{ adv.company_name }}</p>
+</div>
+
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header bg-transparent fw-semibold">Владелец канала</div>
+      <div class="card-body small">
+        <p class="mb-1"><b>{{ owner_user.get_full_name|default:owner_user.username }}</b></p>
+        {% if owner_user.email %}
+        <p class="mb-1">Email: <a href="mailto:{{ owner_user.email }}">{{ owner_user.email }}</a></p>
+        {% endif %}
+        {% if owner_user.ad_payment_phone %}
+        <p class="mb-1">Телефон для рекламы: <span class="font-monospace">{{ owner_user.ad_payment_phone }}</span></p>
+        {% endif %}
+        {% if owner_user.ad_payment_instructions %}
+        <p class="mb-0 text-muted">{{ owner_user.ad_payment_instructions|linebreaksbr }}</p>
+        {% elif not owner_user.ad_payment_phone and not owner_user.email %}
+        <p class="text-muted mb-0">Контакты не указаны — напишите через поддержку платформы.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header bg-transparent fw-semibold">Рекламодатель (вы)</div>
+      <div class="card-body small">
+        <p class="mb-1"><b>{{ adv.company_name }}</b></p>
+        <p class="mb-1">ИНН {{ adv.inn }}</p>
+        <p class="mb-1">{{ adv.contact_person }}{% if adv.contact_phone %} · {{ adv.contact_phone }}{% endif %}</p>
+        {% if adv.user.email %}
+        <p class="mb-0">Email: {{ adv.user.email }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mt-4">
+  <a href="{% url 'advertisers:campaign_list' %}" class="btn btn-link">← Мои заявки</a>
+  {% if app.status == 'draft' and app.contract_signed_at %}
+  <a href="{% url 'advertisers:campaign_contract' app.pk %}" class="btn btn-outline-secondary btn-sm">К договору</a>
+  {% elif app.status == 'pending_owner' %}
+  <a href="{% url 'advertisers:campaign_pending_owner' app.pk %}" class="btn btn-outline-secondary btn-sm">Статус согласования</a>
+  {% elif app.status == 'approved_for_payment' %}
+  <a href="{% url 'advertisers:campaign_checkout' app.pk %}" class="btn btn-brand btn-sm">К оплате</a>
+  {% endif %}
+</div>
+{% endblock %}

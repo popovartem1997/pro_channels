@@ -417,6 +417,8 @@ def _owner_campaign_issue_labels(app):
 
     labels = []
     if app.status == AdApplication.STATUS_DRAFT:
+        if app.owner_last_rejection_reason:
+            labels.append('возврат на правки')
         if not app.selected_slot_ids:
             labels.append('слоты')
         post = app.post
@@ -426,6 +428,10 @@ def _owner_campaign_issue_labels(app):
             labels.append('ОРД')
         if not app.contract_signed_at:
             labels.append('договор')
+    elif app.status == AdApplication.STATUS_PENDING_OWNER:
+        labels.append('ждёт ваше решение')
+    elif app.status == AdApplication.STATUS_APPROVED_FOR_PAYMENT:
+        labels.append('ждёт оплаты')
     elif app.status == AdApplication.STATUS_AWAITING_PAYMENT:
         if not app.invoice_id:
             labels.append('нет счёта')
@@ -479,6 +485,9 @@ def owner_ad_applications(request):
     pending = AdApplication.objects.filter(
         channel_id__in=ch_ids, status=AdApplication.STATUS_AWAITING_PAYMENT
     ).aggregate(s=Sum('total_amount'), c=Count('id'))
+    pending_owner_count = AdApplication.objects.filter(
+        channel_id__in=ch_ids, status=AdApplication.STATUS_PENDING_OWNER
+    ).count()
     by_channel = (
         AdApplication.objects.filter(channel_id__in=ch_ids, status__in=paid_like)
         .values('channel__name')
@@ -495,6 +504,7 @@ def owner_ad_applications(request):
             'stats_paid_count': rev['c'] or 0,
             'stats_pending_sum': pending['s'] or 0,
             'stats_pending_count': pending['c'] or 0,
+            'stats_pending_owner_count': pending_owner_count,
             'stats_by_channel': list(by_channel),
             'app_issues': app_issues,
         },

@@ -48,6 +48,10 @@ def _owner_allowed_channels_queryset(request):
 def campaign_resume(request, pk: int):
     """Продолжить черновик с первого незаполненного шага."""
     app = _app_adv(request, pk)
+    if app.status == AdApplication.STATUS_PENDING_OWNER:
+        return redirect('advertisers:campaign_pending_owner', pk=pk)
+    if app.status == AdApplication.STATUS_APPROVED_FOR_PAYMENT:
+        return redirect('advertisers:campaign_checkout', pk=pk)
     if app.status != AdApplication.STATUS_DRAFT:
         messages.info(request, 'Эта заявка уже отправлена или оплачена.')
         return redirect('advertisers:campaign_list')
@@ -237,7 +241,12 @@ def campaign_review(request, pk: int):
 @login_required
 def campaign_contract(request, pk: int):
     app = _app_adv(request, pk)
+    if app.status == AdApplication.STATUS_PENDING_OWNER:
+        return redirect('advertisers:campaign_pending_owner', pk=pk)
+    if app.status == AdApplication.STATUS_APPROVED_FOR_PAYMENT:
+        return redirect('advertisers:campaign_checkout', pk=pk)
     if app.status != AdApplication.STATUS_DRAFT:
+        messages.info(request, 'Эта заявка уже не в черновике.')
         return redirect('advertisers:campaign_list')
     if not app.ord_wizard_saved_at:
         return redirect('advertisers:campaign_ord', pk=pk)
@@ -250,16 +259,78 @@ def campaign_contract(request, pk: int):
         app.contract_signed_at = timezone.now()
         app.contract_sign_ip = (request.META.get('REMOTE_ADDR') or '')[:45]
         app.save(update_fields=['contract_signed_at', 'contract_sign_ip', 'updated_at'])
-        messages.success(request, 'Договор подписан электронно.')
-        return redirect('advertisers:campaign_checkout', pk=app.pk)
+        messages.success(request, 'Договор подписан электронно. Отправьте заявку владельцу канала на согласование.')
+        return redirect('advertisers:campaign_contract', pk=app.pk)
 
     return render(request, 'advertisers/campaign_contract.html', {'app': app})
 
 
 @login_required
+def campaign_submit_to_owner(request, pk: int):
+    """После подписи договора — отправка владельцу (до выставления счёта)."""
+    app = _app_adv(request, pk)
+    if request.method != 'POST':
+        return redirect('advertisers:campaign_contract', pk=pk)
+    if app.status != AdApplication.STATUS_DRAFT:
+        messages.info(request, 'Заявка уже отправлена.')
+        return redirect('advertisers:campaign_list')
+    if not app.contract_signed_at:
+        messages.error(request, 'Сначала подпишите договор.')
+        return redirect('advertisers:campaign_contract', pk=pk)
+    app.status = AdApplication.STATUS_PENDING_OWNER
+    app.submitted_to_owner_at = timezone.now()
+    app.owner_last_rejection_reason = ''
+    app.save(
+        update_fields=[
+            'status',
+            'submitted_to_owner_at',
+            'owner_last_rejection_reason',
+            'updated_at',
+        ]
+    )
+    messages.success(
+        request,
+        'Заявка отправлена владельцу канала. После одобрения вы сможете перейти к оплате.',
+    )
+    return redirect('advertisers:campaign_pending_owner', pk=pk)
+
+
+@login_required
+def campaign_pending_owner(request, pk: int):
+    app = _app_adv(request, pk)
+    if app.status != AdApplication.STATUS_PENDING_OWNER:
+        if app.status == AdApplication.STATUS_APPROVED_FOR_PAYMENT:
+            return redirect('advertisers:campaign_checkout', pk=pk)
+        return redirect('advertisers:campaign_list')
+    return render(request, 'advertisers/campaign_pending_owner.html', {'app': app})
+
+
+@login_required
+def campaign_contacts(request, pk: int):
+    """Контакты владельца канала и рекламодателя по заявке."""
+    app = _app_adv(request, pk)
+    owner = app.channel.owner
+    return render(
+        request,
+        'advertisers/campaign_contacts.html',
+        {'app': app, 'owner_user': owner, 'adv': app.advertiser},
+    )
+
+
+@login_required
 def campaign_checkout(request, pk: int):
     app = _app_adv(request, pk)
-    if app.status != AdApplication.STATUS_DRAFT:
+    if app.status == AdApplication.STATUS_PENDING_OWNER:
+        messages.info(request, 'Дождитесь одобрения владельца канала.')
+        return redirect('advertisers:campaign_pending_owner', pk=pk)
+    if app.status != AdApplication.STATUS_APPROVED_FOR_PAYMENT:
+        if app.status == AdApplication.STATUS_DRAFT:
+            messages.info(
+                request,
+                'После подписания договора отправьте заявку владельцу на согласование — затем откроется оплата.',
+            )
+            return redirect('advertisers:campaign_contract', pk=pk)
+        messages.info(request, 'Оплата для этой заявки недоступна.')
         return redirect('advertisers:campaign_list')
     if not app.ord_wizard_saved_at:
         return redirect('advertisers:campaign_ord', pk=pk)
@@ -332,7 +403,7 @@ def campaign_checkout(request, pk: int):
 @login_required
 def campaign_transfer_wait(request, pk: int):
     app = _app_adv(request, pk)
-    if app.payment_method != AdApplication.PAY_TRANSFER:
+    if app.status != AdApplication.STATUS_AWAITING_PAYMENT or app.payment_method != AdApplication.PAY_TRANSFER:
         return redirect('advertisers:campaign_list')
     owner = app.channel.owner
     return render(
@@ -351,7 +422,12 @@ def owner_campaign_detail(request, pk: int):
     if not (request.user.is_staff or request.user.role == request.user.ROLE_OWNER):
         messages.error(request, 'Нет доступа.')
         return redirect('dashboard')
-    app = get_object_or_404(AdApplication, pk=pk, channel__owner=request.user)
+    app = get_object_or_404(
+        AdApplication.objects.select_related('advertiser', 'channel', 'channel__owner', 'post')
+        .prefetch_related('post__media_files', 'campaign_posts'),
+        pk=pk,
+        channel__owner=request.user,
+    )
 
     from ord_marking.models import ORDRegistration
 
@@ -365,6 +441,48 @@ def owner_campaign_detail(request, pk: int):
         'advertisers/owner_campaign_detail.html',
         {'app': app, 'ord_rows': ord_rows},
     )
+
+
+@login_required
+def owner_campaign_decision(request, pk: int):
+    if not (request.user.is_staff or request.user.role == request.user.ROLE_OWNER):
+        messages.error(request, 'Нет доступа.')
+        return redirect('dashboard')
+    app = get_object_or_404(AdApplication, pk=pk, channel__owner=request.user)
+    if request.method != 'POST':
+        return redirect('advertisers:owner_campaign_detail', pk=pk)
+    if app.status != AdApplication.STATUS_PENDING_OWNER:
+        messages.error(request, 'Заявка не на согласовании или решение уже принято.')
+        return redirect('advertisers:owner_campaign_detail', pk=pk)
+
+    action = (request.POST.get('action') or '').strip()
+    if action == 'approve':
+        app.status = AdApplication.STATUS_APPROVED_FOR_PAYMENT
+        app.owner_approved_at = timezone.now()
+        app.save(update_fields=['status', 'owner_approved_at', 'updated_at'])
+        messages.success(request, 'Заявка одобрена. Рекламодатель может оплатить размещение (счёт ещё не выставлен).')
+    elif action == 'reject':
+        reason = (request.POST.get('reason') or '').strip()
+        if len(reason) < 3:
+            messages.error(request, 'Укажите причину отказа (не меньше 3 символов).')
+            return redirect('advertisers:owner_campaign_detail', pk=pk)
+        app.status = AdApplication.STATUS_DRAFT
+        app.owner_last_rejection_reason = reason[:4000]
+        app.submitted_to_owner_at = None
+        app.owner_approved_at = None
+        app.save(
+            update_fields=[
+                'status',
+                'owner_last_rejection_reason',
+                'submitted_to_owner_at',
+                'owner_approved_at',
+                'updated_at',
+            ]
+        )
+        messages.success(request, 'Отказ отправлен рекламодателю. Он сможет внести правки и снова отправить заявку.')
+    else:
+        messages.error(request, 'Неизвестное действие.')
+    return redirect('advertisers:owner_campaign_detail', pk=pk)
 
 
 @login_required

@@ -6,6 +6,8 @@
   <p class="text-muted small mb-0">К оплате: <strong>{{ app.total_amount }} ₽</strong></p>
 </div>
 {% include 'advertisers/_campaign_steps.html' with step=7 %}
+<div class="alert alert-success small mb-3">Владелец канала одобрил заявку. Выберите способ оплаты — после этого будет выставлен счёт.</div>
+<p class="small mb-3"><a href="{% url 'advertisers:campaign_contacts' app.pk %}">Контакты по заявке #{{ app.pk }}</a></p>
 {% if not app.contract_signed_at %}
 <div class="alert alert-warning">Сначала подпишите договор.</div>
 <a href="{% url 'advertisers:campaign_contract' app.pk %}" class="btn btn-outline-primary">К договору</a>
@@ -25,7 +27,7 @@
       <label class="form-check-label" for="pm_tb">Онлайн (TBank / карта)</label>
     </div>
     <button type="submit" class="btn btn-brand">Перейти к оплате</button>
-    <a href="{% url 'advertisers:campaign_contract' app.pk %}" class="btn btn-link">Назад</a>
+    <a href="{% url 'advertisers:campaign_list' %}" class="btn btn-link">Мои заявки</a>
   </div>
 </form>
 {% endif %}

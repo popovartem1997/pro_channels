@@ -16,7 +16,14 @@ class AdApplicationAdmin(admin.ModelAdmin):
     list_filter = ('status', 'channel')
     search_fields = ('advertiser__company_name', 'advertiser__inn')
     raw_id_fields = ('advertiser', 'channel', 'post', 'invoice')
-    readonly_fields = ('created_at', 'updated_at', 'ord_wizard_saved_at')
+    readonly_fields = (
+        'created_at',
+        'updated_at',
+        'ord_wizard_saved_at',
+        'submitted_to_owner_at',
+        'owner_approved_at',
+        'owner_last_rejection_reason',
+    )
 
     def get_urls(self):
         info = self.opts.app_label, self.opts.model_name

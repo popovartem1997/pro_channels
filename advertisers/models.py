@@ -141,6 +141,8 @@ class AdApplication(models.Model):
     """
 
     STATUS_DRAFT = 'draft'
+    STATUS_PENDING_OWNER = 'pending_owner'
+    STATUS_APPROVED_FOR_PAYMENT = 'approved_for_payment'
     STATUS_AWAITING_PAYMENT = 'awaiting_payment'
     STATUS_PAID = 'paid'
     STATUS_SCHEDULED = 'scheduled'
@@ -149,6 +151,8 @@ class AdApplication(models.Model):
     STATUS_CANCELLED = 'cancelled'
     STATUS_CHOICES = [
         (STATUS_DRAFT, 'Черновик'),
+        (STATUS_PENDING_OWNER, 'На согласовании у владельца'),
+        (STATUS_APPROVED_FOR_PAYMENT, 'Одобрено владельцем, ожидает оплаты'),
         (STATUS_AWAITING_PAYMENT, 'Ожидает оплаты'),
         (STATUS_PAID, 'Оплачена'),
         (STATUS_SCHEDULED, 'Запланирована'),
@@ -184,7 +188,7 @@ class AdApplication(models.Model):
         related_name='ad_application',
         verbose_name='Пост (черновик / публикация)',
     )
-    status = models.CharField('Статус', max_length=24, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True)
+    status = models.CharField('Статус', max_length=28, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True)
 
     selected_slot_ids = models.JSONField('Выбранные слоты (id)', default=list, blank=True)
     addon_codes = models.JSONField('Доп. услуги (коды)', default=list, blank=True)
@@ -223,6 +227,9 @@ class AdApplication(models.Model):
     contract_body_html = models.TextField('Текст договора (снимок)', blank=True)
 
     owner_notes = models.TextField('Заметки владельца', blank=True)
+    submitted_to_owner_at = models.DateTimeField('Отправлено владельцу', null=True, blank=True)
+    owner_approved_at = models.DateTimeField('Одобрено владельцем', null=True, blank=True)
+    owner_last_rejection_reason = models.TextField('Причина отказа владельца (последняя)', blank=True)
 
     created_at = models.DateTimeField('Создана', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлена', auto_now=True)

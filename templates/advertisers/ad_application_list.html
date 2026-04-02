@@ -69,10 +69,15 @@
             </td>
             <td class="small text-muted">{{ a.created_at|date:"d.m.Y H:i" }}</td>
             <td class="pe-4 small">
+              <a href="{% url 'advertisers:campaign_contacts' a.pk %}">Контакты</a>
               {% if a.status == 'draft' %}
-              <a href="{% url 'advertisers:campaign_resume' a.pk %}">Продолжить</a>
+              · <a href="{% url 'advertisers:campaign_resume' a.pk %}">Продолжить</a>
+              {% elif a.status == 'pending_owner' %}
+              · <a href="{% url 'advertisers:campaign_pending_owner' a.pk %}">Согласование</a>
+              {% elif a.status == 'approved_for_payment' %}
+              · <a href="{% url 'advertisers:campaign_checkout' a.pk %}">Оплатить</a>
               {% elif a.status == 'awaiting_payment' and a.payment_method == 'transfer' %}
-              <a href="{% url 'advertisers:campaign_transfer_wait' a.pk %}">Реквизиты</a>
+              · <a href="{% url 'advertisers:campaign_transfer_wait' a.pk %}">Реквизиты</a>
               {% endif %}
             </td>
           </tr>

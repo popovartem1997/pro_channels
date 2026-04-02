@@ -18,6 +18,9 @@ urlpatterns = [
     path('campaign/<int:pk>/ord/', cv.campaign_ord, name='campaign_ord'),
     path('campaign/<int:pk>/review/', cv.campaign_review, name='campaign_review'),
     path('campaign/<int:pk>/contract/', cv.campaign_contract, name='campaign_contract'),
+    path('campaign/<int:pk>/submit-owner/', cv.campaign_submit_to_owner, name='campaign_submit_to_owner'),
+    path('campaign/<int:pk>/pending-owner/', cv.campaign_pending_owner, name='campaign_pending_owner'),
+    path('campaign/<int:pk>/contacts/', cv.campaign_contacts, name='campaign_contacts'),
     path('campaign/<int:pk>/checkout/', cv.campaign_checkout, name='campaign_checkout'),
     path('campaign/<int:pk>/wait-transfer/', cv.campaign_transfer_wait, name='campaign_transfer_wait'),
     # Панель владельца
@@ -29,6 +32,7 @@ urlpatterns = [
         cv.owner_campaign_confirm_payment,
         name='owner_campaign_confirm_payment',
     ),
+    path('manage/campaigns/<int:pk>/decision/', cv.owner_campaign_decision, name='owner_campaign_decision'),
     path('manage/<int:pk>/moderate/', views.owner_order_moderate, name='owner_order_moderate'),
     path('manage/<int:order_pk>/act/create/', views.create_act, name='create_act'),
     path('act/<int:pk>/pdf/', views.download_act_pdf, name='act_pdf'),

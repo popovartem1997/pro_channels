@@ -25,6 +25,13 @@
       <div class="small text-muted">{{ stats_pending_count }} заявок</div>
     </div></div>
   </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100"><div class="card-body py-3">
+      <div class="text-muted small">На вашем согласовании</div>
+      <div class="fs-5 fw-semibold">{{ stats_pending_owner_count }}</div>
+      <div class="small text-muted">заявок</div>
+    </div></div>
+  </div>
   {% if stats_by_channel %}
   <div class="col-xl-6">
     <div class="card h-100"><div class="card-body py-3">

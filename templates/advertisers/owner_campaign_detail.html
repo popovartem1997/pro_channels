@@ -34,6 +34,44 @@
   </div>
 </div>
 
+{% if app.status == 'pending_owner' %}
+<div class="card border-primary mb-4">
+  <div class="card-header bg-transparent fw-semibold">Согласование заявки</div>
+  <div class="card-body">
+    <p class="small text-muted mb-3">Счёт ещё не выставлен. Одобрите материалы или верните заявку на доработку.</p>
+    <form method="post" action="{% url 'advertisers:owner_campaign_decision' app.pk %}" class="d-inline me-2">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="approve">
+      <button type="submit" class="btn btn-success btn-sm" onclick="return confirm('Одобрить заявку? Рекламодатель сможет оплатить размещение.');">Одобрить</button>
+    </form>
+    <hr class="my-3">
+    <form method="post" action="{% url 'advertisers:owner_campaign_decision' app.pk %}" class="small">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="reject">
+      <label class="form-label fw-semibold">Отказать с причиной</label>
+      <textarea name="reason" class="form-control form-control-sm mb-2" rows="3" required minlength="3" maxlength="4000" placeholder="Что изменить в материалах или условиях"></textarea>
+      <button type="submit" class="btn btn-outline-danger btn-sm">Отказать</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% if app.post %}
+<h6 class="fw-bold">Черновик материалов рекламодателя</h6>
+<div class="card mb-4">
+  <div class="card-body small">
+    <div class="mb-2" style="max-height:220px;overflow:auto;">
+      {% if app.post.text %}{{ app.post.text|linebreaksbr }}{% else %}{{ app.post.text_html|striptags|linebreaksbr }}{% endif %}
+    </div>
+    {% with mc=app.post.media_files.count %}
+    {% if mc %}
+    <div class="text-muted">Вложения: {{ mc }}</div>
+    {% endif %}
+    {% endwith %}
+  </div>
+</div>
+{% endif %}
+
 {% if app.payment_method == 'transfer' and app.invoice and app.invoice.status != 'paid' and app.status == 'awaiting_payment' %}
 <form method="post" action="{% url 'advertisers:owner_campaign_confirm_payment' app.pk %}" class="card border-warning mb-4"
       onsubmit="return confirm('Подтвердить поступление оплаты и запустить публикации?');">
