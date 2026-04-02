@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block title %}Ожидание оплаты · заявка #{{ app.pk }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Перевод</h1>
+  <p class="text-muted small mb-0">Заявка #{{ app.pk }} · счёт {% if app.invoice %}{{ app.invoice.number }}{% endif %}</p>
+</div>
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <p class="mb-2"><strong>Сумма:</strong> {{ app.total_amount }} ₽</p>
+    {% if pay_phone %}
+    <p class="mb-1"><strong>Телефон для перевода:</strong> {{ pay_phone }}</p>
+    {% endif %}
+    {% if pay_instr %}
+    <div class="small text-muted mt-2" style="white-space:pre-wrap;">{{ pay_instr }}</div>
+    {% endif %}
+    {% if not pay_phone and not pay_instr %}
+    <p class="text-warning small">Владелец ещё не указал реквизиты в профиле. Напишите ему через контакты канала.</p>
+    {% endif %}
+    <p class="small mt-3 mb-0">После перевода владелец подтвердит поступление — посты появятся в расписании.</p>
+  </div>
+</div>
+<a href="{% url 'advertisers:campaign_list' %}" class="btn btn-outline-secondary">Мои заявки</a>
+{% endblock %}

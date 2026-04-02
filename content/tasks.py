@@ -3,6 +3,7 @@ Celery задачи для публикации постов.
 """
 import asyncio
 import concurrent.futures
+import datetime
 import io
 import logging
 import os
@@ -573,6 +574,7 @@ def import_media_from_suggestion_task(self, post_id: int):
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def publish_post_task(self, post_id: int, force: bool = False):
     """Публикует пост во все подключённые каналы."""
+    from channels.models import Channel
     from .models import Post, PublishResult
     try:
         post = Post.objects.prefetch_related('channels', 'media_files').get(pk=post_id)
@@ -583,6 +585,20 @@ def publish_post_task(self, post_id: int, force: bool = False):
     if post.status == Post.STATUS_PUBLISHED and not force:
         logger.info(f'Пост #{post_id} уже опубликован, пропускаем (force=False)')
         return
+
+    # Пауза канала (оплаченный «топ» у другого поста): отложить публикацию
+    now = timezone.now()
+    for channel in post.channels.all():
+        pause_until = getattr(channel, 'ad_publish_pause_until', None)
+        if pause_until and now < pause_until:
+            logger.info(
+                'Публикация поста #%s в канал %s отложена до %s (пауза очереди)',
+                post_id,
+                channel.pk,
+                pause_until,
+            )
+            publish_post_task.apply_async(args=[post_id], kwargs={'force': force}, eta=pause_until)
+            return
 
     post.status = Post.STATUS_PUBLISHING
     post.save(update_fields=['status'])
@@ -615,6 +631,11 @@ def publish_post_task(self, post_id: int, force: bool = False):
         post.status = Post.STATUS_PUBLISHED
         post.published_at = timezone.now()
         post.save(update_fields=['status', 'published_at'])
+        block_min = int(getattr(post, 'ad_top_block_minutes', 0) or 0)
+        if block_min > 0:
+            until = timezone.now() + datetime.timedelta(minutes=block_min)
+            for ch in post.channels.all():
+                Channel.objects.filter(pk=ch.pk).update(ad_publish_pause_until=until)
         # Запланировать следующий повтор
         if post.repeat_enabled:
             post.schedule_next_repeat()
@@ -638,11 +659,32 @@ def _auto_register_ord(post):
 
     advertiser = None
     try:
-        advertiser = post.advertising_order.advertiser
+        advertiser = post.ad_application.advertiser
     except Exception:
         advertiser = None
+    if advertiser is None:
+        try:
+            if getattr(post, 'campaign_application_id', None):
+                advertiser = post.campaign_application.advertiser
+        except Exception:
+            advertiser = None
+    if advertiser is None:
+        try:
+            advertiser = post.advertising_order.advertiser
+        except Exception:
+            advertiser = None
 
     use_sandbox = bool(getattr(keys, 'vk_ord_use_sandbox', False))
+
+    ce = pe = pad_e = ''
+    if getattr(post, 'campaign_application_id', None):
+        try:
+            cap = post.campaign_application
+            ce = (cap.ord_contract_external_id or '').strip()
+            pe = (cap.ord_person_external_id or '').strip()
+            pad_e = (cap.ord_pad_external_id or '').strip()
+        except Exception:
+            pass
 
     for channel in post.channels.filter(platform='vk'):
         if ORDRegistration.objects.filter(post=post, channel=channel).exists():
@@ -654,6 +696,9 @@ def _auto_register_ord(post):
             advertiser=advertiser,
             label_text=post.ord_label or 'Реклама',
             status=ORDRegistration.STATUS_PENDING,
+            contract_external_id=ce,
+            person_external_id=pe,
+            pad_external_id=pad_e or (getattr(channel, 'ord_pad_external_id', None) or '').strip(),
         )
         register_creative_for_registration(reg, use_sandbox=use_sandbox)
 

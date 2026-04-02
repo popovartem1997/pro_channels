@@ -40,11 +40,23 @@ def generate_invoice_pdf(invoice):
 
 def generate_act_pdf(act):
     """Генерирует PDF акта и сохраняет в act.pdf_file."""
-    advertiser = act.order.advertiser
+    if act.order_id:
+        order = act.order
+        advertiser = order.advertiser
+        order_title = order.title
+    elif act.ad_application_id:
+        order = None
+        app = act.ad_application
+        advertiser = app.advertiser
+        order_title = f'Заявка #{app.pk} — {app.channel.name}'
+    else:
+        raise ValueError('Act: не указан ни order, ни ad_application')
     context = {
         'act': act,
-        'order': act.order,
+        'order': order,
+        'order_title': order_title,
         'advertiser': advertiser,
+        'ad_application': act.ad_application if act.ad_application_id else None,
         'site_name': settings.SITE_NAME,
         'site_url': settings.SITE_URL,
     }

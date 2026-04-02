@@ -33,7 +33,7 @@
 
 <p>
   Настоящий акт составлен о том, что Исполнитель выполнил, а Заказчик принял
-  следующие работы (услуги) в рамках заказа «{{ order.title }}»:
+  следующие работы (услуги) в рамках заказа «{{ order_title }}»:
 </p>
 
 <table>
@@ -49,7 +49,7 @@
     <tr>
       <td>1</td>
       <td>{{ act.service_description }}</td>
-      <td>{{ order.start_date|date:"d.m.Y" }} — {{ order.end_date|date:"d.m.Y" }}</td>
+      <td>{% if order %}{{ order.start_date|date:"d.m.Y" }} — {{ order.end_date|date:"d.m.Y" }}{% elif ad_application %}по заявке{% else %}—{% endif %}</td>
       <td style="text-align:right;">{{ act.amount }} ₽</td>
     </tr>
   </tbody>
@@ -60,7 +60,8 @@
 
 <p>
   Каналы размещения:
-  {% for ch in order.channels.all %}{{ ch.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+  {% if order %}{% for ch in order.channels.all %}{{ ch.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+  {% elif ad_application %}{{ ad_application.channel.name }}{% else %}—{% endif %}
 </p>
 
 <p>

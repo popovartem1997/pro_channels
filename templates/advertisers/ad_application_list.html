@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block title %}Мои заявки{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+  <div>
+    <h1><i class="bi bi-collection me-2" style="color:var(--brand)"></i>Мои заявки</h1>
+    <p class="text-muted small mb-0">{{ advertiser.company_name }}</p>
+  </div>
+  <a href="{% url 'advertisers:campaign_new' %}" class="btn btn-brand btn-sm">Создать заявку</a>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    {% if applications %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-4">#</th>
+            <th>Канал</th>
+            <th>Статус</th>
+            <th>Сумма</th>
+            <th>Оплата</th>
+            <th>Создана</th>
+            <th class="pe-4"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in applications %}
+          <tr>
+            <td class="ps-4 font-monospace">{{ a.pk }}</td>
+            <td>{{ a.channel.name }}</td>
+            <td><span class="badge bg-secondary">{{ a.get_status_display }}</span></td>
+            <td>{{ a.total_amount }} ₽</td>
+            <td class="small">
+              {% if a.invoice %}
+                {% if a.invoice.is_paid %}<span class="text-success">Оплачено</span>{% else %}Счёт выставлен{% endif %}
+              {% elif a.payment_method == 'transfer' %}
+                Перевод{% if a.transfer_marked_received %} ✓{% endif %}
+              {% else %}—{% endif %}
+            </td>
+            <td class="small text-muted">{{ a.created_at|date:"d.m.Y H:i" }}</td>
+            <td class="pe-4 small">
+              {% if a.status == 'draft' %}
+              <a href="{% url 'advertisers:campaign_resume' a.pk %}">Продолжить</a>
+              {% elif a.status == 'awaiting_payment' and a.payment_method == 'transfer' %}
+              <a href="{% url 'advertisers:campaign_transfer_wait' a.pk %}">Реквизиты</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-muted p-4 mb-0">Пока нет заявок. <a href="{% url 'advertisers:campaign_new' %}">Создать первую</a></p>
+    {% endif %}
+  </div>
+</div>
+
+<a href="{% url 'advertisers:dashboard' %}" class="btn btn-link">← В кабинет</a>
+{% endblock %}

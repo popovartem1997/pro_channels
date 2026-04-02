@@ -71,6 +71,11 @@ class Post(models.Model):
     # Настройки публикации
     disable_notification = models.BooleanField(default=False, verbose_name='Тихая публикация (TG)')
     pin_message = models.BooleanField(default=False, verbose_name='Закрепить сообщение')
+    ad_top_block_minutes = models.PositiveIntegerField(
+        default=0,
+        verbose_name='Пауза очереди после публикации (мин.)',
+        help_text='Если >0 (оплаченный «топ»), после успешной публикации канал не публикует остальные посты это время.',
+    )
 
     # Из предложки
     suggestion = models.ForeignKey(
@@ -78,6 +83,16 @@ class Post(models.Model):
         null=True, blank=True,
         related_name='posts',
         verbose_name='Источник (предложка)'
+    )
+
+    # Рекламная заявка (клоны публикаций; черновик связан через AdApplication.post OneToOne)
+    campaign_application = models.ForeignKey(
+        'advertisers.AdApplication',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='campaign_posts',
+        verbose_name='Заявка на рекламу (публикации)',
     )
 
     created_at = models.DateTimeField(auto_now_add=True)

@@ -36,6 +36,12 @@ TASKS = [
         'interval_every': 1,
         'interval_period': IntervalSchedule.HOURS,
     },
+    {
+        'name': 'Рекламные заявки: статусы и акты (каждые 15 мин)',
+        'task': 'advertisers.tasks.ad_campaigns_maintenance',
+        'interval_every': 15,
+        'interval_period': IntervalSchedule.MINUTES,
+    },
 ]
 
 

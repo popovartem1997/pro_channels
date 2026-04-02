@@ -335,7 +335,13 @@ def download_act_pdf(request, pk):
     """Скачать PDF акта выполненных работ."""
     act = get_object_or_404(Act, pk=pk)
     # Доступ: рекламодатель или владелец/staff
-    adv = act.order.advertiser
+    if act.order_id:
+        adv = act.order.advertiser
+    elif act.ad_application_id:
+        adv = act.ad_application.advertiser
+    else:
+        messages.error(request, 'Некорректная запись акта.')
+        return redirect('dashboard')
     if adv.user != request.user and not (request.user.is_staff or request.user.role == request.user.ROLE_OWNER):
         messages.error(request, 'Нет доступа.')
         return redirect('dashboard')
@@ -375,3 +381,52 @@ def create_act(request, order_pk):
         return redirect('advertisers:owner_orders')
 
     return render(request, 'advertisers/create_act.html', {'order': order})
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Новый поток: заявка рекламодателя (мастер канал → слоты → контент → ОРД → оплата)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@login_required
+def ad_application_list(request):
+    from .models import AdApplication
+
+    try:
+        adv = Advertiser.objects.get(user=request.user)
+    except Advertiser.DoesNotExist:
+        messages.info(request, 'Сначала заполните профиль рекламодателя.')
+        return redirect('advertisers:register')
+    applications = (
+        AdApplication.objects.filter(advertiser=adv)
+        .select_related('channel', 'post', 'invoice')
+        .order_by('-created_at')
+    )
+    return render(
+        request,
+        'advertisers/ad_application_list.html',
+        {'advertiser': adv, 'applications': applications},
+    )
+
+
+@login_required
+def owner_ad_applications(request):
+    """Все заявки нового потока по каналам владельца."""
+    from .models import AdApplication
+    if not (request.user.is_staff or request.user.role == request.user.ROLE_OWNER):
+        messages.error(request, 'Нет доступа.')
+        return redirect('dashboard')
+    from channels.models import Channel
+
+    ch_ids = Channel.objects.filter(owner=request.user).values_list('pk', flat=True)
+    applications = (
+        AdApplication.objects.filter(channel_id__in=ch_ids)
+        .select_related('advertiser', 'channel', 'post', 'invoice')
+        .prefetch_related('campaign_posts__ord_registrations')
+        .order_by('-created_at')
+    )
+    return render(
+        request,
+        'advertisers/owner_ad_applications.html',
+        {'applications': applications},
+    )

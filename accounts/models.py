@@ -40,6 +40,19 @@ class User(AbstractUser):
     )
     trial_ends_at = models.DateTimeField(null=True, blank=True, verbose_name='Конец пробного периода')
 
+    # Реклама: реквизиты для оплаты «переводом» (показываются рекламодателю)
+    ad_payment_phone = models.CharField(
+        max_length=40,
+        blank=True,
+        verbose_name='Телефон для перевода (реклама)',
+        help_text='Номер для СБП / перевода по номеру телефона в шаге оплаты заявки.',
+    )
+    ad_payment_instructions = models.TextField(
+        blank=True,
+        verbose_name='Текст реквизитов для перевода (реклама)',
+        help_text='Доп. данные: банк, ФИО получателя, комментарий к переводу.',
+    )
+
     class Meta:
         verbose_name = 'Пользователь'
         verbose_name_plural = 'Пользователи'

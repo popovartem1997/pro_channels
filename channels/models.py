@@ -130,6 +130,31 @@ class Channel(models.Model):
         help_text='Площадка в кабинете ОРД для передачи статистики по этому каналу.',
     )
 
+    # Реклама: слоты и сроки (кабинет рекламодателя)
+    ad_slot_schedule_json = models.JSONField(
+        'Расписание слотов (JSON)',
+        default=list,
+        blank=True,
+        help_text='Список объектов: {"weekday": 0-6 (пн=0), "times": ["10:00", "14:00", ...]}. '
+        'Из расписания генерируются свободные слоты.',
+    )
+    ad_slot_horizon_days = models.PositiveIntegerField(
+        'На сколько дней вперёд слоты',
+        default=56,
+        help_text='Генерация свободных дат для выбора в заявке.',
+    )
+    ad_post_lifetime_days = models.PositiveIntegerField(
+        'Срок «рекламного» поста (дней)',
+        default=7,
+        help_text='После публикации — период для акта и учёта; задаётся владельцем канала.',
+    )
+    ad_publish_pause_until = models.DateTimeField(
+        'Пауза публикаций до',
+        null=True,
+        blank=True,
+        help_text='Пока время не прошло, очередные посты в этот канал не публикуются (например, оплаченный «топ»).',
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -181,6 +206,76 @@ class Channel(models.Model):
         if self.platform == self.PLATFORM_INSTAGRAM:
             return bool(self.ig_access_token_enc and self.ig_account_id)
         return False
+
+
+class ChannelAdVolumeDiscount(models.Model):
+    """Скидка от количества постов в одной заявке (ступени: от N постов — процент)."""
+
+    channel = models.ForeignKey(
+        Channel,
+        on_delete=models.CASCADE,
+        related_name='ad_volume_discounts',
+        verbose_name='Канал',
+    )
+    min_posts = models.PositiveIntegerField(
+        'От количества постов',
+        help_text='Если в заявке выбрано не меньше слотов — применяется эта скидка (берётся наибольшая подходящая ступень).',
+    )
+    discount_percent = models.DecimalField(
+        'Скидка, %',
+        max_digits=5,
+        decimal_places=2,
+        help_text='Например 10.00 = 10%.',
+    )
+
+    class Meta:
+        verbose_name = 'Скидка за объём (реклама)'
+        verbose_name_plural = 'Скидки за объём (реклама)'
+        ordering = ['channel_id', 'min_posts']
+        constraints = [
+            models.UniqueConstraint(fields=['channel', 'min_posts'], name='uniq_channel_ad_vol_discount_min_posts'),
+        ]
+
+    def __str__(self):
+        return f'{self.channel_id}: от {self.min_posts} постов — {self.discount_percent}%'
+
+
+class ChannelAdAddon(models.Model):
+    """Доп. услуги к размещению: закреп, топ N часов и т.д."""
+
+    CODE_PIN = 'pin'
+    CODE_TOP_1H = 'top_1h'
+    CODE_TOP_2H = 'top_2h'
+
+    channel = models.ForeignKey(
+        Channel,
+        on_delete=models.CASCADE,
+        related_name='ad_addons',
+        verbose_name='Канал',
+    )
+    code = models.CharField(
+        'Код',
+        max_length=32,
+        help_text='Рекомендуется: pin, top_1h, top_2h — публикация учитывает top_* для паузы очереди.',
+    )
+    title = models.CharField('Название для рекламодателя', max_length=120)
+    price = models.DecimalField('Цена (₽)', max_digits=12, decimal_places=2)
+    top_duration_minutes = models.PositiveIntegerField(
+        'Длительность «топа» (мин.)',
+        default=0,
+        help_text='Для закрепа — 0. Для топа — 60 или 120 и т.д.; после публикации на это время блокируются прочие посты в канал.',
+    )
+    is_active = models.BooleanField('Включено', default=True)
+
+    class Meta:
+        verbose_name = 'Доп. услуга (реклама)'
+        verbose_name_plural = 'Доп. услуги (реклама)'
+        constraints = [
+            models.UniqueConstraint(fields=['channel', 'code'], name='uniq_channel_ad_addon_code'),
+        ]
+
+    def __str__(self):
+        return f'{self.channel_id} · {self.title}'
 
 
 class HistoryImportRun(models.Model):

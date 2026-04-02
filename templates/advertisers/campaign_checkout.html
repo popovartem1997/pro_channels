@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}Оплата · заявка #{{ app.pk }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Оплата</h1>
+  <p class="text-muted small mb-0">К оплате: <strong>{{ app.total_amount }} ₽</strong></p>
+</div>
+{% include 'advertisers/_campaign_steps.html' with step=7 %}
+{% if not app.contract_signed_at %}
+<div class="alert alert-warning">Сначала подпишите договор.</div>
+<a href="{% url 'advertisers:campaign_contract' app.pk %}" class="btn btn-outline-primary">К договору</a>
+{% else %}
+<form method="post" class="card border-0 shadow-sm">
+  {% csrf_token %}
+  <div class="card-body">
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="radio" name="payment_method" value="transfer" id="pm_tr" required>
+      <label class="form-check-label" for="pm_tr">Перевод по номеру телефона / реквизитам</label>
+    </div>
+    {% if pay_phone or pay_instr %}
+    <div class="small text-muted mb-3 ms-4">После выбора вы увидите реквизиты владельца канала.</div>
+    {% endif %}
+    <div class="form-check mb-3">
+      <input class="form-check-input" type="radio" name="payment_method" value="tbank" id="pm_tb">
+      <label class="form-check-label" for="pm_tb">Онлайн (TBank / карта)</label>
+    </div>
+    <button type="submit" class="btn btn-brand">Перейти к оплате</button>
+    <a href="{% url 'advertisers:campaign_contract' app.pk %}" class="btn btn-link">Назад</a>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

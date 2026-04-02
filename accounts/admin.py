@@ -14,7 +14,8 @@ class UserAdmin(BaseUserAdmin):
     fieldsets = BaseUserAdmin.fieldsets + (
         ('Платформа', {
             'fields': ('role', 'phone', 'company', 'avatar',
-                       'is_email_verified', 'trial_ends_at', 'invited_by')
+                       'is_email_verified', 'trial_ends_at', 'invited_by',
+                       'ad_payment_phone', 'ad_payment_instructions')
         }),
     )
 

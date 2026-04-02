@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block title %}Заявки (новый поток){% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+  <div>
+    <h1><i class="bi bi-ui-checks me-2" style="color:var(--brand)"></i>Заявки на рекламу</h1>
+    <p class="text-muted small mb-0">Новый поток по вашим каналам</p>
+  </div>
+  <a href="{% url 'advertisers:owner_orders' %}" class="btn btn-outline-secondary btn-sm">Старые заказы</a>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    {% if applications %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-4">#</th>
+            <th>Рекламодатель</th>
+            <th>Канал</th>
+            <th>Статус</th>
+            <th>Сумма</th>
+            <th>Договор</th>
+            <th>ОРД (посты)</th>
+            <th class="pe-4">Обновлено</th>
+            <th class="pe-4"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in applications %}
+          <tr>
+            <td class="ps-4 font-monospace">{{ a.pk }}</td>
+            <td>{{ a.advertiser.company_name }} <span class="text-muted small">ИНН {{ a.advertiser.inn }}</span></td>
+            <td>{{ a.channel.name }}</td>
+            <td><span class="badge bg-secondary">{{ a.get_status_display }}</span></td>
+            <td>{{ a.total_amount }} ₽</td>
+            <td class="small">{% if a.contract_signed_at %}<span class="text-success">Подписан</span>{% else %}<span class="text-warning">нет</span>{% endif %}</td>
+            <td class="small">
+              {% for p in a.campaign_posts.all %}
+                {% if p.ord_registrations.all %}
+                  <span class="text-success" title="Пост #{{ p.pk }}">✓</span>
+                {% else %}
+                  <span class="text-warning" title="Пост #{{ p.pk }}">—</span>
+                {% endif %}
+              {% empty %}
+              <span class="text-muted">—</span>
+              {% endfor %}
+            </td>
+            <td class="small text-muted">{{ a.updated_at|date:"d.m.Y H:i" }}</td>
+            <td class="pe-4 small"><a href="{% url 'advertisers:owner_campaign_detail' a.pk %}">Карточка</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-muted p-4 mb-0">Заявок пока нет.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

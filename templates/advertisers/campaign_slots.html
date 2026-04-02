@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block title %}Слоты · заявка #{{ app.pk }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Свободные слоты</h1>
+  <p class="text-muted small mb-0">{{ app.channel.name }} · заявка #{{ app.pk }}</p>
+</div>
+{% include 'advertisers/_campaign_steps.html' with step=2 %}
+{% if not slots %}
+<div class="alert alert-warning">Слотов пока нет. Владелец канала должен задать расписание в настройках канала (JSON слотов) и при необходимости сгенерировать слоты.</div>
+{% else %}
+<form method="post" class="card border-0 shadow-sm">
+  {% csrf_token %}
+  <div class="card-body">
+    <p class="small text-muted">Отметьте одно или несколько времени публикации. Стоимость = цена размещения × число слотов (со скидкой за объём, если настроено).</p>
+    <div class="table-responsive" style="max-height:420px;overflow-y:auto;">
+      <table class="table table-sm align-middle">
+        {% for s in slots %}
+        <tr>
+          <td style="width:2.5rem;">
+            <input class="form-check-input" type="checkbox" name="slot_ids" value="{{ s.pk }}" id="sl{{ s.pk }}"
+              {% if s.pk in selected %}checked{% endif %}
+              {% if s.application_id and s.application_id != app.pk %}disabled{% endif %}>
+          </td>
+          <td><label class="mb-0" for="sl{{ s.pk }}">{{ s.starts_at|date:"d.m.Y H:i" }}</label></td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+    <div class="mt-3 d-flex gap-2 flex-wrap">
+      <button type="submit" class="btn btn-brand">Далее</button>
+      <a href="{% url 'advertisers:campaign_list' %}" class="btn btn-outline-secondary">К заявкам</a>
+    </div>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

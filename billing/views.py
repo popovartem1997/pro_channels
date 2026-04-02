@@ -123,8 +123,21 @@ def tbank_webhook(request):
                 raw_response=data,
             )
 
-            # Если счёт за подписку на канал — активируем подписку на этот канал
-            if invoice.channel_id:
+            from advertisers.ad_campaign_services import fulfill_paid_ad_application
+            from advertisers.models import AdApplication
+
+            # Счёт за рекламу (AdApplication) — не подписка и не старый AdvertisingOrder
+            ad_app = AdApplication.objects.filter(invoice_id=invoice.pk).first()
+            if ad_app and ad_app.status == AdApplication.STATUS_AWAITING_PAYMENT:
+                ad_app.status = AdApplication.STATUS_PAID
+                ad_app.save(update_fields=['status', 'updated_at'])
+                try:
+                    ok = fulfill_paid_ad_application(ad_app)
+                    if not ok:
+                        logger.error('Fulfill AdApplication #%s после TBank вернул False', ad_app.pk)
+                except Exception as ex:
+                    logger.error('Fulfill AdApplication после TBank: %s', ex)
+            elif invoice.channel_id:
                 plan = Plan.objects.filter(code='basic', is_active=True).first()
                 if plan:
                     starts_at = timezone.now()
@@ -140,21 +153,18 @@ def tbank_webhook(request):
                         auto_renew=True,
                     )
             else:
-                # Если это счёт по рекламному заказу — активируем его после оплаты.
-                # related_name из advertisers.models.AdvertisingOrder: advertising_order
                 try:
                     adv_order = invoice.advertising_order
                     if adv_order.status == adv_order.STATUS_APPROVED:
                         adv_order.status = adv_order.STATUS_ACTIVE
                         adv_order.save(update_fields=['status'])
-                    # Автопост (публикация/планирование)
                     try:
                         from advertisers.services import ensure_ad_post_for_order
+
                         ensure_ad_post_for_order(adv_order)
                     except Exception as e:
-                        logger.error(f'Автопост рекламного заказа #{adv_order.pk}: {e}')
+                        logger.error('Автопост рекламного заказа #%s: %s', adv_order.pk, e)
                 except Exception:
-                    # Ничего не делаем, если счёт не привязан к рекламному заказу
                     pass
         except Exception as e:
             logger.error(f'Ошибка обработки webhook TBank: {e}')

@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block title %}Текст и медиа · заявка #{{ app.pk }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Текст и медиа</h1>
+  <p class="text-muted small mb-0">Заявка #{{ app.pk }} · {{ app.channel.name }}</p>
+</div>
+{% include 'advertisers/_campaign_steps.html' with step=3 %}
+<form method="post" enctype="multipart/form-data" class="card border-0 shadow-sm">
+  {% csrf_token %}
+  <div class="card-body">
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Текст (простой)</label>
+      <textarea name="text" class="form-control" rows="5" required>{{ post.text }}</textarea>
+    </div>
+    <div class="mb-3">
+      <label class="form-label fw-semibold">HTML (Telegram и предпросмотр)</label>
+      <textarea name="text_html" class="form-control font-monospace small" rows="6" placeholder="Необязательно">{{ post.text_html }}</textarea>
+    </div>
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Метка ОРД</label>
+      <input type="text" name="ord_label" class="form-control" value="{{ post.ord_label|default:'Реклама' }}" maxlength="500">
+    </div>
+    {% if post.media_files.all %}
+    <div class="mb-3">
+      <div class="fw-semibold small mb-2">Медиа (порядок — число)</div>
+      {% for m in post.media_files.all %}
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <input type="checkbox" class="form-check-input" name="keep_media" value="{{ m.pk }}" id="km{{ m.pk }}" checked>
+        <label class="form-check-label flex-grow-1" for="km{{ m.pk }}">{{ m.file.name|default:m.pk }} ({{ m.get_media_type_display }})</label>
+        <input type="number" name="media_order_{{ m.pk }}" class="form-control form-control-sm" style="width:5rem;" value="{{ m.order }}" min="1">
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Добавить файлы</label>
+      <input type="file" name="media_files" class="form-control" multiple accept="image/*,video/*,.pdf">
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <button type="submit" class="btn btn-brand">Далее</button>
+      <a href="{% url 'advertisers:campaign_slots' app.pk %}" class="btn btn-outline-secondary">Назад</a>
+    </div>
+  </div>
+</form>
+{% endblock %}
