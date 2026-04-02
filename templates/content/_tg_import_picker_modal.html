@@ -36,7 +36,8 @@
     var entities = (item && item.entities && Array.isArray(item.entities)) ? item.entities : [];
     ed.textContent = text;
     html.value = '';
-    plain.value = text.trim();
+    /* Без .trim(): смещения entities из Telegram привязаны к полной строке. */
+    plain.value = text;
     hid.value = JSON.stringify(entities);
     ed.dispatchEvent(new Event('input', { bubbles: true }));
     ed.focus();

@@ -112,8 +112,6 @@ def post_create(request):
             pass
 
     if request.method == 'POST':
-        text = request.POST.get('text', '').strip()
-        text_html = (request.POST.get('text_html') or '').strip()
         channel_ids = request.POST.getlist('channels')
         scheduled_at_str = request.POST.get('scheduled_at', '').strip()
         repeat_enabled = request.POST.get('repeat_enabled') == 'on'
@@ -123,25 +121,34 @@ def post_create(request):
         disable_notification = request.POST.get('disable_notification') == 'on'
         ord_label = request.POST.get('ord_label', '').strip()
 
-        if not text:
-            messages.error(request, 'Введите текст поста.')
-            return render(request, 'content/create.html', _ctx_post_create(user_channels, channel_ids))
-
         if not channel_ids:
             messages.error(request, 'Выберите хотя бы один канал.')
             return render(request, 'content/create.html', _ctx_post_create(user_channels, channel_ids))
 
-        # TG Premium/Custom emoji: entities приходят только из "импорта из Telegram"
+        # TG entities (импорт / вставка tg-emoji): offset привязаны к post.text — без .strip().
         has_premium_emoji = False
         tg_entities = []
         tg_entities_raw = request.POST.get('tg_entities', '').strip()
         if tg_entities_raw:
             try:
                 tg_entities = json.loads(tg_entities_raw)
-                has_premium_emoji = True if tg_entities else False
+                has_premium_emoji = bool(tg_entities)
             except json.JSONDecodeError:
                 messages.error(request, 'Импорт Telegram: неверный формат entities.')
                 return render(request, 'content/create.html', _ctx_post_create(user_channels, preselected))
+
+        raw_text = request.POST.get('text', '')
+        raw_html = request.POST.get('text_html') or ''
+        if tg_entities:
+            text = raw_text
+            text_html = raw_html
+        else:
+            text = raw_text.strip()
+            text_html = raw_html.strip()
+
+        if not (text or '').strip():
+            messages.error(request, 'Введите текст поста.')
+            return render(request, 'content/create.html', _ctx_post_create(user_channels, channel_ids))
 
         post = Post(
             author=request.user,
@@ -392,26 +399,34 @@ def post_edit(request, pk):
         normalize_post_media_orders(post)
 
         channel_ids = request.POST.getlist('channels')
-        post.text = request.POST.get('text', post.text).strip()
-        post.text_html = (request.POST.get('text_html') or '').strip()
-        post.pin_message = request.POST.get('pin_message') == 'on'
-        post.disable_notification = request.POST.get('disable_notification') == 'on'
-        post.ord_label = request.POST.get('ord_label', '').strip()
-        post.repeat_enabled = request.POST.get('repeat_enabled') == 'on'
-        post.repeat_type = request.POST.get('repeat_type', Post.REPEAT_NONE)
-        post.repeat_interval_days = int(request.POST.get('repeat_interval_days', 3) or 3)
 
-        # TG Premium/Custom emoji: entities приходят только из "импорта из Telegram"
+        # TG entities: сначала парсим, затем text без strip при непустом списке (смещения UTF-16).
         post.has_premium_emoji = False
         post.tg_entities = []
         tg_entities_raw = request.POST.get('tg_entities', '').strip()
         if tg_entities_raw:
             try:
                 post.tg_entities = json.loads(tg_entities_raw)
-                post.has_premium_emoji = True if post.tg_entities else False
+                post.has_premium_emoji = bool(post.tg_entities)
             except json.JSONDecodeError:
                 post.tg_entities = []
                 post.has_premium_emoji = False
+
+        raw_text = request.POST.get('text', post.text)
+        raw_html = request.POST.get('text_html') or ''
+        if post.tg_entities:
+            post.text = raw_text
+            post.text_html = raw_html
+        else:
+            post.text = raw_text.strip()
+            post.text_html = raw_html.strip()
+
+        post.pin_message = request.POST.get('pin_message') == 'on'
+        post.disable_notification = request.POST.get('disable_notification') == 'on'
+        post.ord_label = request.POST.get('ord_label', '').strip()
+        post.repeat_enabled = request.POST.get('repeat_enabled') == 'on'
+        post.repeat_type = request.POST.get('repeat_type', Post.REPEAT_NONE)
+        post.repeat_interval_days = int(request.POST.get('repeat_interval_days', 3) or 3)
 
         scheduled_at_str = request.POST.get('scheduled_at', '').strip()
         if scheduled_at_str:
@@ -437,7 +452,7 @@ def post_edit(request, pk):
             if post.status == Post.STATUS_SCHEDULED:
                 post.scheduled_at = None
                 post.status = Post.STATUS_DRAFT
-        if not post.text:
+        if not (post.text or '').strip():
             messages.error(request, 'Введите текст поста.')
             return render(
                 request,

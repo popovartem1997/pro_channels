@@ -2,6 +2,8 @@
 Celery задачи для публикации постов.
 """
 import logging
+import mimetypes
+import os
 from celery import shared_task
 from django.db.models import Max
 from django.utils import timezone
@@ -587,6 +589,8 @@ def _tg_normalize_entities(entities) -> list:
                     ne[k] = 0
             elif k == 'custom_emoji_id' and v is not None:
                 ne[k] = str(v)
+            elif k == 'type' and v is not None:
+                ne[k] = str(v)
             else:
                 ne[k] = v
         out.append(ne)
@@ -690,6 +694,9 @@ def _publish_telegram(post, channel):
         if len(media_files) == 1:
             mf = media_files[0]
             with open(mf.file.path, 'rb') as f:
+                upload_name = os.path.basename(getattr(mf.file, 'name', '') or '') or 'media.bin'
+                mime, _ = mimetypes.guess_type(upload_name)
+                file_field = (upload_name, f, mime or 'application/octet-stream')
                 send_data = {**media_form_base, 'caption': text}
                 if use_entities:
                     send_data['caption_entities'] = json_module.dumps(
@@ -698,11 +705,11 @@ def _publish_telegram(post, channel):
                     )
                 send_data = _tg_multipart_form(send_data)
                 if mf.media_type == 'photo':
-                    resp = requests.post(f'{base_url}/sendPhoto', data=send_data, files={'photo': f})
+                    resp = requests.post(f'{base_url}/sendPhoto', data=send_data, files={'photo': file_field})
                 elif mf.media_type == 'video':
-                    resp = requests.post(f'{base_url}/sendVideo', data=send_data, files={'video': f})
+                    resp = requests.post(f'{base_url}/sendVideo', data=send_data, files={'video': file_field})
                 else:
-                    resp = requests.post(f'{base_url}/sendDocument', data=send_data, files={'document': f})
+                    resp = requests.post(f'{base_url}/sendDocument', data=send_data, files={'document': file_field})
         else:
             # Медиагруппа
             media = []

@@ -503,7 +503,7 @@
   function sanitizeForTelegram(html) {
     // Very small whitelist similar to the footer sanitizer.
     var input = (html || '').replace(/\r\n/g, '\n');
-    var allowedTags = new Set(['B','STRONG','I','EM','U','S','STRIKE','DEL','A','CODE','PRE','BLOCKQUOTE','BR']);
+    var allowedTags = new Set(['B','STRONG','I','EM','U','S','STRIKE','DEL','A','CODE','PRE','BLOCKQUOTE','BR','SPAN']);
     var doc = new DOMParser().parseFromString('<div>' + input + '</div>', 'text/html');
     var root = doc.body.firstChild;
 
@@ -525,6 +525,9 @@
             return;
           }
           node.setAttribute('href', href);
+        }
+        if (node.tagName === 'SPAN') {
+          /* только обёртки вставки; атрибуты не сохраняем */
         }
       }
       Array.from(node.childNodes || []).forEach(walk);
@@ -576,7 +579,17 @@
         html = html.replace(/\r\n|\r|\n/g, '<br>');
       }
       hidden.value = html;
-      plain.value = stripHtml(html).trim();
+      var rawPlain = stripHtml(html);
+      var hasEnt = false;
+      try {
+        var hidEl = document.getElementById('id_tg_entities_hidden');
+        if (hidEl && hidEl.value) {
+          var pe = JSON.parse(hidEl.value);
+          hasEnt = Array.isArray(pe) && pe.length > 0;
+        }
+      } catch (x) {}
+      /* С tg_entities пробелы по краям и длина строки должны совпадать с offset в UTF-16 (Bot API). */
+      plain.value = hasEnt ? rawPlain : rawPlain.trim();
     }
     sync();
 
@@ -602,11 +615,173 @@
       });
     }
 
-    // Prevent rich paste
+    function parseTgEntitiesHidden() {
+      try {
+        var v = tgHid ? tgHid.value : '';
+        if (!v) return [];
+        var p = JSON.parse(v);
+        return Array.isArray(p) ? p : [];
+      } catch (err) { return []; }
+    }
+
+    function setTgEntitiesHidden(list) {
+      if (!tgHid) return;
+      tgHid.value = JSON.stringify(list || []);
+    }
+
+    function rangeTextBeforeAfter(ed, range) {
+      var br = document.createRange();
+      br.selectNodeContents(ed);
+      br.setEnd(range.startContainer, range.startOffset);
+      var ar = document.createRange();
+      ar.selectNodeContents(ed);
+      ar.setStart(range.endContainer, range.endOffset);
+      return { before: br.toString(), after: ar.toString() };
+    }
+
+    function entityOverlapsInsertPoint(entities, shift) {
+      return entities.some(function (ent) {
+        var s = ent.offset || 0;
+        var end = s + (ent.length || 0);
+        return s < shift && end > shift;
+      });
+    }
+
+    function shiftEntitiesFrom(entities, shift, delta) {
+      if (!delta) return entities.slice();
+      return entities.map(function (ent) {
+        var ne = Object.assign({}, ent);
+        if ((ne.offset || 0) >= shift) ne.offset = (ne.offset || 0) + delta;
+        return ne;
+      });
+    }
+
+    /* Вставка: не затирать поле пустым text/plain; премиум emoji из буфера Telegram (tg-emoji + emoji-id). */
     ed.addEventListener('paste', function (e) {
+      var cd = e.clipboardData || window.clipboardData;
+      if (!cd) return;
+
+      var html = cd.getData('text/html') || '';
+      var plainClip = cd.getData('text/plain');
+      if (plainClip === null || plainClip === undefined) plainClip = '';
+
+      ed.focus();
+      var sel = window.getSelection();
+      if (!sel.rangeCount) return;
+      var range = sel.getRangeAt(0);
+      if (!ed.contains(range.commonAncestorContainer)) {
+        range = document.createRange();
+        range.selectNodeContents(ed);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+
+      var slices = rangeTextBeforeAfter(ed, range);
+      var shift = slices.before.length;
+
       e.preventDefault();
-      var text = (e.clipboardData || window.clipboardData).getData('text/plain');
-      document.execCommand('insertText', false, text);
+
+      var acc = null;
+      if (/tg-emoji/i.test(html)) {
+        var tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        acc = { plain: '', entities: [] };
+        function walkClip(node) {
+          if (node.nodeType === 3) {
+            acc.plain += node.nodeValue || '';
+            return;
+          }
+          if (node.nodeType !== 1) return;
+          var tag = (node.tagName || '').toUpperCase();
+          if (tag === 'TG-EMOJI') {
+            var eid = node.getAttribute('emoji-id') || node.getAttribute('emoji_id') || '';
+            var ch = (node.textContent || '').replace(/\uFEFF/g, '');
+            if (!ch.trim()) {
+              var im = node.querySelector('img');
+              if (im) ch = (im.getAttribute('alt') || '').trim();
+            }
+            if (eid && ch) {
+              var off = acc.plain.length;
+              acc.plain += ch;
+              acc.entities.push({
+                type: 'custom_emoji',
+                offset: off,
+                length: ch.length,
+                custom_emoji_id: String(eid)
+              });
+              return;
+            }
+            for (var ci = 0; ci < node.childNodes.length; ci++) walkClip(node.childNodes[ci]);
+            return;
+          }
+          if (tag === 'IMG') {
+            var alt = (node.getAttribute('alt') || '').trim();
+            if (alt) acc.plain += alt;
+            return;
+          }
+          for (var j = 0; j < node.childNodes.length; j++) walkClip(node.childNodes[j]);
+        }
+        walkClip(tmp);
+      }
+
+      if (acc && (acc.plain.length || acc.entities.length)) {
+        var insLen = acc.plain.length;
+        var exist = parseTgEntitiesHidden();
+        if (entityOverlapsInsertPoint(exist, shift) && exist.length) {
+          exist = [];
+        } else if (insLen && exist.length) {
+          exist = shiftEntitiesFrom(exist, shift, insLen);
+        }
+        var shiftedFrag = acc.entities.map(function (ent) {
+          return {
+            type: 'custom_emoji',
+            offset: (ent.offset || 0) + shift,
+            length: ent.length || 0,
+            custom_emoji_id: String(ent.custom_emoji_id || '')
+          };
+        });
+        var merged = exist.concat(shiftedFrag).sort(function (a, b) {
+          return (a.offset || 0) - (b.offset || 0);
+        });
+        setTgEntitiesHidden(merged);
+
+        range.deleteContents();
+        var tn = document.createTextNode(acc.plain);
+        range.insertNode(tn);
+        range.setStartAfter(tn);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        sync();
+        return;
+      }
+
+      var text = plainClip;
+      if (text === '' && html) {
+        var tmp2 = document.createElement('div');
+        tmp2.innerHTML = html;
+        text = tmp2.innerText || tmp2.textContent || '';
+      }
+      if (text === '') {
+        return;
+      }
+
+      var exist2 = parseTgEntitiesHidden();
+      if (entityOverlapsInsertPoint(exist2, shift) && exist2.length) {
+        setTgEntitiesHidden([]);
+      } else if (text.length && exist2.length) {
+        setTgEntitiesHidden(shiftEntitiesFrom(exist2, shift, text.length));
+      }
+
+      range.deleteContents();
+      var tn2 = document.createTextNode(text);
+      range.insertNode(tn2);
+      range.setStartAfter(tn2);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      sync();
     });
 
     toolbar.addEventListener('mousedown', function(e){
@@ -627,7 +802,10 @@
       else if (a === 'quote') exec('formatBlock'); // best-effort
       else if (a === 'code') exec('formatBlock'); // best-effort
       else if (a === 'link') execLink();
-      else if (a === 'clear') { ed.textContent = ''; }
+      else if (a === 'clear') {
+        ed.textContent = '';
+        setTgEntitiesHidden([]);
+      }
       sync();
     });
 
