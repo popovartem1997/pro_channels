@@ -584,6 +584,23 @@ def _tg_plain_to_html_caption(plain: str) -> str:
     return s.replace('\n', '<br>')
 
 
+def _tg_html_has_rich_formatting(html: str) -> bool:
+    """Теги, которые в TG HTML дают не-monospace оформление; без них надёжнее <pre>."""
+    import re
+
+    return bool(
+        re.search(r'</?(?:b|strong|i|em|u|s|strike|del|a|code|blockquote)\b', html or '', re.I)
+    )
+
+
+def _tg_telegram_body_pre_from_plain(plain: str) -> str:
+    """Моноширинный блок: в Telegram сохраняются и пробелы, и переносы без NBSP/br-трюков."""
+    from html import escape
+
+    s = (plain or '').replace('\r\n', '\n').replace('\r', '\n')
+    return '<pre>' + escape(s, quote=False) + '</pre>'
+
+
 def _build_text(post, channel):
     """
     Собирает итоговый текст поста: ОРД метка + текст + подпись канала.
@@ -595,15 +612,27 @@ def _build_text(post, channel):
     from html import escape
 
     if channel.platform == Ch.PLATFORM_TELEGRAM:
-        if (post.text_html or '').strip():
-            text = post.text_html
-            if '<pre' not in text.lower():
-                text = text.replace('\r\n', '\n').replace('\n', '<br>')
-                # Редактор почти всегда шлёт text_html — без NBSP колонки схлопываются в TG
-                text = _tg_preserve_spaces_telegram_html(text)
+        th_raw = post.text_html or ''
+        th = th_raw.strip()
+        # Premium / tg-emoji: тело из plain в <pre> потеряет custom_emoji — оставляем HTML-ветку
+        avoid_pre = getattr(post, 'has_premium_emoji', False) or ('tg-emoji' in th_raw.lower())
+        if th:
+            if (
+                not avoid_pre
+                and not _tg_html_has_rich_formatting(th_raw)
+                and '<pre' not in th_raw.lower()
+            ):
+                text = _tg_telegram_body_pre_from_plain(post.text or '')
+            else:
+                text = post.text_html
+                if '<pre' not in text.lower():
+                    text = text.replace('\r\n', '\n').replace('\n', '<br>')
+                    text = _tg_preserve_spaces_telegram_html(text)
         else:
-            # Только text: в parse_mode=HTML \n не переносит строку; пробелы схлопываются
-            text = _tg_plain_to_html_caption(post.text or '')
+            if avoid_pre:
+                text = _tg_plain_to_html_caption(post.text or '')
+            else:
+                text = _tg_telegram_body_pre_from_plain(post.text or '')
 
         if post.ord_label:
             ol = escape((post.ord_label or '').strip(), quote=False)
