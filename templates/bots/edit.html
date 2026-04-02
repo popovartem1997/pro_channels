@@ -114,6 +114,22 @@
                       placeholder="12345678">{{ request.POST.custom_admin_chat_ids|default:custom_admin_chat_ids }}</textarea>
             <div class="form-text">Только числа.</div>
           </div>
+
+          {% if not can_edit_messages_only %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Модераторы (сайт) — кому дублировать в MAX</label>
+            <select name="moderators" class="form-select" multiple size="5">
+              {% for tm in team_members %}
+                <option value="{{ tm.member_id }}" {% if tm.member_id|stringformat:"s" in selected_moderators %}selected{% endif %}>
+                  {{ tm.member.get_full_name|default:tm.member.username }} ({{ tm.member.username }})
+                </option>
+              {% endfor %}
+            </select>
+            <div class="form-text">
+              Для доставки в MAX у менеджера должен быть заполнен <code>MAX ID</code> (user_id) в доступах команды.
+            </div>
+          </div>
+          {% endif %}
           {% elif not can_edit_messages_only %}
           <div class="mb-4">
             <label class="form-label fw-semibold">ID группы / сообщества</label>

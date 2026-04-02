@@ -480,6 +480,38 @@ class MAXSuggestionBot:
             # uniq keep order
             seen = set()
             admin_chat_ids = [x for x in admin_chat_ids if not (x in seen or seen.add(x))]
+
+            # Дополнительно: модераторы сайта → личка в MAX (user_id из TeamMember.max_user_id)
+            try:
+                from managers.models import TeamMember
+                moderator_user_ids = list(self.config.moderators.values_list('id', flat=True))
+                if moderator_user_ids:
+                    rows = TeamMember.objects.filter(
+                        owner=self.config.owner,
+                        member_id__in=moderator_user_ids,
+                        is_active=True,
+                        can_moderate=True,
+                    ).exclude(max_user_id='').values_list('max_user_id', flat=True)
+                    for uid in rows:
+                        s = str(uid).strip()
+                        if not s:
+                            continue
+                        # MAX Bot API: личка по user_id
+                        self.api.send_message_to_user(
+                            s,
+                            f'📬 Новое предложение #{suggestion.short_tracking_id}\n\n'
+                            f'👤 {sender.get("name", "Неизвестно")}'
+                            + (f' (@{sender.get("username")})' if sender.get("username") else '')
+                            + f'\n🆔 {str(sender.get("user_id", ""))}\n'
+                            f'📎 Тип: {suggestion.get_content_type_display()}'
+                            + (f'\n\n📝 {(text or "")[:300]}{"…" if text and len(text) > 300 else ""}' if text else ''),
+                            buttons=[[
+                                {'type': 'callback', 'text': '✅ Одобрить', 'payload': f'approve|{str(suggestion.tracking_id)}'},
+                                {'type': 'callback', 'text': '❌ Отклонить', 'payload': f'reject|{str(suggestion.tracking_id)}'},
+                            ]],
+                        )
+            except Exception as e:
+                logger.warning('[MAX] Не удалось отправить модерацию модераторам сайта: %s', e)
         else:
             try:
                 admin_chat_ids = self.config.get_moderation_chat_ids()

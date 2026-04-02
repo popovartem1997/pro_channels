@@ -92,7 +92,7 @@
             </div>
 
             <div class="mt-3">
-              <label class="form-label fw-semibold">Модераторы (сайт) — кому дублировать в Telegram</label>
+              <label class="form-label fw-semibold">Модераторы (сайт) — кому дублировать модерацию</label>
               <select name="moderators" class="form-select" multiple size="5">
                 {% for tm in team_members %}
                   <option value="{{ tm.member_id }}"
@@ -102,7 +102,8 @@
                 {% endfor %}
               </select>
               <div class="form-text">
-                Пользователи получат заявки только если они привязали Telegram ID через импорт-бота (раздел постов → импорт Telegram).
+                Telegram: пользователи получат заявки, если привязали Telegram ID через импорт-бота.
+                MAX: пользователи получат заявки, если у них заполнен <code>MAX ID</code> (user_id) в доступах команды.
               </div>
             </div>
 
