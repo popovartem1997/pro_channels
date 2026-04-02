@@ -229,9 +229,18 @@ def _match_keywords(text, keywords):
     return [kw for kw in keywords if kw.lower() in text_lower]
 
 
-def _save_item(source, keyword_obj, text, platform_id, original_url='', media=None):
+def _save_item(
+    source,
+    keyword_obj,
+    text,
+    platform_id,
+    original_url='',
+    media=None,
+    source_posted_at=None,
+):
     """Сохраняет найденный материал, если его ещё нет (дедупликация по source + platform_id)."""
     from .models import ParsedItem
+
     if not platform_id:
         return False
     if media is None:
@@ -244,6 +253,7 @@ def _save_item(source, keyword_obj, text, platform_id, original_url='', media=No
             'text': text[:10000],
             'original_url': original_url[:200] if original_url else '',
             'media': media,
+            'source_posted_at': source_posted_at,
         },
     )
     return created
@@ -370,8 +380,16 @@ def _parse_telegram(source, keywords, keyword_objects):
                     except Exception:
                         media_urls = []
 
+                    posted_at = None
+                    try:
+                        md = getattr(message, 'date', None)
+                        if md is not None:
+                            posted_at = timezone.make_aware(md) if timezone.is_naive(md) else md
+                    except Exception:
+                        posted_at = None
+
                     created = await sync_to_async(_save_item, thread_sensitive=True)(
-                        source, kw_obj, msg_text, str(message.id), original_url, media_urls
+                        source, kw_obj, msg_text, str(message.id), original_url, media_urls, posted_at
                     )
                     if created:
                         found += 1
@@ -440,7 +458,16 @@ def _parse_vk(source, keywords, keyword_objects):
                 kw_obj = keyword_objects[matched[0]]
                 post_id = item.get('id', '')
                 url = f'https://vk.com/wall{owner_id}_{post_id}'
-                if _save_item(source, kw_obj, text, f'{owner_id}_{post_id}', url):
+                posted_at = None
+                ts = item.get('date')
+                if ts:
+                    try:
+                        from datetime import datetime, timezone as dt_tz
+
+                        posted_at = datetime.fromtimestamp(int(ts), tz=dt_tz.utc)
+                    except Exception:
+                        posted_at = None
+                if _save_item(source, kw_obj, text, f'{owner_id}_{post_id}', url, None, posted_at):
                     found += 1
     except Exception as exc:
         logger.error(f'VK wall.get ошибка для {source_id}: {exc}')
@@ -473,7 +500,24 @@ def _parse_rss(source, keywords, keyword_objects):
             kw_obj = keyword_objects[matched[0]]
             entry_id = entry.get('id', '') or entry.get('link', '')
             link = entry.get('link', '')
-            if _save_item(source, kw_obj, text, entry_id, link):
+            posted_at = None
+            pp = entry.get('published_parsed') or entry.get('updated_parsed')
+            if pp:
+                try:
+                    from datetime import datetime, timezone as dt_tz
+
+                    posted_at = datetime(
+                        pp.tm_year,
+                        pp.tm_mon,
+                        pp.tm_mday,
+                        pp.tm_hour,
+                        pp.tm_min,
+                        pp.tm_sec,
+                        tzinfo=dt_tz.utc,
+                    )
+                except Exception:
+                    posted_at = None
+            if _save_item(source, kw_obj, text, entry_id, link, None, posted_at):
                 found += 1
 
     return found

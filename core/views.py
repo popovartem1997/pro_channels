@@ -4,7 +4,7 @@ from django.shortcuts import render, redirect
 from django.http import HttpResponse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.db.models import Q
+from django.db.models import Q, Prefetch
 from django.urls import reverse
 from django.utils import timezone
 from django.core.paginator import Paginator
@@ -270,6 +270,7 @@ def feed(request):
     """
     from content.models import Post
     from bots.models import Suggestion
+    from channels.models import Channel
     from parsing.models import ParsedItem
 
     kind = (request.GET.get('kind') or 'all').strip()  # all|post|subscriber|parsing
@@ -292,7 +293,6 @@ def feed(request):
             is_active=True,
         ).values_list('channels__pk', flat=True)
         allowed_channel_ids = list(set(int(x) for x in allowed_channel_ids if str(x).isdigit()))
-        from channels.models import Channel
         allowed_channels = list(Channel.objects.filter(pk__in=allowed_channel_ids, is_active=True).order_by('name'))
         post_qs = Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct()
         sug_qs = Suggestion.objects.filter(
@@ -303,7 +303,6 @@ def feed(request):
         ).distinct()
     else:
         # owner/staff
-        from channels.models import Channel
         if request.user.is_staff or request.user.is_superuser:
             allowed_channels = list(Channel.objects.filter(is_active=True).order_by('name'))
         else:
@@ -318,13 +317,27 @@ def feed(request):
                 Q(source__owner=request.user) | Q(keyword__owner=request.user)
             ).distinct()
 
-    post_qs = post_qs.prefetch_related('channels').select_related('author', 'published_by')
+    post_qs = post_qs.prefetch_related(
+        Prefetch('channels', queryset=Channel.objects.select_related('channel_group')),
+    ).select_related('author', 'published_by')
     sug_qs = sug_qs.select_related('bot', 'bot__owner').prefetch_related(
         'bot__channel_groups__channels',
     )
-    parsed_qs = parsed_qs.select_related('source', 'source__channel', 'keyword')
+    parsed_qs = parsed_qs.select_related(
+        'source', 'source__channel', 'source__channel_group', 'keyword',
+    )
 
     items = []
+
+    def _groups_for_post(post):
+        seen = set()
+        out = []
+        for ch in post.channels.all():
+            g = getattr(ch, 'channel_group', None)
+            if g and g.pk not in seen:
+                seen.add(g.pk)
+                out.append(g)
+        return out
 
     # Channel filter (applies to all kinds)
     if channel_id and str(channel_id).isdigit():
@@ -444,6 +457,7 @@ def feed(request):
                 'status': p.status,
                 'status_display': p.get_status_display(),
                 'channels': list(p.channels.all()),
+                'channel_groups': _groups_for_post(p),
                 'url': f'/posts/{p.pk}/',
                 'meta': f'Автор: {getattr(p.author, "username", "—")}' + (f' · Опубликовал: {p.published_by.username}' if getattr(p, 'published_by', None) else ''),
                 'obj': p,
@@ -461,6 +475,7 @@ def feed(request):
                 'status': s.status,
                 'status_display': s.get_status_display(),
                 'channels': s.bot.display_channels(),
+                'channel_groups': [],
                 'url': reverse('bots:suggestion_detail', args=[s.pk]),
                 'meta': f'{s.bot.name} · {s.sender_display}',
                 'obj': s,
@@ -471,14 +486,16 @@ def feed(request):
         for pi in q[:200]:
             st = 'pending' if pi.status == ParsedItem.STATUS_NEW else ('published' if pi.status == ParsedItem.STATUS_USED else 'rejected')
             st_display = 'Новые' if pi.status == ParsedItem.STATUS_NEW else ('Использованы' if pi.status == ParsedItem.STATUS_USED else 'Пропущены')
+            cg = getattr(pi.source, 'channel_group', None)
             items.append({
                 'kind': 'parsing',
                 'dt': pi.found_at,
-                'title': 'Парсинг',
+                'title': '',
                 'text': pi.text or '',
                 'status': st,
                 'status_display': st_display,
                 'channels': [pi.source.channel] if getattr(pi.source, 'channel', None) else [],
+                'channel_groups': [cg] if cg else [],
                 'url': pi.original_url or '',
                 'meta': f'{pi.source.get_platform_display()} · {pi.source.name}',
                 'obj': pi,

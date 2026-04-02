@@ -1,6 +1,14 @@
 {% extends 'base.html' %}
-{% load platform_icons %}
 {% block title %}Лента{% endblock %}
+
+{% block extra_css %}
+<style>
+  .feed-card-text-collapsed {
+    max-height: 5.25rem;
+    overflow: hidden;
+  }
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="page-header d-flex align-items-center justify-content-between">
@@ -13,18 +21,6 @@
     <a class="btn btn-brand" href="{% url 'content:create' %}"><i class="bi bi-plus-lg me-1"></i>Пост</a>
   </div>
 </div>
-
-{% if kind == 'parsing' %}
-<div class="d-flex flex-wrap gap-2 mb-3">
-  <form method="post" action="{% url 'parsing:items_clear' %}{% if chgroup_id %}?chgroup={{ chgroup_id }}{% endif %}">
-    {% csrf_token %}
-    <button type="submit" class="btn btn-sm btn-outline-danger"
-            onclick="return confirm('Удалить все найденные материалы в текущем фильтре? Они будут спарсены заново при следующем запуске.')">
-      <i class="bi bi-trash me-1"></i> Очистить материалы парсинга
-    </button>
-  </form>
-</div>
-{% endif %}
 
 {% if feed_quick_links %}
 <div class="d-flex flex-wrap gap-2 mb-3">
@@ -107,48 +103,48 @@
                 <span class="badge bg-info-subtle text-info border">Парсинг</span>
                 <span class="badge bg-secondary-subtle text-secondary">{{ it.status_display|default:it.status }}</span>
               {% endif %}
-              <span class="text-muted small">{{ it.dt|date:"d.m.Y H:i" }}</span>
-              <span class="ms-auto d-inline-flex gap-1 flex-wrap">
-                {% for ch in it.channels %}
-                  {% if ch %}
-                    {% if it.kind == 'parsing' %}
-                      <a href="{% url 'channels:detail' ch.pk %}" class="text-decoration-none" title="Открыть канал">
-                        {% platform_badge ch.platform %}
-                      </a>
-                    {% else %}
-                      {% platform_badge ch.platform %}
-                    {% endif %}
+              <span class="text-muted small">
+                {% if it.kind == 'parsing' and it.obj %}
+                  Собрано: {{ it.obj.found_at|date:"d.m.Y H:i" }}
+                  {% if it.obj.source_posted_at %}
+                    · В источнике: {{ it.obj.source_posted_at|date:"d.m.Y H:i" }}
                   {% endif %}
-                {% endfor %}
+                {% else %}
+                  {{ it.dt|date:"d.m.Y H:i" }}
+                {% endif %}
               </span>
+              {% if it.kind == 'post' and it.channel_groups %}
+                <span class="ms-auto d-inline-flex gap-1 flex-wrap align-items-center">
+                  {% for g in it.channel_groups %}
+                    <a href="{% url 'channels:group_edit' g.pk %}" class="badge text-decoration-none bg-light text-dark border">{{ g.name }}</a>
+                  {% endfor %}
+                </span>
+              {% endif %}
             </div>
 
+            {% if it.title %}
             <div class="fw-semibold mb-1">{{ it.title }}</div>
+            {% endif %}
             {% if it.kind == 'parsing' and it.obj and it.obj.source %}
               <div class="text-muted small mb-2">
                 Источник:
-                <a href="{% url 'parsing:sources' %}{% if request.GET.chgroup %}?chgroup={{ request.GET.chgroup }}{% endif %}">
-                  {{ it.obj.source.name }}
-                </a>
-                · {% platform_badge it.obj.source.platform %}
                 {% if it.obj.original_url %}
-                  · <a href="{{ it.obj.original_url }}" target="_blank" rel="noopener">Оригинал</a>
+                  <a href="{{ it.obj.original_url }}" target="_blank" rel="noopener">{{ it.obj.source.name }}</a>
+                {% else %}
+                  <a href="{% url 'parsing:sources' %}{% if chgroup_id %}?chgroup={{ chgroup_id }}{% endif %}">{{ it.obj.source.name }}</a>
                 {% endif %}
               </div>
-            {% else %}
+              {% if it.obj.source.channel_group %}
+                <div class="small text-muted mb-2">
+                  Группа:
+                  <a href="{% url 'channels:group_edit' it.obj.source.channel_group.pk %}">{{ it.obj.source.channel_group.name }}</a>
+                </div>
+              {% endif %}
+            {% elif it.kind != 'parsing' %}
               <div class="text-muted small mb-2">{{ it.meta }}</div>
             {% endif %}
-            {% if it.kind == 'parsing' and it.channels %}
-              {% with it.channels.0 as ch0 %}
-                {% if ch0 %}
-                  <div class="small mb-2">
-                    Канал: <a href="{% url 'channels:detail' ch0.pk %}">{{ ch0.name }}</a>
-                  </div>
-                {% endif %}
-              {% endwith %}
-            {% endif %}
 
-            <div style="white-space:pre-wrap;">{{ it.text|truncatechars:600 }}</div>
+            {% include 'includes/feed_item_text.html' with body=it.text %}
 
             {% if it.kind == 'post' and it.media %}
               <div class="mt-3 d-flex gap-2 flex-wrap js-media-gallery">
@@ -242,6 +238,7 @@
                         data-card-id="parse-card-{{ it.obj.pk }}">
                   <i class="bi bi-slash-circle me-1"></i> Пропустить
                 </button>
+                {% if request.user.is_staff or request.user.is_superuser or request.user.role == 'owner' %}
                 <form method="post" action="{% url 'parsing:item_delete' it.obj.pk %}">
                   {% csrf_token %}
                   <button type="submit" class="btn btn-outline-danger btn-sm"
@@ -249,6 +246,7 @@
                     <i class="bi bi-trash me-1"></i> Удалить
                   </button>
                 </form>
+                {% endif %}
                 {% url 'parsing:item_ai_to_post' it.obj.pk as parsing_ai_url %}
                 {% include 'includes/ai_post_mood_block.html' with ai_form_url=parsing_ai_url %}
               </div>
@@ -271,15 +269,6 @@
                         data-post-title="{{ it.text|truncatechars:80|escape }}">
                   <i class="bi bi-trash"></i>
                 </button>
-              {% elif request.user.role == 'manager' or request.user.role == 'assistant_admin' %}
-                {% if it.obj and it.obj.author_id == request.user.id %}
-                  <button type="button"
-                          class="btn btn-outline-danger btn-sm js-feed-post-delete"
-                          data-post-id="{{ it.obj.pk }}"
-                          data-post-title="{{ it.text|truncatechars:80|escape }}">
-                    <i class="bi bi-trash"></i>
-                  </button>
-                {% endif %}
               {% endif %}
             </div>
           {% elif it.url and it.kind != 'parsing' %}
@@ -337,6 +326,28 @@
 {% endblock %}
 
 {% block extra_js %}
+<script>
+(function () {
+  document.querySelectorAll('.feed-card-text-wrap').forEach(function (wrap) {
+    var el = wrap.querySelector('.feed-card-text');
+    var btn = wrap.querySelector('.feed-card-text-more');
+    if (!el || !btn) return;
+    function needsToggle() {
+      return el.scrollHeight > el.clientHeight + 1;
+    }
+    requestAnimationFrame(function () {
+      if (needsToggle() || (el.textContent || '').trim().length > 220) {
+        btn.classList.remove('d-none');
+      }
+    });
+    btn.addEventListener('click', function () {
+      el.classList.toggle('feed-card-text-collapsed');
+      var collapsed = el.classList.contains('feed-card-text-collapsed');
+      btn.textContent = collapsed ? 'Показать полностью' : 'Свернуть';
+    });
+  });
+})();
+</script>
 <script>
 (function () {
   function getCookie(name) {

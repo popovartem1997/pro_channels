@@ -110,6 +110,11 @@ class ParsedItem(models.Model):
     ai_rewrite = models.TextField(blank=True, verbose_name='Версия от AI')
     media = models.JSONField(default=list, blank=True, verbose_name='Медиа (список файлов/URL)')
     found_at = models.DateTimeField(auto_now_add=True, verbose_name='Найдено')
+    source_posted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Дата публикации в источнике',
+    )
 
     class Meta:
         verbose_name = 'Найденный материал'
