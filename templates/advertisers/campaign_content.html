@@ -1,42 +1,99 @@
 {% extends 'base.html' %}
 {% block title %}Текст и медиа · заявка #{{ app.pk }}{% endblock %}
+{% block extra_css %}
+<style>
+  .fmt-toolbar { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+  .fmt-btn {
+    border: 1px solid #dee2e6; background: #fff; border-radius: 6px;
+    padding: 3px 9px; font-size: .8rem; cursor: pointer; color: #374151;
+    transition: all .1s;
+  }
+  .fmt-btn:hover { background: var(--brand-light); border-color: var(--brand); color: var(--brand); }
+  [contenteditable][data-placeholder]:empty:before { content: attr(data-placeholder); color: #94a3b8; }
+  .media-preview-thumb { width: 120px; height: 120px; object-fit: cover; border-radius: 10px; border: 1px solid #e2e8f0; flex-shrink: 0; }
+</style>
+{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1>Текст и медиа</h1>
   <p class="text-muted small mb-0">Заявка #{{ app.pk }} · {{ app.channel.name }}</p>
 </div>
 {% include 'advertisers/_campaign_steps.html' with step=3 %}
-<form method="post" enctype="multipart/form-data" class="card border-0 shadow-sm">
+<form method="post" enctype="multipart/form-data" class="card border-0 shadow-sm" novalidate>
   {% csrf_token %}
   <div class="card-body">
     <div class="mb-3">
-      <label class="form-label fw-semibold">Текст (простой)</label>
-      <textarea name="text" class="form-control" rows="5" required>{{ post.text }}</textarea>
+      <label class="form-label fw-semibold" for="id_text">Текст поста</label>
+      <div class="fmt-toolbar js-post-toolbar mb-2" data-target="id_text_editor" data-hidden="id_text_html" data-plain="id_text">
+        <button type="button" class="fmt-btn" data-action="bold" title="Жирный"><b>Ж</b></button>
+        <button type="button" class="fmt-btn" data-action="italic" title="Курсив"><i>К</i></button>
+        <button type="button" class="fmt-btn" data-action="underline" title="Подчёркнутый"><u>П</u></button>
+        <button type="button" class="fmt-btn" data-action="strike" title="Зачёркнутый"><s>З</s></button>
+        <button type="button" class="fmt-btn" data-action="link" title="Ссылка"><i class="bi bi-link-45deg"></i></button>
+        <button type="button" class="fmt-btn" data-action="quote" title="Цитата"><i class="bi bi-quote"></i></button>
+        <button type="button" class="fmt-btn" data-action="code" title="Код"><i class="bi bi-code"></i></button>
+        <button type="button" class="fmt-btn text-danger" data-action="clear" title="Очистить"><i class="bi bi-x-lg"></i></button>
+        <button type="button" class="btn btn-outline-secondary btn-sm ms-auto" id="btn-preview-post">
+          <i class="bi bi-eye me-1"></i> Предпросмотр
+        </button>
+      </div>
+      <div id="id_text_editor" class="form-control" contenteditable="true"
+           style="min-height: 220px; white-space: pre-wrap;"
+           data-placeholder="Напишите текст объявления..."></div>
+      <textarea name="text" id="id_text" class="d-none">{{ request.POST.text|default:post.text }}</textarea>
+      <input type="hidden" name="text_html" id="id_text_html" value="{{ request.POST.text_html|default:post.text_html|default:'' }}">
+      <div class="form-text">Для Telegram сохраняется HTML; для MAX и ВК — обычный текст из содержимого.</div>
     </div>
+
     <div class="mb-3">
-      <label class="form-label fw-semibold">HTML (Telegram и предпросмотр)</label>
-      <textarea name="text_html" class="form-control font-monospace small" rows="6" placeholder="Необязательно">{{ post.text_html }}</textarea>
+      <label class="form-label fw-semibold" for="id_ord_label_campaign">Подпись «Реклама» к посту</label>
+      <input type="text" name="ord_label" id="id_ord_label_campaign" class="form-control" maxlength="500"
+             value="{{ post.ord_label|default:'Реклама' }}"
+             placeholder="Например: Реклама">
+      <div class="form-text">
+        Короткая маркировка объявления для поста (часто достаточно слова «Реклама»).
+        Технический токен <span class="font-monospace">erid</span> для ОРД подставляется при публикации во ВКонтакте автоматически — сюда его вводить не нужно.
+      </div>
     </div>
-    <div class="mb-3">
-      <label class="form-label fw-semibold">Метка ОРД</label>
-      <input type="text" name="ord_label" class="form-control" value="{{ post.ord_label|default:'Реклама' }}" maxlength="500">
-    </div>
+
     {% if post.media_files.all %}
     <div class="mb-3">
-      <div class="fw-semibold small mb-2">Медиа (порядок — число)</div>
-      {% for m in post.media_files.all %}
-      <div class="d-flex align-items-center gap-2 mb-2">
-        <input type="checkbox" class="form-check-input" name="keep_media" value="{{ m.pk }}" id="km{{ m.pk }}" checked>
-        <label class="form-check-label flex-grow-1" for="km{{ m.pk }}">{{ m.file.name|default:m.pk }} ({{ m.get_media_type_display }})</label>
-        <input type="number" name="media_order_{{ m.pk }}" class="form-control form-control-sm" style="width:5rem;" value="{{ m.order }}" min="1">
+      <div class="fw-semibold small mb-2">Медиа</div>
+      <div class="list-group js-media-gallery">
+        {% for m in post.media_files.all %}
+        <div class="list-group-item d-flex flex-wrap align-items-center gap-3 py-3">
+          <input class="form-check-input mt-0 flex-shrink-0" type="checkbox" name="keep_media" value="{{ m.pk }}" checked title="Оставить файл">
+          {% if m.media_type == 'photo' and m.file %}
+          <a href="{{ m.file.url }}" class="flex-shrink-0 js-media-open" data-media-kind="photo" data-media-caption="Заявка #{{ app.pk }}">
+            <img src="{{ m.file.url }}" alt="" class="media-preview-thumb">
+          </a>
+          {% elif m.media_type == 'video' and m.file %}
+          <a href="{{ m.file.url }}" class="d-flex align-items-center justify-content-center media-preview-thumb bg-dark text-white text-decoration-none js-media-open" data-media-kind="video" data-media-caption="Заявка #{{ app.pk }}">
+            <i class="bi bi-play-circle fs-2"></i>
+          </a>
+          {% endif %}
+          <div class="flex-grow-1 min-w-0">
+            <div class="fw-semibold small">{{ m.get_media_type_display }}</div>
+            <a class="small text-muted text-break js-media-open" href="{{ m.file.url }}" data-media-kind="{{ m.media_type }}" data-media-caption="Заявка #{{ app.pk }}">
+              {{ m.file.name }}
+            </a>
+          </div>
+          <div style="width:110px;" class="flex-shrink-0">
+            <label class="form-label small text-muted mb-1">Порядок</label>
+            <input type="number" class="form-control form-control-sm" name="media_order_{{ m.pk }}"
+                   value="{{ m.order|default:1 }}" min="1" step="1">
+          </div>
+        </div>
+        {% endfor %}
       </div>
-      {% endfor %}
     </div>
     {% endif %}
+
     <div class="mb-3">
-      <label class="form-label fw-semibold">Добавить файлы</label>
-      <input type="file" name="media_files" class="form-control" multiple accept="image/*,video/*,.pdf">
+      <label class="form-label fw-semibold" for="id_media_files">Добавить файлы</label>
+      <input type="file" name="media_files" id="id_media_files" class="form-control" multiple accept="image/*,video/*,.pdf">
     </div>
+
     <div class="d-flex gap-2 flex-wrap">
       <button type="submit" class="btn btn-brand">Далее</button>
       <a href="{% url 'advertisers:campaign_slots' app.pk %}" class="btn btn-outline-secondary">Назад</a>

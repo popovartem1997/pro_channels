@@ -20,6 +20,7 @@ from .ad_campaign_services import (
     ensure_ad_slots_for_channel,
     ensure_draft_post_for_application,
     fulfill_paid_ad_application,
+    prefill_ad_application_ord_fields,
     save_pricing_to_application,
 )
 from .models import AdApplication, Advertiser
@@ -188,9 +189,31 @@ def campaign_ord(request, pk: int):
         return redirect('advertisers:campaign_list')
 
     if request.method == 'POST':
-        app.ord_contract_external_id = (request.POST.get('ord_contract_external_id') or '').strip()
-        app.ord_person_external_id = (request.POST.get('ord_person_external_id') or '').strip()
-        app.ord_pad_external_id = (request.POST.get('ord_pad_external_id') or '').strip()
+        action = (request.POST.get('action') or '').strip()
+        if action == 'sync_ord':
+            from advertisers.services import sync_advertisers_and_contracts_from_ord
+            from core.models import get_global_api_keys
+
+            keys = get_global_api_keys()
+            sandbox = bool(getattr(keys, 'vk_ord_use_sandbox', False))
+            res = sync_advertisers_and_contracts_from_ord(use_sandbox=sandbox)
+            app.refresh_from_db()
+            app.advertiser.refresh_from_db()
+            app.channel.refresh_from_db()
+            prefill_ad_application_ord_fields(app)
+            app.refresh_from_db()
+            if res.get('ok'):
+                messages.success(
+                    request,
+                    'Каталог ОРД обновлён: контрагенты и договоры подтянуты в систему. '
+                    f'Создано {res.get("created", 0)}, обновлено {res.get("updated", 0)}, договоров: {res.get("contracts", 0)}.',
+                )
+            else:
+                messages.warning(request, res.get('error') or 'Не удалось синхронизировать ОРД.')
+            return redirect('advertisers:campaign_ord', pk=app.pk)
+
+        prefill_ad_application_ord_fields(app)
+        app.refresh_from_db()
         app.ord_sync_error = ''
         if app.ord_contract_external_id or app.ord_person_external_id or app.ord_pad_external_id:
             app.ord_synced_at = timezone.now()
@@ -206,9 +229,13 @@ def campaign_ord(request, pk: int):
                 'updated_at',
             ]
         )
-        messages.success(request, 'Данные ОРД сохранены.')
+        messages.success(request, 'Данные для ОРД сохранены (подставлены из профиля и канала).')
         return redirect('advertisers:campaign_review', pk=app.pk)
 
+    app.advertiser.refresh_from_db()
+    app.channel.refresh_from_db()
+    prefill_ad_application_ord_fields(app)
+    app.refresh_from_db()
     return render(request, 'advertisers/campaign_ord.html', {'app': app})
 
 
@@ -226,16 +253,69 @@ def campaign_review(request, pk: int):
         save_pricing_to_application(app, slot_count=n, addon_codes=app.addon_codes or [])
         app.refresh_from_db()
 
-    addons = ChannelAdAddon.objects.filter(channel=app.channel, is_active=True).order_by('title')
+    addons_all = list(
+        ChannelAdAddon.objects.filter(channel=app.channel, is_active=True).order_by('title')
+    )
+    pin_addon = next(
+        (a for a in addons_all if a.addon_kind == ChannelAdAddon.ADDON_KIND_PIN_HOURLY),
+        None,
+    )
+    top_addons = [a for a in addons_all if a.addon_kind == ChannelAdAddon.ADDON_KIND_TOP_BLOCK]
+    custom_addons = [a for a in addons_all if a.addon_kind == ChannelAdAddon.ADDON_KIND_CUSTOM]
+
     if request.method == 'POST':
-        codes = request.POST.getlist('addon_codes')
+        codes = list(request.POST.getlist('addon_codes'))
         n = len(app.selected_slot_ids or [])
-        save_pricing_to_application(app, slot_count=max(1, n), addon_codes=codes)
+
+        pin_hours = 0
+        if pin_addon:
+            pcode = (pin_addon.code or '').strip()
+            pin_checked = pcode in codes
+            if not pin_checked:
+                codes = [c for c in codes if str(c) != pcode]
+                pin_hours = 0
+            else:
+                raw = (request.POST.get('ad_pin_hours') or '0').strip()
+                pin_hours = int(raw) if raw.isdigit() else 0
+                max_h = int(pin_addon.max_pin_hours or 72)
+                pin_hours = min(max(0, pin_hours), max_h)
+                if pin_hours < 1:
+                    messages.error(
+                        request,
+                        'Для закрепа с почасовой оплатой укажите число часов не меньше 1 '
+                        f'(максимум {max_h}).',
+                    )
+                    return render(
+                        request,
+                        'advertisers/campaign_review.html',
+                        {
+                            'app': app,
+                            'pin_addon': pin_addon,
+                            'top_addons': top_addons,
+                            'custom_addons': custom_addons,
+                        },
+                    )
+
+        save_pricing_to_application(
+            app,
+            slot_count=max(1, n),
+            addon_codes=codes,
+            pin_hours=pin_hours,
+        )
         app.refresh_from_db()
         messages.success(request, 'Параметры обновлены.')
         return redirect('advertisers:campaign_contract', pk=app.pk)
 
-    return render(request, 'advertisers/campaign_review.html', {'app': app, 'addons': addons})
+    return render(
+        request,
+        'advertisers/campaign_review.html',
+        {
+            'app': app,
+            'pin_addon': pin_addon,
+            'top_addons': top_addons,
+            'custom_addons': custom_addons,
+        },
+    )
 
 
 @login_required

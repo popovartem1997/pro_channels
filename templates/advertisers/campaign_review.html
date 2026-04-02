@@ -21,18 +21,54 @@
 <form method="post" class="card border-0 shadow-sm">
   {% csrf_token %}
   <div class="card-body">
-    {% if addons %}
-    <div class="fw-semibold mb-2">Дополнительно</div>
-    {% for a in addons %}
+    {% if top_addons %}
+    <div class="fw-semibold mb-2">Топ-блок</div>
+    <p class="small text-muted">На выбранное время после публикации рекламы в канал не выходят обычные посты (кроме срочных по правилам площадки).</p>
+    {% for a in top_addons %}
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" name="addon_codes" value="{{ a.code }}" id="top{{ a.pk }}"
+        {% if app.addon_codes and a.code in app.addon_codes %}checked{% endif %}>
+      <label class="form-check-label" for="top{{ a.pk }}">
+        {{ a.title }} — {{ a.price }} ₽
+        {% if a.block_hours %}<span class="text-muted">({{ a.block_hours }} ч.)</span>{% endif %}
+      </label>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if pin_addon %}
+    <div class="fw-semibold mb-2 mt-3">Закреп</div>
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" name="addon_codes" value="{{ pin_addon.code }}" id="pin_addon_chk"
+        {% if app.addon_codes and pin_addon.code in app.addon_codes %}checked{% endif %}>
+      <label class="form-check-label" for="pin_addon_chk">
+        {{ pin_addon.title }} — {{ pin_addon.price }} ₽ за час
+        <span class="text-muted small">(макс. {{ pin_addon.max_pin_hours }} ч.)</span>
+      </label>
+    </div>
+    <div class="ms-4 mb-3" style="max-width: 16rem;">
+      <label class="form-label small text-muted mb-1" for="id_ad_pin_hours">Сколько часов закрепить</label>
+      <input type="number" class="form-control form-control-sm" name="ad_pin_hours" id="id_ad_pin_hours"
+             min="1" max="{{ pin_addon.max_pin_hours }}" step="1"
+             value="{% if request.POST.ad_pin_hours %}{{ request.POST.ad_pin_hours }}{% else %}{{ app.ad_pin_hours|default:1 }}{% endif %}">
+    </div>
+    {% endif %}
+
+    {% if custom_addons %}
+    <div class="fw-semibold mb-2 {% if top_addons or pin_addon %}mt-3{% endif %}">Дополнительно</div>
+    {% for a in custom_addons %}
     <div class="form-check mb-1">
       <input class="form-check-input" type="checkbox" name="addon_codes" value="{{ a.code }}" id="ad{{ a.pk }}"
         {% if app.addon_codes and a.code in app.addon_codes %}checked{% endif %}>
       <label class="form-check-label" for="ad{{ a.pk }}">{{ a.title }} — {{ a.price }} ₽</label>
     </div>
     {% endfor %}
-    {% else %}
+    {% endif %}
+
+    {% if not top_addons and not pin_addon and not custom_addons %}
     <p class="text-muted small">Доп. услуги для канала не настроены.</p>
     {% endif %}
+
     <div class="mt-3 d-flex gap-2 flex-wrap">
       <button type="submit" class="btn btn-brand">Пересчитать и далее</button>
       <a href="{% url 'advertisers:campaign_ord' app.pk %}" class="btn btn-outline-secondary">Назад</a>

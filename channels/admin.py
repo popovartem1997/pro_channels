@@ -17,6 +17,16 @@ class ChannelAdVolumeDiscountInline(admin.TabularInline):
 class ChannelAdAddonInline(admin.TabularInline):
     model = ChannelAdAddon
     extra = 1
+    fields = (
+        'code',
+        'title',
+        'addon_kind',
+        'price',
+        'block_hours',
+        'max_pin_hours',
+        'top_duration_minutes',
+        'is_active',
+    )
 
 
 @admin.register(Channel)

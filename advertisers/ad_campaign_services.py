@@ -27,29 +27,62 @@ def applicable_volume_discount_percent(channel: Channel, slot_count: int) -> Dec
     return tier.discount_percent if tier else Decimal('0')
 
 
-def sum_addons_for_codes(channel: Channel, codes: list[str]) -> tuple[Decimal, int]:
+def sum_addons_for_codes(
+    channel: Channel,
+    codes: list[str],
+    *,
+    pin_hours: int = 0,
+) -> tuple[Decimal, int]:
     """
     Сумма доп. услуг и максимальная длительность «топа» в минутах (для паузы очереди).
     """
     if not codes:
         return Decimal('0'), 0
     uniq = list(dict.fromkeys(c.strip() for c in codes if (c or '').strip()))
-    rows = ChannelAdAddon.objects.filter(channel=channel, code__in=uniq, is_active=True)
     total = Decimal('0')
     top_minutes = 0
-    for row in rows:
-        total += row.price
-        if row.top_duration_minutes and str(row.code).lower().startswith('top'):
-            top_minutes = max(top_minutes, int(row.top_duration_minutes))
+    pin_hours = max(0, int(pin_hours or 0))
+
+    for code in uniq:
+        row = ChannelAdAddon.objects.filter(
+            channel=channel,
+            code__iexact=code,
+            is_active=True,
+        ).first()
+        if not row:
+            continue
+        kind = row.addon_kind or ChannelAdAddon.ADDON_KIND_CUSTOM
+
+        if kind == ChannelAdAddon.ADDON_KIND_PIN_HOURLY:
+            if pin_hours > 0:
+                total += (row.price or Decimal('0')) * Decimal(pin_hours)
+        elif kind == ChannelAdAddon.ADDON_KIND_TOP_BLOCK:
+            total += row.price or Decimal('0')
+            bh = int(row.block_hours or 0)
+            if bh > 0:
+                top_minutes = max(top_minutes, bh * 60)
+            elif row.top_duration_minutes:
+                top_minutes = max(top_minutes, int(row.top_duration_minutes))
+        else:
+            total += row.price or Decimal('0')
+            if row.top_duration_minutes and str(code).lower().startswith('top'):
+                top_minutes = max(top_minutes, int(row.top_duration_minutes))
+
     return total, top_minutes
 
 
-def quote_application(channel: Channel, slot_count: int, addon_codes: list[str]) -> dict:
+def quote_application(
+    channel: Channel,
+    slot_count: int,
+    addon_codes: list[str],
+    *,
+    pin_hours: int = 0,
+) -> dict:
     """Предварительный расчёт без сохранения."""
     base = (channel.ad_price or Decimal('0')) * Decimal(slot_count)
     disc_p = applicable_volume_discount_percent(channel, slot_count)
     after_disc = base * (Decimal('100') - disc_p) / Decimal('100')
-    addons, top_min = sum_addons_for_codes(channel, addon_codes)
+    addons, top_min = sum_addons_for_codes(channel, addon_codes, pin_hours=pin_hours)
     total = after_disc + addons
     return {
         'price_subtotal': base,
@@ -121,18 +154,85 @@ def ensure_ad_slots_for_channel(channel: Channel, *, days_ahead: int | None = No
     return created
 
 
-def save_pricing_to_application(app, *, slot_count: int, addon_codes: list[str]) -> None:
+def save_pricing_to_application(
+    app,
+    *,
+    slot_count: int,
+    addon_codes: list[str],
+    pin_hours: int | None = None,
+) -> None:
     from advertisers.models import AdApplication
 
-    q = quote_application(app.channel, slot_count, addon_codes)
+    ph = int(app.ad_pin_hours or 0) if pin_hours is None else max(0, int(pin_hours))
+    q = quote_application(app.channel, slot_count, addon_codes, pin_hours=ph)
     AdApplication.objects.filter(pk=app.pk).update(
         price_subtotal=q['price_subtotal'],
         discount_percent=q['discount_percent'],
         addons_total=q['addons_total'],
         total_amount=q['total_amount'],
         addon_codes=list(addon_codes),
+        ad_pin_hours=ph,
     )
     app.refresh_from_db()
+
+
+def prefill_ad_application_ord_fields(app) -> dict:
+    """
+    Подставляет в заявку person/pad/contract из профиля рекламодателя, канала и OrdContract.
+    Возвращает словарь с ключами, которые были записаны (для сообщений в UI).
+    """
+    from advertisers.models import AdApplication, OrdContract
+
+    updates: dict = {}
+    adv = app.advertiser
+    ch = app.channel
+
+    pid = (adv.ord_person_external_id or '').strip()
+    if pid and app.ord_person_external_id != pid:
+        updates['ord_person_external_id'] = pid
+
+    pad = (getattr(ch, 'ord_pad_external_id', None) or '').strip()
+    if pad and app.ord_pad_external_id != pad:
+        updates['ord_pad_external_id'] = pad
+
+    cid = (
+        OrdContract.objects.filter(advertiser=adv)
+        .order_by('-updated_at', '-pk')
+        .values_list('external_id', flat=True)
+        .first()
+    )
+    if cid and app.ord_contract_external_id != cid:
+        updates['ord_contract_external_id'] = cid
+
+    if updates:
+        AdApplication.objects.filter(pk=app.pk).update(**updates)
+        app.refresh_from_db()
+    return updates
+
+
+def want_pin_for_fulfillment(app) -> bool:
+    """Нужно ли ставить закреп на первом слоте после оплаты."""
+    for code in app.addon_codes or []:
+        code_s = str(code).strip()
+        if not code_s:
+            continue
+        row = ChannelAdAddon.objects.filter(
+            channel=app.channel,
+            code__iexact=code_s,
+            is_active=True,
+        ).first()
+        if row:
+            if row.addon_kind == ChannelAdAddon.ADDON_KIND_PIN_HOURLY:
+                if (app.ad_pin_hours or 0) > 0:
+                    return True
+            elif (
+                row.addon_kind == ChannelAdAddon.ADDON_KIND_CUSTOM
+                and code_s.lower() == ChannelAdAddon.CODE_PIN
+            ):
+                return True
+        elif code_s.lower() == ChannelAdAddon.CODE_PIN:
+            return True
+    return False
 
 
 def book_slots_for_application(app, slot_ids: list[int]) -> None:
@@ -257,9 +357,12 @@ def fulfill_paid_ad_application(app) -> bool:
             len(slots),
         )
         return False
-    codes = [str(c).lower().strip() for c in (app.addon_codes or [])]
-    want_pin = 'pin' in codes
-    _, top_mins = sum_addons_for_codes(app.channel, app.addon_codes or [])
+    want_pin = want_pin_for_fulfillment(app)
+    _, top_mins = sum_addons_for_codes(
+        app.channel,
+        app.addon_codes or [],
+        pin_hours=app.ad_pin_hours or 0,
+    )
     for i, slot in enumerate(slots):
         clone_scheduled_post_for_slot(
             app,

@@ -247,6 +247,15 @@ class ChannelAdAddon(models.Model):
     CODE_TOP_1H = 'top_1h'
     CODE_TOP_2H = 'top_2h'
 
+    ADDON_KIND_CUSTOM = 'custom'
+    ADDON_KIND_TOP_BLOCK = 'top_block'
+    ADDON_KIND_PIN_HOURLY = 'pin_hourly'
+    ADDON_KIND_CHOICES = [
+        (ADDON_KIND_CUSTOM, 'Фиксированная цена (как раньше)'),
+        (ADDON_KIND_TOP_BLOCK, 'Топ-блок: фикс. цена за N часов без других постов'),
+        (ADDON_KIND_PIN_HOURLY, 'Закреп: цена за час × выбранные часы'),
+    ]
+
     channel = models.ForeignKey(
         Channel,
         on_delete=models.CASCADE,
@@ -259,11 +268,34 @@ class ChannelAdAddon(models.Model):
         help_text='Рекомендуется: pin, top_1h, top_2h — публикация учитывает top_* для паузы очереди.',
     )
     title = models.CharField('Название для рекламодателя', max_length=120)
-    price = models.DecimalField('Цена (₽)', max_digits=12, decimal_places=2)
+    addon_kind = models.CharField(
+        'Тип опции',
+        max_length=20,
+        choices=ADDON_KIND_CHOICES,
+        default=ADDON_KIND_CUSTOM,
+        help_text='Топ-блок: укажите «Часов блока» и общую цену. Закреп почасовой: код обычно pin, в «Цена» — стоимость одного часа.',
+    )
+    price = models.DecimalField(
+        'Цена (₽)',
+        max_digits=12,
+        decimal_places=2,
+        help_text='Для «Закреп почасовой» — цена за один час. Для топ-блока и custom — полная стоимость опции.',
+    )
+    block_hours = models.PositiveSmallIntegerField(
+        'Часов блока (топ)',
+        null=True,
+        blank=True,
+        help_text='Только для типа «Топ-блок»: 1, 2, 3… На это время после публикации не ставятся обычные посты.',
+    )
+    max_pin_hours = models.PositiveSmallIntegerField(
+        'Макс. часов закрепа',
+        default=72,
+        help_text='Для «Закреп почасовой»: ограничение в мастере заявки.',
+    )
     top_duration_minutes = models.PositiveIntegerField(
-        'Длительность «топа» (мин.)',
+        'Длительность «топа» (мин., устар.)',
         default=0,
-        help_text='Для закрепа — 0. Для топа — 60 или 120 и т.д.; после публикации на это время блокируются прочие посты в канал.',
+        help_text='Для старых опций с типом «Фиксированная»: если код начинается с top_, используется это значение. Для «Топ-блок» можно оставить 0 — берётся block_hours.',
     )
     is_active = models.BooleanField('Включено', default=True)
 

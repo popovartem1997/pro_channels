@@ -192,6 +192,11 @@ class AdApplication(models.Model):
 
     selected_slot_ids = models.JSONField('Выбранные слоты (id)', default=list, blank=True)
     addon_codes = models.JSONField('Доп. услуги (коды)', default=list, blank=True)
+    ad_pin_hours = models.PositiveSmallIntegerField(
+        'Закреп: выбрано часов (почасовая опция)',
+        default=0,
+        help_text='Если у канала включён закреп с ценой за час — сколько часов оплатил рекламодатель.',
+    )
 
     price_subtotal = models.DecimalField('Сумма без скидки', max_digits=12, decimal_places=2, default=0)
     discount_percent = models.DecimalField('Скидка, %', max_digits=5, decimal_places=2, default=0)
