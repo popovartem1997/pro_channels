@@ -98,22 +98,29 @@ def channel_stats(request, channel_pk):
     engagement_actions = tot_r + tot_c + tot_f
     engagement_rate_posts = round(engagement_actions / tot_v * 100, 2) if tot_v else None
 
+    # ER канала: взвешенное среднее по снимкам ChannelStat (дневной ER × дневные просмотры в снимке).
     w_er_num = sum((s.er or 0) * (s.views or 0) for s in stats)
     w_er_den = sum(s.views or 0 for s in stats)
-    avg_er_weighted = round(w_er_num / w_er_den, 2) if w_er_den else None
+    avg_er = round(w_er_num / w_er_den, 2) if w_er_den else None
 
-    # Fallbacks when daily snapshots (ChannelStat) are empty or have zero views.
-    # - total_views: prefer post views sum for the same period
-    # - ER channel: use avg reach per post / subscribers * 100 (rough estimate)
-    total_views_period = tot_v if tot_v else sum(views_data)
-    if avg_er_weighted is None:
+    # Если в снимках нет дневных просмотров — тот же смысл, что «ER постов»: действия / просмотры постов.
+    if avg_er is None and tot_v > 0:
+        avg_er = engagement_rate_posts
+
+    # Оценка по охвату и базе подписчиков, если постовой агрегат пустой
+    if avg_er is None:
         subs_now = int(getattr(channel, 'subscribers_count', 0) or 0)
         n_posts = int(agg['n'] or 0)
-        if subs_now > 0 and tot_v > 0 and n_posts > 0:
-            avg_reach = tot_v / n_posts
-            avg_er_weighted = round(avg_reach / subs_now * 100, 2)
-        else:
-            avg_er_weighted = 0.0
+        total_views_period_chk = tot_v if tot_v else sum(views_data)
+        if subs_now > 0 and total_views_period_chk > 0 and n_posts > 0:
+            avg_reach = total_views_period_chk / n_posts
+            avg_er = round(avg_reach / subs_now * 100, 2)
+
+    if avg_er is None:
+        avg_er = 0.0
+
+    # Fallbacks when daily snapshots (ChannelStat) are empty or have zero views.
+    total_views_period = tot_v if tot_v else sum(views_data)
 
     subs_delta = None
     if len(subs_data) >= 2:
@@ -129,7 +136,7 @@ def channel_stats(request, channel_pk):
         'subs_data': json.dumps(subs_data, ensure_ascii=False),
         'posts_per_day': json.dumps(posts_per_day, ensure_ascii=False),
         'total_views': total_views_period,
-        'avg_er': avg_er_weighted,
+        'avg_er': avg_er,
         'stat_agg_views': tot_v,
         'stat_agg_reactions': tot_r,
         'stat_agg_comments': tot_c,

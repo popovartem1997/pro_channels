@@ -42,7 +42,13 @@ def sync_channel_stats():
             prev_cum = prev.cumulative_post_views if prev else 0
             daily_views = max(0, int(total_views_sum) - int(prev_cum))
 
-            er_vals = [p.er for p in post_stats_qs.iterator(chunk_size=200) if (p.views or 0) > 0]
+            er_vals = []
+            for p in post_stats_qs.iterator(chunk_size=200):
+                v = int(p.views or 0)
+                if v <= 0:
+                    continue
+                actions = int(p.reactions or 0) + int(p.comments or 0) + int(p.forwards or 0)
+                er_vals.append(round(actions / v * 100, 2))
             avg_er = round(sum(er_vals) / len(er_vals), 2) if er_vals else 0.0
 
             posts_today = PublishResult.objects.filter(

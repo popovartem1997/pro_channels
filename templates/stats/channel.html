@@ -40,9 +40,9 @@
   <div class="col-6 col-md-4 col-lg-2">
     <div class="card-stat card h-100">
       <div class="text-muted small mb-1">
-        <abbr title="Engagement Rate — средняя вовлечённость по дням, взвешенная по дневным просмотрам канала (поле ER в снимках).">ER</abbr> канала
+        <abbr title="По снимкам канала (взвешенно по дневным просмотрам) или, если снимков мало, тот же расчёт, что у «ER постов» за период.">ER</abbr> канала
       </div>
-      <div class="value">{{ avg_er|default:"—" }}{% if avg_er %}%{% endif %}</div>
+      <div class="value">{{ avg_er }}%</div>
     </div>
   </div>
   <div class="col-6 col-md-4 col-lg-2">
@@ -120,7 +120,7 @@
           <th><abbr title="Реакции">RR</abbr></th>
           <th><abbr title="Комментарии">КМ</abbr></th>
           <th><abbr title="Репосты (пересылки)">RP</abbr></th>
-          <th><abbr title="Engagement Rate: (реакции+комментарии)/просмотры×100%">ER</abbr></th>
+          <th><abbr title="Engagement Rate: (реакции+комментарии+репосты)/просмотры×100%">ER</abbr></th>
           <th>Дата</th>
         </tr>
       </thead>
@@ -135,7 +135,7 @@
           <td>{{ ps.comments|default:"—" }}</td>
           <td>{{ ps.forwards|default:"—" }}</td>
           <td>
-            {% if ps.er %}
+            {% if ps.views %}
             <span class="badge {% if ps.er >= 5 %}bg-success-subtle text-success{% else %}bg-secondary-subtle text-secondary{% endif %}" title="Вовлечённость по этому посту">
               {{ ps.er }}%
             </span>

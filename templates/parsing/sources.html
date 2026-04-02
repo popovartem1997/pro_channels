@@ -23,9 +23,16 @@
       </form>
       {% endif %}
     {% else %}
+      {% if request.user.role == 'manager' or request.user.role == 'assistant_admin' %}
+      <div class="alert alert-warning border-warning py-2 px-3 mb-0 small text-start" style="max-width:min(100%, 420px);">
+        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+        <strong>Telegram не подключён.</strong> Парсинг Telegram-источников недоступен: владелец аккаунта должен подключить сессию Telethon в разделе «Парсинг».
+      </div>
+      {% else %}
       <a href="{% url 'parsing:telethon_connect' %}{{ parsing_scope_query }}" class="btn btn-outline-secondary btn-sm">
         <i class="bi bi-telegram me-1"></i> Подключить Telegram
       </a>
+      {% endif %}
     {% endif %}
   </div>
 </div>

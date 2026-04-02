@@ -47,10 +47,11 @@ class PostStat(models.Model):
 
     @property
     def er(self):
-        """Engagement rate: (реакции + комментарии) / просмотры * 100."""
+        """Engagement rate: (реакции + комментарии + репосты) / просмотры * 100."""
         if self.views == 0:
             return 0.0
-        return round((self.reactions + self.comments) / self.views * 100, 2)
+        actions = (self.reactions or 0) + (self.comments or 0) + (self.forwards or 0)
+        return round(actions / self.views * 100, 2)
 
     def __str__(self):
         return f'Пост #{self.post.pk} в {self.channel.name}: {self.views} просм.'
