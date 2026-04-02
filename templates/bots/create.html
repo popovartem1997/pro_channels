@@ -71,14 +71,14 @@
                    placeholder="Токен бота">
           </div>
 
-          <!-- Telegram: admin_chat_id -->
+          <!-- Telegram/MAX: admin_chat_id -->
           <div id="field-admin-chat" class="platform-bot-field d-none mb-3">
-            <label class="form-label fw-semibold">Куда слать модерацию (Telegram)</label>
+            <label class="form-label fw-semibold">Куда слать модерацию (Telegram / MAX)</label>
             <input type="text" name="admin_chat_id" class="form-control font-monospace"
                    value="{{ request.POST.admin_chat_id|default:'' }}"
                    placeholder="-1001234567890">
             <div class="form-text">
-              Основной <code>chat_id</code> чата/канала, куда будут приходить предложения с кнопками.
+              Основной <code>chat_id</code>/<code>user_id</code>, куда будут приходить предложения с кнопками.
               Если укажешь ID без минуса — это может быть личка (user_id). Для чатов/каналов Telegram часто нужен формат <code>-100...</code>.
             </div>
 
@@ -114,7 +114,7 @@
             </div>
           </div>
 
-          <!-- VK/MAX: group_id -->
+          <!-- VK: group_id -->
           <div id="field-group-id" class="platform-bot-field d-none mb-3">
             <label class="form-label fw-semibold">ID группы / сообщества</label>
             <input type="text" name="group_id" class="form-control font-monospace"
@@ -174,9 +174,9 @@
 <script>
 function showBotFields(platform) {
   document.querySelectorAll('.platform-bot-field').forEach(el => el.classList.add('d-none'));
-  if (platform === 'telegram') {
+  if (platform === 'telegram' || platform === 'max') {
     document.getElementById('field-admin-chat').classList.remove('d-none');
-  } else if (platform === 'vk' || platform === 'max') {
+  } else if (platform === 'vk') {
     document.getElementById('field-group-id').classList.remove('d-none');
   }
 }

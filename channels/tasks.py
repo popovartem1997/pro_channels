@@ -152,6 +152,10 @@ def import_tg_history_to_max_task(self, run_id: int):
     last_tg_message_id = (run.progress_json or {}).get('last_tg_message_id') or None
 
     @sync_to_async(thread_sensitive=True)
+    def _update_progress_async(*, sent=None, errors=None, last_tg_message_id=None):
+        _update_progress(run_id, sent=sent, errors=errors, last_tg_message_id=last_tg_message_id)
+
+    @sync_to_async(thread_sensitive=True)
     def _cancel_requested() -> bool:
         try:
             rr = HistoryImportRun.objects.only('cancel_requested').get(pk=run_id)
@@ -217,6 +221,12 @@ def import_tg_history_to_max_task(self, run_id: int):
         else:
             post.save(update_fields=['status'])
 
+    @sync_to_async(thread_sensitive=True)
+    def _publish_max_sync(post_id: int):
+        from content.models import Post
+        post = Post.objects.prefetch_related('media_files', 'channels').get(pk=post_id)
+        return _publish_max(post, target)
+
     async def _do_import():
         from telethon import TelegramClient
 
@@ -280,7 +290,7 @@ def import_tg_history_to_max_task(self, run_id: int):
                 has_media = bool(getattr(msg, 'media', None))
                 if not text and not has_media:
                     last_tg_message_id = int(msg_id)
-                    _update_progress(run_id, sent=sent, errors=errors, last_tg_message_id=last_tg_message_id)
+                    await _update_progress_async(sent=sent, errors=errors, last_tg_message_id=last_tg_message_id)
                     continue
 
                 post_id = await _create_post_for_target(text)
@@ -319,9 +329,7 @@ def import_tg_history_to_max_task(self, run_id: int):
                 last_exc = None
                 for attempt in range(6):
                     try:
-                        from content.models import Post
-                        post_obj = await sync_to_async(Post.objects.get, thread_sensitive=True)(pk=post_id)
-                        resp = _publish_max(post_obj, target)
+                        resp = await _publish_max_sync(post_id)
                         await _create_publish_result(
                             post_id,
                             True,
@@ -334,7 +342,7 @@ def import_tg_history_to_max_task(self, run_id: int):
                         errors += 1
                         await _create_publish_result(post_id, False, error_message=str(exc))
                         # Backoff: handle common throttling/connection resets.
-                        time.sleep(min(20.0, 1.2 + attempt * 2.2))
+                        await asyncio.sleep(min(20.0, 1.2 + attempt * 2.2))
 
                 if ok:
                     sent += 1
@@ -344,7 +352,7 @@ def import_tg_history_to_max_task(self, run_id: int):
                     logger.error('Import run=%s tg_msg=%s publish failed: %s', run_id, msg_id, last_exc)
 
                 last_tg_message_id = int(msg_id)
-                _update_progress(run_id, sent=sent, errors=errors, last_tg_message_id=last_tg_message_id)
+                await _update_progress_async(sent=sent, errors=errors, last_tg_message_id=last_tg_message_id)
 
                 # Throttle for MAX API
                 await asyncio.sleep(1.0)

@@ -359,9 +359,9 @@ def bot_create(request):
         )
         bot.set_token(token)
 
-        if platform == SuggestionBot.PLATFORM_TELEGRAM:
+        if platform in (SuggestionBot.PLATFORM_TELEGRAM, SuggestionBot.PLATFORM_MAX):
             bot.admin_chat_id = request.POST.get('admin_chat_id', '').strip()
-            bot.notify_owner = request.POST.get('notify_owner') == 'on'
+            bot.notify_owner = request.POST.get('notify_owner') == 'on' if platform == SuggestionBot.PLATFORM_TELEGRAM else False
 
             # Custom chat ids: numbers separated by comma/space/newline
             raw_custom = (request.POST.get('custom_admin_chat_ids') or '').strip()
@@ -564,9 +564,9 @@ def bot_edit(request, bot_id: int):
         bot.rejected_message = request.POST.get('rejected_message', bot.rejected_message).strip() or bot.rejected_message
 
         if not can_edit_messages_only:
-            if bot.platform == SuggestionBot.PLATFORM_TELEGRAM:
+            if bot.platform in (SuggestionBot.PLATFORM_TELEGRAM, SuggestionBot.PLATFORM_MAX):
                 bot.admin_chat_id = request.POST.get('admin_chat_id', '').strip()
-                bot.notify_owner = request.POST.get('notify_owner') == 'on'
+                bot.notify_owner = request.POST.get('notify_owner') == 'on' if bot.platform == SuggestionBot.PLATFORM_TELEGRAM else False
 
                 raw_custom = (request.POST.get('custom_admin_chat_ids') or '').strip()
                 ids = []

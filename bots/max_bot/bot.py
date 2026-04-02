@@ -461,10 +461,30 @@ class MAXSuggestionBot:
 
         # Переслать модераторам
         admin_chat_ids = []
-        try:
-            admin_chat_ids = self.config.get_moderation_chat_ids()
-        except Exception:
-            admin_chat_ids = [self.config.admin_chat_id] if self.config.admin_chat_id else []
+        if getattr(self.config, 'platform', '') == 'max':
+            # Для MAX модерация настраивается явно через admin_chat_id / custom_admin_chat_ids.
+            # Telegram-linked IDs тут не подходят.
+            admin_chat_ids = []
+            try:
+                if getattr(self.config, 'admin_chat_id', ''):
+                    admin_chat_ids.append(str(self.config.admin_chat_id).strip())
+            except Exception:
+                pass
+            try:
+                for x in (self.config.custom_admin_chat_ids or []):
+                    s = str(x).strip()
+                    if s:
+                        admin_chat_ids.append(s)
+            except Exception:
+                pass
+            # uniq keep order
+            seen = set()
+            admin_chat_ids = [x for x in admin_chat_ids if not (x in seen or seen.add(x))]
+        else:
+            try:
+                admin_chat_ids = self.config.get_moderation_chat_ids()
+            except Exception:
+                admin_chat_ids = [self.config.admin_chat_id] if self.config.admin_chat_id else []
 
         for cid in admin_chat_ids:
             if cid:
