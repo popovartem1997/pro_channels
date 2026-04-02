@@ -5,12 +5,9 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.db import transaction
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-import json
 from django.utils import timezone
 from .models import Post, PostMedia, PublishResult, normalize_post_media_orders
-from django.views.decorators.csrf import csrf_exempt
-from django.http import HttpResponse, JsonResponse
-import secrets
+from django.http import HttpResponse
 from django.core.files.base import ContentFile
 from django.db.models import Max, Q
 
@@ -36,18 +33,16 @@ def _manager_content_channel_ids(user):
 
 
 def _ctx_post_create(user_channels, preselected, **extra):
-    ctx = {'user_channels': user_channels, 'preselected': preselected, 'tg_entities_initial': []}
+    ctx = {'user_channels': user_channels, 'preselected': preselected}
     ctx.update(extra)
     return ctx
 
 
 def _ctx_post_edit(post, user_channels, selected_channels, **extra):
-    te = post.tg_entities if isinstance(getattr(post, 'tg_entities', None), list) else []
     ctx = {
         'post': post,
         'user_channels': user_channels,
         'selected_channels': selected_channels,
-        'tg_entities_initial': te,
     }
     ctx.update(extra)
     return ctx
@@ -125,27 +120,11 @@ def post_create(request):
             messages.error(request, 'Выберите хотя бы один канал.')
             return render(request, 'content/create.html', _ctx_post_create(user_channels, channel_ids))
 
-        # TG entities (импорт / вставка tg-emoji): offset привязаны к post.text — без .strip().
-        has_premium_emoji = False
-        tg_entities = []
-        tg_entities_raw = request.POST.get('tg_entities', '').strip()
-        if tg_entities_raw:
-            try:
-                tg_entities = json.loads(tg_entities_raw)
-                has_premium_emoji = bool(tg_entities)
-            except json.JSONDecodeError:
-                messages.error(request, 'Импорт Telegram: неверный формат entities.')
-                return render(request, 'content/create.html', _ctx_post_create(user_channels, preselected))
-
         raw_text = request.POST.get('text', '')
         raw_html = request.POST.get('text_html') or ''
-        if tg_entities:
-            text = raw_text
-            text_html = raw_html
-        else:
-            # Не .strip(): иначе теряются ведущие/хвостовые пробелы (колонки, выравнивание в TG).
-            text = raw_text
-            text_html = raw_html
+        # Не .strip(): иначе теряются ведущие/хвостовые пробелы (колонки, выравнивание в TG).
+        text = raw_text
+        text_html = raw_html
 
         if not (text or '').strip():
             messages.error(request, 'Введите текст поста.')
@@ -161,8 +140,6 @@ def post_create(request):
             pin_message=pin_message,
             disable_notification=disable_notification,
             ord_label=ord_label,
-            has_premium_emoji=has_premium_emoji,
-            tg_entities=tg_entities,
         )
 
         if scheduled_at_str:
@@ -401,26 +378,10 @@ def post_edit(request, pk):
 
         channel_ids = request.POST.getlist('channels')
 
-        # TG entities: сначала парсим, затем text без strip при непустом списке (смещения UTF-16).
-        post.has_premium_emoji = False
-        post.tg_entities = []
-        tg_entities_raw = request.POST.get('tg_entities', '').strip()
-        if tg_entities_raw:
-            try:
-                post.tg_entities = json.loads(tg_entities_raw)
-                post.has_premium_emoji = bool(post.tg_entities)
-            except json.JSONDecodeError:
-                post.tg_entities = []
-                post.has_premium_emoji = False
-
         raw_text = request.POST.get('text', post.text)
         raw_html = request.POST.get('text_html') or ''
-        if post.tg_entities:
-            post.text = raw_text
-            post.text_html = raw_html
-        else:
-            post.text = raw_text
-            post.text_html = raw_html
+        post.text = raw_text
+        post.text_html = raw_html
 
         post.pin_message = request.POST.get('pin_message') == 'on'
         post.disable_notification = request.POST.get('disable_notification') == 'on'
@@ -506,268 +467,6 @@ def post_edit(request, pk):
         'content/edit.html',
         _ctx_post_edit(post, user_channels, list(post.channels.values_list('pk', flat=True))),
     )
-
-
-@login_required
-def tg_import_messages_json(request):
-    """Список последних сообщений, пересланных в импорт-бот (текст + entities для поста)."""
-    from .models_imports import TelegramImportedMessage
-
-    qs = TelegramImportedMessage.objects.filter(user=request.user).order_by('-created_at')[:30]
-    items = []
-    for m in qs:
-        ent = m.entities if isinstance(m.entities, list) else []
-        items.append(
-            {
-                'id': m.pk,
-                'text': m.text or '',
-                'entities': ent,
-                'created_at': m.created_at.isoformat() if m.created_at else '',
-            }
-        )
-    return JsonResponse({'ok': True, 'items': items})
-
-
-def _tg_import_webhook_action_redirect(request):
-    """После setWebhook/deleteWebhook: вернуть на страницу ключей или на импорт."""
-    if (request.POST.get('next') or '').strip() == 'api_keys':
-        return redirect('core:api_keys')
-    return redirect('content:tg_import_link')
-
-
-@login_required
-def tg_import_link(request):
-    """Страница с кодом привязки для служебного Telegram-бота импорта."""
-    from core.models import get_global_api_keys
-    from .models_imports import TelegramImportLink
-    from django.conf import settings
-    from django.urls import reverse
-    import requests
-
-    link, _ = TelegramImportLink.objects.get_or_create(
-        user=request.user,
-        defaults={'code': secrets.token_hex(8)},
-    )
-    if request.method == 'POST':
-        link.code = secrets.token_hex(8)
-        link.telegram_user_id = None
-        link.linked_at = None
-        link.save(update_fields=['code', 'telegram_user_id', 'linked_at'])
-        messages.success(request, 'Код обновлён.')
-        return redirect('content:tg_import_link')
-
-    # Webhook status (best-effort) for clients so they can self-service setup.
-    token = (get_global_api_keys().get_tg_import_bot_token() or '').strip()
-    webhook_info = None
-    webhook_url_expected = ''
-    try:
-        site_url = (getattr(settings, 'SITE_URL', '') or '').rstrip('/')
-        if site_url:
-            webhook_url_expected = site_url + reverse('content:tg_import_webhook')
-    except Exception:
-        webhook_url_expected = ''
-
-    if token:
-        try:
-            resp = requests.get(
-                f'https://api.telegram.org/bot{token}/getWebhookInfo',
-                timeout=10,
-            )
-            webhook_info = resp.json().get('result') if isinstance(resp.json(), dict) else None
-        except Exception:
-            webhook_info = None
-
-    return render(request, 'content/tg_import_link.html', {
-        'link': link,
-        'tg_import_token_set': bool(token),
-        'webhook_info': webhook_info,
-        'webhook_url_expected': webhook_url_expected,
-    })
-
-
-@login_required
-def tg_import_webhook_setup(request):
-    """Подключить webhook для служебного Telegram import bot (server-side)."""
-    if request.method != 'POST':
-        return HttpResponse(status=405)
-    from core.models import get_global_api_keys
-    from django.conf import settings
-    from django.urls import reverse
-    import requests
-
-    token = (get_global_api_keys().get_tg_import_bot_token() or '').strip()
-    if not token:
-        messages.error(request, 'TG_IMPORT_BOT_TOKEN не задан в Ключах API.')
-        return _tg_import_webhook_action_redirect(request)
-
-    site_url = (getattr(settings, 'SITE_URL', '') or '').rstrip('/')
-    if not site_url or not site_url.startswith('https://'):
-        messages.error(request, 'SITE_URL должен быть задан и начинаться с https:// (Telegram требует HTTPS для webhook).')
-        return _tg_import_webhook_action_redirect(request)
-
-    url = site_url + reverse('content:tg_import_webhook')
-    try:
-        resp = requests.post(
-            f'https://api.telegram.org/bot{token}/setWebhook',
-            json={'url': url, 'drop_pending_updates': True},
-            timeout=15,
-        )
-        data = resp.json()
-        if not data.get('ok'):
-            raise ValueError(data.get('description', 'Telegram error'))
-    except Exception as e:
-        messages.error(request, f'Не удалось подключить webhook: {e}')
-        return _tg_import_webhook_action_redirect(request)
-
-    messages.success(request, 'Webhook для импорт-бота подключён.')
-    return _tg_import_webhook_action_redirect(request)
-
-
-@login_required
-def tg_import_webhook_disable(request):
-    """Отключить webhook для служебного Telegram import bot (server-side)."""
-    if request.method != 'POST':
-        return HttpResponse(status=405)
-    from core.models import get_global_api_keys
-    import requests
-
-    token = (get_global_api_keys().get_tg_import_bot_token() or '').strip()
-    if not token:
-        messages.error(request, 'TG_IMPORT_BOT_TOKEN не задан в Ключах API.')
-        return _tg_import_webhook_action_redirect(request)
-    try:
-        resp = requests.post(
-            f'https://api.telegram.org/bot{token}/deleteWebhook',
-            json={'drop_pending_updates': True},
-            timeout=15,
-        )
-        data = resp.json()
-        if not data.get('ok'):
-            raise ValueError(data.get('description', 'Telegram error'))
-    except Exception as e:
-        messages.error(request, f'Не удалось отключить webhook: {e}')
-        return _tg_import_webhook_action_redirect(request)
-    messages.success(request, 'Webhook для импорт-бота отключён.')
-    return _tg_import_webhook_action_redirect(request)
-
-
-def _tg_import_bot_reply(token: str, chat_id: int, reply_text: str) -> None:
-    """Короткий ответ пользователю в чате импорт-бота (иначе кажется, что бот «молчит»)."""
-    if not token or not chat_id or not (reply_text or '').strip():
-        return
-    try:
-        import requests
-
-        requests.post(
-            f'https://api.telegram.org/bot{token}/sendMessage',
-            json={'chat_id': chat_id, 'text': (reply_text or '')[:3900]},
-            timeout=12,
-        )
-    except Exception:
-        pass
-
-
-@csrf_exempt
-def tg_import_webhook(request):
-    """Webhook Telegram для служебного импорта entities/custom_emoji."""
-    from core.models import get_global_api_keys
-    token = (get_global_api_keys().get_tg_import_bot_token() or '').strip()
-    # Telegram будет ретраить вебхук при не-200.
-    if not token:
-        return HttpResponse('TG_IMPORT_BOT_TOKEN not set', status=500)
-    if request.method != 'POST':
-        return HttpResponse('ok', status=200)
-    try:
-        update = json.loads(request.body or b'{}')
-    except Exception:
-        return HttpResponse('ok', status=200)
-
-    msg = update.get('message') or update.get('edited_message') or {}
-    if not isinstance(msg, dict):
-        msg = {}
-    text = msg.get('text') or msg.get('caption') or ''
-    if text is None:
-        text = ''
-    entities = msg.get('entities') or msg.get('caption_entities') or []
-    from_user = (msg.get('from') or {})
-    tg_user_id = from_user.get('id')
-
-    if not tg_user_id:
-        return HttpResponse('ok', status=200)
-
-    from .models_imports import TelegramImportLink, TelegramImportedMessage
-
-    # Команда /start <code> для привязки
-    if isinstance(text, str) and text.startswith('/start'):
-        parts = text.split()
-        if len(parts) >= 2:
-            code = parts[1].strip()
-            try:
-                link = TelegramImportLink.objects.get(code=code)
-                link.telegram_user_id = int(tg_user_id)
-                link.linked_at = timezone.now()
-                link.save(update_fields=['telegram_user_id', 'linked_at'])
-                _tg_import_bot_reply(
-                    token,
-                    int(tg_user_id),
-                    'Аккаунт привязан. Перешлите сюда сообщение с Premium emoji (Forward), '
-                    'затем на сайте в редакторе поста нажмите кнопку «Из Telegram».',
-                )
-            except TelegramImportLink.DoesNotExist:
-                _tg_import_bot_reply(
-                    token,
-                    int(tg_user_id),
-                    'Код не найден. Откройте на сайте: Контент → Импорт из Telegram, '
-                    'скопируйте команду /start с кодом целиком.',
-                )
-            except Exception:
-                _tg_import_bot_reply(
-                    token,
-                    int(tg_user_id),
-                    'Не удалось привязать аккаунт. Попробуйте снова с кодом со страницы «Импорт из Telegram».',
-                )
-        else:
-            _tg_import_bot_reply(
-                token,
-                int(tg_user_id),
-                'Откройте на сайте раздел «Импорт из Telegram» и отправьте сюда команду '
-                '/start вместе с кодом (одним сообщением), как показано на странице.',
-            )
-        return HttpResponse('ok', status=200)
-
-    # Сохраняем импорт только для привязанных
-    try:
-        link = TelegramImportLink.objects.get(telegram_user_id=int(tg_user_id))
-    except TelegramImportLink.DoesNotExist:
-        _tg_import_bot_reply(
-            token,
-            int(tg_user_id),
-            'Сначала привяжите аккаунт: на сайте Контент → Импорт из Telegram, '
-            'затем отправьте сюда /start с вашим кодом.',
-        )
-        return HttpResponse('ok', status=200)
-
-    # Пустой текст, но есть entities (частый случай Premium / custom_emoji)
-    if not (text or '').strip() and not (entities if isinstance(entities, list) else []):
-        _tg_import_bot_reply(
-            token,
-            int(tg_user_id),
-            'Пришлите пересланное сообщение с emoji или текст с оформлением. '
-            'Если пересылаете альбом — отдельно каждое сообщение.',
-        )
-        return HttpResponse('ok', status=200)
-
-    TelegramImportedMessage.objects.create(
-        user=link.user,
-        text=text or '',
-        entities=entities if isinstance(entities, list) else [],
-    )
-    _tg_import_bot_reply(
-        token,
-        int(tg_user_id),
-        'Сохранено. В редакторе поста нажмите кнопку «Из Telegram» и выберите эту запись.',
-    )
-    return HttpResponse('ok', status=200)
 
 
 @login_required

@@ -19,8 +19,6 @@ class GlobalApiKeysForm(forms.ModelForm):
     )
     telegram_api_hash = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='TELEGRAM_API_HASH')
     vk_parse_access_token = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='VK_PARSE_ACCESS_TOKEN')
-    tg_import_bot_token = forms.CharField(required=False, widget=forms.PasswordInput(render_value=True), label='TG_IMPORT_BOT_TOKEN')
-
     class Meta:
         model = GlobalApiKeys
         fields = [
@@ -61,8 +59,6 @@ class GlobalApiKeysForm(forms.ModelForm):
         _set_if_provided('vk_ord_access_token', obj.set_vk_ord_access_token)
         _set_if_provided('telegram_api_hash', obj.set_telegram_api_hash)
         _set_if_provided('vk_parse_access_token', obj.set_vk_parse_access_token)
-        _set_if_provided('tg_import_bot_token', obj.set_tg_import_bot_token)
-
         if commit:
             obj.save()
         return obj

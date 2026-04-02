@@ -64,10 +64,6 @@ class Post(models.Model):
     repeat_count = models.PositiveIntegerField(default=0, verbose_name='Кол-во повторов (0=∞)')
     repeat_end_date = models.DateField(null=True, blank=True, verbose_name='Дата окончания повтора')
 
-    # TG Premium Emoji
-    has_premium_emoji = models.BooleanField(default=False, verbose_name='Содержит TG Premium Emoji')
-    tg_entities = models.JSONField(default=list, verbose_name='TG entities (premium emoji)')
-
     # ВК ОРД маркировка
     ord_label = models.CharField(max_length=500, blank=True, verbose_name='Текст метки ОРД (Реклама)')
     ord_token = models.CharField(max_length=200, blank=True, verbose_name='Токен ОРД')
@@ -144,8 +140,6 @@ class Post(models.Model):
             repeat_interval_days=self.repeat_interval_days,
             repeat_count=next_repeat_count,
             repeat_end_date=self.repeat_end_date,
-            has_premium_emoji=self.has_premium_emoji,
-            tg_entities=self.tg_entities,
             ord_label=self.ord_label,
             ord_token=self.ord_token,
             disable_notification=self.disable_notification,
@@ -236,7 +230,3 @@ class PostTemplate(models.Model):
 
     def __str__(self):
         return self.name
-
-
-# Telegram import (premium emoji helper)
-from .models_imports import TelegramImportLink, TelegramImportedMessage  # noqa: E402,F401

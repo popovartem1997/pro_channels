@@ -488,7 +488,7 @@
 <script>
 // Simple WYSIWYG editor for posts: stores HTML for TG + plain for MAX/VK.
 (function () {
-  function stripHtml(html, keepNbspForOffsets) {
+  function stripHtml(html) {
     var raw = (html || '')
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/p>\s*<p>/gi, '\n\n')
@@ -498,15 +498,12 @@
     var div = document.createElement('div');
     div.innerHTML = raw;
     var t = div.textContent || div.innerText || '';
-    if (!keepNbspForOffsets) t = t.replace(/\u00A0/g, ' ');
-    return t;
+    return t.replace(/\u00A0/g, ' ');
   }
 
   function sanitizeForTelegram(html) {
-    // Very small whitelist similar to the footer sanitizer.
     var input = (html || '').replace(/\r\n/g, '\n');
-    /* TG-EMOJI: см. Bot API HTML — <tg-emoji emoji-id="…">валидный эмодзи</tg-emoji> */
-    var allowedTags = new Set(['B','STRONG','I','EM','U','S','STRIKE','DEL','A','CODE','PRE','BLOCKQUOTE','BR','SPAN','TG-EMOJI']);
+    var allowedTags = new Set(['B','STRONG','I','EM','U','S','STRIKE','DEL','A','CODE','PRE','BLOCKQUOTE','BR','SPAN']);
     var doc = new DOMParser().parseFromString('<div>' + input + '</div>', 'text/html');
     var root = doc.body.firstChild;
 
@@ -516,10 +513,6 @@
           var txt = doc.createTextNode(node.textContent || '');
           node.replaceWith(txt);
           return;
-        }
-        var tgEmojiId = '';
-        if (node.tagName === 'TG-EMOJI') {
-          tgEmojiId = (node.getAttribute('emoji-id') || node.getAttribute('emoji_id') || '').trim();
         }
         var linkHref = '';
         if (node.tagName === 'A') {
@@ -535,9 +528,6 @@
             return;
           }
           node.setAttribute('href', href);
-        }
-        if (node.tagName === 'TG-EMOJI' && tgEmojiId) {
-          node.setAttribute('emoji-id', tgEmojiId);
         }
         if (node.tagName === 'SPAN') {
           /* только обёртки вставки; атрибуты не сохраняем */
@@ -559,7 +549,7 @@
     return out.replace(/^[\r\n]+|[\r\n]+$/g, '');
   }
 
-  /** Двойной пробел в HTML → пробел+NBSP (как в Bot API), только если нет tg_entities. */
+  /** Двойной пробел в HTML → пробел+NBSP (как в Bot API). */
   function preserveSpacesInTelegramHtml(html) {
     if (!html || /<pre\b/i.test(html)) return html;
     var parts = html.split(/(<[^>]+>)/);
@@ -594,164 +584,21 @@
     var plain = plainId ? document.getElementById(plainId) : null;
     if (!ed || !hidden || !plain) return;
 
-    var tgHid = document.getElementById('id_tg_entities_hidden');
-
-    // Hydrate editor from saved html/plain (без trim — пробелы в начале/конце часть вёрстки)
     var initialHtml = hidden.value || '';
     if (initialHtml) ed.innerHTML = initialHtml;
     else ed.textContent = plain.value || '';
 
-    function parseTgEntitiesHidden() {
-      try {
-        var v = tgHid ? tgHid.value : '';
-        if (!v) return [];
-        var p = JSON.parse(v);
-        return Array.isArray(p) ? p : [];
-      } catch (err) { return []; }
-    }
-
-    function setTgEntitiesHidden(list) {
-      if (!tgHid) return;
-      tgHid.value = JSON.stringify(list || []);
-    }
-
-    function tgEmojiCharFromElement(el) {
-      var ch = (el.textContent || '').replace(/\uFEFF/g, '');
-      if (!ch.trim()) {
-        var im = el.querySelector('img');
-        if (im) ch = (im.getAttribute('alt') || '').trim();
-      }
-      return ch || '';
-    }
-
-    /**
-     * Буфер Telegram/macOS может содержать несколько <tg-emoji> подряд; querySelector брал только первый.
-     * Обходим дерево в порядке документа и собираем plain + custom_emoji entities с offset в UTF-16.
-     */
-    function parseTgEmojiClipboardHtml(html) {
-      if (!html || !/tg-emoji/i.test(html)) return null;
-      var root = document.createElement('div');
-      root.innerHTML = html;
-      var fragment = '';
-      var frEnts = [];
-      var segments = [];
-      var textBuf = '';
-      function flushText() {
-        if (!textBuf) return;
-        segments.push({ type: 'text', value: textBuf });
-        textBuf = '';
-      }
-      function walk(node) {
-        if (node.nodeType === Node.TEXT_NODE) {
-          var v = node.nodeValue || '';
-          fragment += v;
-          textBuf += v;
-          return;
-        }
-        if (node.nodeType !== Node.ELEMENT_NODE) return;
-        var tag = (node.tagName || '').toLowerCase();
-        if (tag === 'tg-emoji') {
-          var eid = node.getAttribute('emoji-id') || node.getAttribute('emoji_id') || '';
-          var ch = tgEmojiCharFromElement(node);
-          if (eid && ch) {
-            flushText();
-            frEnts.push({
-              type: 'custom_emoji',
-              offset: fragment.length,
-              length: ch.length,
-              custom_emoji_id: String(eid)
-            });
-            fragment += ch;
-            segments.push({ type: 'tg', id: String(eid), ch: ch });
-          }
-          return;
-        }
-        if (tag === 'br') {
-          fragment += '\n';
-          textBuf += '\n';
-          return;
-        }
-        var chn = node.childNodes;
-        for (var i = 0; i < chn.length; i++) walk(chn[i]);
-      }
-      walk(root);
-      flushText();
-      if (!frEnts.length) return null;
-      return { fragment: fragment, entities: frEnts, segments: segments };
-    }
-
-    /* После вставки из Telegram в DOM попадает <tg-emoji emoji-id>; без этого custom_emoji_id теряется. */
-    function normalizeTgEmojiNodes() {
-      if (!tgHid) return;
-      var nodes = Array.from(ed.querySelectorAll('tg-emoji'));
-      if (!nodes.length) return;
-      var ops = [];
-      nodes.forEach(function (el) {
-        var r = document.createRange();
-        r.selectNodeContents(ed);
-        r.setEndBefore(el);
-        var off = r.toString().length;
-        var eid = el.getAttribute('emoji-id') || el.getAttribute('emoji_id') || '';
-        var ch = tgEmojiCharFromElement(el);
-        if (eid && ch) ops.push({ el: el, off: off, id: eid, ch: ch });
-      });
-      ops.sort(function (a, b) { return b.off - a.off; });
-      var added = [];
-      ops.forEach(function (op) {
-        added.push({
-          type: 'custom_emoji',
-          offset: op.off,
-          length: op.ch.length,
-          custom_emoji_id: String(op.id)
-        });
-        op.el.replaceWith(document.createTextNode(op.ch));
-      });
-      added.sort(function (a, b) { return (a.offset || 0) - (b.offset || 0); });
-      var exist = parseTgEntitiesHidden();
-      added.forEach(function (a) {
-        var dup = exist.some(function (e) {
-          return e && e.type === 'custom_emoji' && e.offset === a.offset && e.length === a.length &&
-            String(e.custom_emoji_id || '') === String(a.custom_emoji_id || '');
-        });
-        if (!dup) exist.push(a);
-      });
-      exist.sort(function (a, b) { return (a.offset || 0) - (b.offset || 0); });
-      setTgEntitiesHidden(exist);
-    }
-
     function sync() {
-      normalizeTgEmojiNodes();
-      var hasEnt = false;
-      try {
-        var hidEl0 = document.getElementById('id_tg_entities_hidden');
-        if (hidEl0 && hidEl0.value) {
-          var pe0 = JSON.parse(hidEl0.value);
-          hasEnt = Array.isArray(pe0) && pe0.length > 0;
-        }
-      } catch (x0) {}
       var html = sanitizeForTelegram(ed.innerHTML || '');
-      // Многострочный ввод без тегов: в Telegram HTML перевод строки нужно задавать через <br>.
       if (html && !/<[a-z][\s\S]*>/i.test(html) && /[\r\n]/.test(html)) {
         html = html.replace(/\r\n|\r|\n/g, '<br>');
       }
-      if (!hasEnt) html = preserveSpacesInTelegramHtml(html);
+      html = preserveSpacesInTelegramHtml(html);
       hidden.value = html;
-      var rawPlain = stripHtml(html, hasEnt);
-      /* Без tg_entities не режем пробелы по краям — только крайние переносы (пустой ввод ловит сервер). */
-      plain.value = hasEnt ? rawPlain : rawPlain.replace(/^[\r\n]+|[\r\n]+$/g, '');
+      var rawPlain = stripHtml(html);
+      plain.value = rawPlain.replace(/^[\r\n]+|[\r\n]+$/g, '');
     }
     sync();
-
-    // Premium emoji: подставляем сохранённые entities с сервера; пустой [] не трогаем поле (не затираем «Из Telegram»).
-    var tgInit = document.getElementById('pc-tg-entities-initial');
-    if (tgInit && tgHid && tgInit.textContent) {
-      try {
-        var parsed = JSON.parse(tgInit.textContent);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          tgHid.value = tgInit.textContent.trim();
-        }
-      } catch (e) {}
-    }
 
     ed.addEventListener('input', sync);
     ed.addEventListener('blur', sync);
@@ -785,64 +632,19 @@
       var html = cd.getData('text/html') || '';
       var plain = cd.getData('text/plain');
       if (plain === null || plain === undefined) plain = '';
-      var parsedCE = parseTgEmojiClipboardHtml(html);
-      var toInsert = '';
-      if (parsedCE) {
-        toInsert = parsedCE.fragment;
-      } else {
-        toInsert = plain;
-        if (!toInsert && html) {
-          var hx = document.createElement('div');
-          hx.innerHTML = html;
-          toInsert = hx.innerText || hx.textContent || '';
-        }
+      var toInsert = plain;
+      if (!toInsert && html) {
+        var hx = document.createElement('div');
+        hx.innerHTML = html;
+        toInsert = hx.innerText || hx.textContent || '';
       }
       if (!toInsert) return;
 
-      var beforeR = document.createRange();
-      beforeR.selectNodeContents(ed);
-      beforeR.setEnd(range.startContainer, range.startOffset);
-      var shift = beforeR.toString().length;
-      var removedLen = range.collapsed ? 0 : range.toString().length;
-
-      var insLen = toInsert.length;
-      var exist = parseTgEntitiesHidden();
-      if (!range.collapsed && exist.length) {
-        exist = [];
-      } else if (exist.length && insLen) {
-        var delta = insLen - removedLen;
-        exist = exist.map(function (ent) {
-          var ne = Object.assign({}, ent);
-          var o = ne.offset || 0;
-          if (o >= shift + removedLen) ne.offset = o + delta;
-          return ne;
-        });
-      }
-      setTgEntitiesHidden(exist);
-
       range.deleteContents();
-      /* В DOM оставляем <tg-emoji> из буфера — normalizeTgEmojiNodes() сам проставит custom_emoji в hidden (как в Bot API). */
-      if (parsedCE && parsedCE.segments && parsedCE.segments.length) {
-        var frag = document.createDocumentFragment();
-        parsedCE.segments.forEach(function (seg) {
-          if (seg.type === 'text') frag.appendChild(document.createTextNode(seg.value));
-          else if (seg.type === 'tg') {
-            var tel = document.createElement('tg-emoji');
-            tel.setAttribute('emoji-id', seg.id);
-            tel.appendChild(document.createTextNode(seg.ch));
-            frag.appendChild(tel);
-          }
-        });
-        var lastIns = frag.lastChild;
-        range.insertNode(frag);
-        if (lastIns) range.setStartAfter(lastIns);
-        range.collapse(true);
-      } else {
-        var tn = document.createTextNode(toInsert);
-        range.insertNode(tn);
-        range.setStartAfter(tn);
-        range.collapse(true);
-      }
+      var tn = document.createTextNode(toInsert);
+      range.insertNode(tn);
+      range.setStartAfter(tn);
+      range.collapse(true);
       sel.removeAllRanges();
       sel.addRange(range);
 
@@ -869,7 +671,6 @@
       else if (a === 'link') execLink();
       else if (a === 'clear') {
         ed.textContent = '';
-        setTgEntitiesHidden([]);
       }
       sync();
     });

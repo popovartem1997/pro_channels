@@ -132,10 +132,7 @@ class SuggestionBot(models.Model):
     def get_moderation_chat_ids(self) -> list[str]:
         """
         Список chat_id, куда пересылать предложения на модерацию.
-        Включает:
-        - admin_chat_id (если задан)
-        - custom_admin_chat_ids (если заданы)
-        - владельца и выбранных модераторов, если у них привязан Telegram user_id через импорт-бота
+        Включает admin_chat_id, custom_admin_chat_ids и Telegram user_id модераторов из карточки «Команда».
         """
         ids: list[str] = []
 
@@ -153,40 +150,23 @@ class SuggestionBot(models.Model):
         for x in (self.custom_admin_chat_ids or []):
             _add(x)
 
-        # Linked Telegram IDs (content.TelegramImportLink)
-        try:
-            from content.models_imports import TelegramImportLink
-        except Exception:
-            TelegramImportLink = None
+        for u in self.moderators.all():
+            try:
+                from managers.models import TeamMember
 
-        if TelegramImportLink is not None:
-            if self.notify_owner:
-                link = TelegramImportLink.objects.filter(user=self.owner).first()
-                if link and link.telegram_user_id:
-                    _add(link.telegram_user_id)
-
-            for u in self.moderators.all():
-                link = TelegramImportLink.objects.filter(user=u).first()
-                if link and link.telegram_user_id:
-                    _add(link.telegram_user_id)
-                else:
-                    # Telegram ID из карточки члена команды (Команда → доступ), без привязки импорт-бота
-                    try:
-                        from managers.models import TeamMember
-
-                        tm = (
-                            TeamMember.objects.filter(
-                                owner_id=self.owner_id,
-                                member_id=u.id,
-                                is_active=True,
-                            )
-                            .exclude(telegram_user_id__isnull=True)
-                            .first()
-                        )
-                        if tm and tm.telegram_user_id:
-                            _add(str(int(tm.telegram_user_id)))
-                    except Exception:
-                        pass
+                tm = (
+                    TeamMember.objects.filter(
+                        owner_id=self.owner_id,
+                        member_id=u.id,
+                        is_active=True,
+                    )
+                    .exclude(telegram_user_id__isnull=True)
+                    .first()
+                )
+                if tm and tm.telegram_user_id:
+                    _add(str(int(tm.telegram_user_id)))
+            except Exception:
+                pass
 
         return ids
 

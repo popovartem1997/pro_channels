@@ -53,9 +53,6 @@ class GlobalApiKeys(models.Model):
     # VK parsing
     vk_parse_access_token_enc = models.TextField(blank=True, verbose_name='VK_PARSE_ACCESS_TOKEN (enc)')
 
-    # Telegram import bot (Premium emoji helper)
-    tg_import_bot_token_enc = models.TextField(blank=True, verbose_name='TG_IMPORT_BOT_TOKEN (enc)')
-
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -81,9 +78,6 @@ class GlobalApiKeys(models.Model):
     def get_vk_parse_access_token(self) -> str:
         return decrypt_token(self.vk_parse_access_token_enc)
 
-    def get_tg_import_bot_token(self) -> str:
-        return decrypt_token(self.tg_import_bot_token_enc)
-
     # ── helpers (encrypt) ────────────────────────────────────────────────────
     def set_openai_api_key(self, value: str):
         self.openai_api_key_enc = encrypt_token((value or '').strip())
@@ -99,9 +93,6 @@ class GlobalApiKeys(models.Model):
 
     def set_vk_parse_access_token(self, value: str):
         self.vk_parse_access_token_enc = encrypt_token((value or '').strip())
-
-    def set_tg_import_bot_token(self, value: str):
-        self.tg_import_bot_token_enc = encrypt_token((value or '').strip())
 
     def set_vk_ord_access_token(self, value: str):
         # Пользователи часто вставляют строку целиком "Bearer xxx".

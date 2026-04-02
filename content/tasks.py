@@ -614,15 +614,8 @@ def _build_text(post, channel):
     if channel.platform == Ch.PLATFORM_TELEGRAM:
         th_raw = post.text_html or ''
         th = th_raw.strip()
-        # В <pre> из plain нельзя отдавать сырой <tg-emoji> (ещё в HTML). Флаг has_premium_emoji не
-        # означает рабочие caption_entities — при сбое entities мы всё равно в HTML и pre допустим.
-        avoid_pre = 'tg-emoji' in th_raw.lower()
         if th:
-            if (
-                not avoid_pre
-                and not _tg_html_has_rich_formatting(th_raw)
-                and '<pre' not in th_raw.lower()
-            ):
+            if not _tg_html_has_rich_formatting(th_raw) and '<pre' not in th_raw.lower():
                 text = _tg_telegram_body_pre_from_plain(post.text or '')
             else:
                 text = post.text_html
@@ -630,10 +623,7 @@ def _build_text(post, channel):
                     text = text.replace('\r\n', '\n').replace('\n', '<br>')
                     text = _tg_preserve_spaces_telegram_html(text)
         else:
-            if avoid_pre:
-                text = _tg_plain_to_html_caption(post.text or '')
-            else:
-                text = _tg_telegram_body_pre_from_plain(post.text or '')
+            text = _tg_telegram_body_pre_from_plain(post.text or '')
 
         if post.ord_label:
             ol = escape((post.ord_label or '').strip(), quote=False)
@@ -663,80 +653,6 @@ def _build_text(post, channel):
     return text
 
 
-def _tg_entities_match_text(entities: list, text: str) -> bool:
-    """False → в канал лучше уйти с parse_mode=HTML, иначе Telegram «обнуляет» оформление."""
-    if not entities:
-        return False
-    n = _tg_utf16_len(text)
-    if n <= 0 and not entities:
-        return True
-    for e in entities:
-        if not isinstance(e, dict):
-            return False
-        try:
-            off = int(e.get('offset', 0))
-            ln = int(e.get('length', 0))
-        except (TypeError, ValueError):
-            return False
-        if off < 0 or ln < 0 or off + ln > n:
-            return False
-    return True
-
-
-def _tg_utf16_len(s: str) -> int:
-    """Длина строки в UTF-16 code units (как offset/length в Telegram MessageEntity)."""
-    if not s:
-        return 0
-    return len(s.encode('utf-16-le')) // 2
-
-
-def _tg_normalize_entities(entities) -> list:
-    """Приводим типы полей к ожиданиям Bot API (int / str)."""
-    out = []
-    for e in entities or []:
-        if not isinstance(e, dict):
-            continue
-        ne = {}
-        for k, v in e.items():
-            if k in ('offset', 'length'):
-                try:
-                    ne[k] = int(v)
-                except (TypeError, ValueError):
-                    ne[k] = 0
-            elif k == 'custom_emoji_id' and v is not None:
-                ne[k] = str(v)
-            elif k == 'type' and v is not None:
-                ne[k] = str(v)
-            else:
-                ne[k] = v
-        out.append(ne)
-    return out
-
-
-def _tg_shift_entities(entities: list, delta: int) -> list:
-    if not delta or not entities:
-        return list(entities)
-    out = []
-    for e in entities:
-        if not isinstance(e, dict):
-            continue
-        ne = dict(e)
-        ne['offset'] = int(ne.get('offset', 0)) + int(delta)
-        out.append(ne)
-    return out
-
-
-def _tg_footer_plain_from_html(tg_footer_html: str) -> str:
-    """Подпись канала для режима entities — только plain, без HTML-тегов в чате."""
-    from django.utils.html import strip_tags
-
-    t = (tg_footer_html or '').strip()
-    if not t:
-        return ''
-    plain = strip_tags(t).replace('\xa0', ' ')
-    return plain.strip()
-
-
 def _tg_file_for_telegram_upload(mf):
     """Локальный путь или InputFile (если нет .path — облако/хранилище)."""
     from telegram import InputFile
@@ -756,36 +672,7 @@ def _tg_file_for_telegram_upload(mf):
     return InputFile(io.BytesIO(raw), filename=name)
 
 
-def _tg_entity_dicts_to_ptb(entities: list):
-    """Словари из вебхука / формы → объекты MessageEntity (python-telegram-bot)."""
-    from telegram import MessageEntity
-
-    out = []
-    for e in entities or []:
-        if not isinstance(e, dict):
-            continue
-        t = str(e.get('type') or '')
-        if not t:
-            continue
-        kwargs = {
-            'type': t,
-            'offset': int(e.get('offset', 0)),
-            'length': int(e.get('length', 0)),
-        }
-        if e.get('url') is not None:
-            kwargs['url'] = e['url']
-        if e.get('language') is not None:
-            kwargs['language'] = e['language']
-        if e.get('custom_emoji_id') is not None:
-            kwargs['custom_emoji_id'] = str(e['custom_emoji_id'])
-        try:
-            out.append(MessageEntity(**kwargs))
-        except (TypeError, ValueError):
-            continue
-    return out
-
-
-def _tg_input_media_for_group_item(media_obj, media_type: str, *, caption, parse_mode, caption_entities):
+def _tg_input_media_for_group_item(media_obj, media_type: str, *, caption, parse_mode):
     """InputMedia* только из уже подготовленного upload-объекта (без ORM)."""
     from telegram import InputMediaDocument, InputMediaPhoto, InputMediaVideo
     from .models import PostMedia
@@ -799,8 +686,6 @@ def _tg_input_media_for_group_item(media_obj, media_type: str, *, caption, parse
     kw = {'media': media_obj}
     if caption is not None:
         kw['caption'] = caption
-    if caption_entities is not None:
-        kw['caption_entities'] = caption_entities
     if parse_mode is not None:
         kw['parse_mode'] = parse_mode
     return cls(**kw)
@@ -824,40 +709,8 @@ def _prepare_telegram_publish_bundle(post, channel):
     if not bot_token or not chat_id:
         raise ValueError('Не настроен токен бота или chat_id для Telegram')
 
-    # custom_emoji / <tg-emoji>: в Bot API указано, что такие сущности доступны боту при Fragment
-    # или в чатах private / group / supergroup при Premium владельца бота; каналы в списке нет —
-    # см. «Custom emoji entities can only be used…» в
-    # https://core.telegram.org/bots/api#formatting-options
-    raw_entities = getattr(post, 'tg_entities', None)
-    tg_entities_list = raw_entities if isinstance(raw_entities, list) else []
-    use_entities = bool(tg_entities_list)
-    text = ''
-    entities = []
-    ptb_entities = None
+    text = _build_text(post, channel)
     parse_mode = ParseMode.HTML
-
-    if use_entities:
-        text = _tg_plain_preserve_spaces(post.text if post.text is not None else '')
-        entities = _tg_normalize_entities(tg_entities_list)
-        if post.ord_label:
-            prefix = f"{(post.ord_label or '').strip()}\n\n"
-            text = prefix + text
-            entities = _tg_shift_entities(entities, _tg_utf16_len(prefix))
-        elif (channel.tg_footer or '').strip():
-            footer = _tg_footer_plain_from_html(channel.tg_footer)
-            if footer:
-                text = f'{text}\n\n{footer}'
-        if _tg_entities_match_text(entities, text):
-            ptb_entities = _tg_entity_dicts_to_ptb(entities)
-            parse_mode = None
-        else:
-            # Несовпадение текста и offset'ов — иначе Telegram шлёт «плоский» текст без разметки
-            use_entities = False
-
-    if not use_entities:
-        text = _build_text(post, channel)
-        ptb_entities = None
-        parse_mode = ParseMode.HTML
 
     media_rows = list(post.media_files.order_by('order', 'pk'))
     media_payload = []
@@ -875,9 +728,7 @@ def _prepare_telegram_publish_bundle(post, channel):
         'disable_notification': post.disable_notification,
         'pin_message': post.pin_message,
         'text': text,
-        'use_entities': use_entities,
         'parse_mode': parse_mode,
-        'caption_entities': ptb_entities,
         'media': media_payload,
     }
 
@@ -893,9 +744,7 @@ async def _publish_telegram_async_send(bundle: dict):
     disable_notification = bundle['disable_notification']
     pin_message = bundle['pin_message']
     text = bundle['text']
-    use_entities = bundle['use_entities']
     parse_mode = bundle['parse_mode']
-    ptb_entities = bundle['caption_entities']
     media = bundle['media']
 
     request = HTTPXRequest(connect_timeout=25.0, read_timeout=120.0)
@@ -906,29 +755,17 @@ async def _publish_telegram_async_send(bundle: dict):
         async with bot:
             msg_id = None
             if not media:
-                if use_entities:
-                    m = await bot.send_message(
-                        text=text,
-                        entities=ptb_entities,
-                        disable_web_page_preview=True,
-                        **common_kw,
-                    )
-                else:
-                    m = await bot.send_message(
-                        text=text,
-                        parse_mode=parse_mode,
-                        disable_web_page_preview=True,
-                        **common_kw,
-                    )
+                m = await bot.send_message(
+                    text=text,
+                    parse_mode=parse_mode,
+                    disable_web_page_preview=True,
+                    **common_kw,
+                )
                 msg_id = m.message_id
             elif len(media) == 1:
                 row = media[0]
                 media_obj = row['upload']
-                cap_kw = {**common_kw, 'caption': text}
-                if use_entities:
-                    cap_kw['caption_entities'] = ptb_entities
-                else:
-                    cap_kw['parse_mode'] = parse_mode
+                cap_kw = {**common_kw, 'caption': text, 'parse_mode': parse_mode}
                 mt = row['type']
                 if mt == 'photo':
                     m = await bot.send_photo(photo=media_obj, **cap_kw)
@@ -947,12 +784,11 @@ async def _publish_telegram_async_send(bundle: dict):
                             media_obj,
                             mt,
                             caption=text,
-                            parse_mode=None if use_entities else parse_mode,
-                            caption_entities=ptb_entities if use_entities else None,
+                            parse_mode=parse_mode,
                         )
                     else:
                         item = _tg_input_media_for_group_item(
-                            media_obj, mt, caption=None, parse_mode=None, caption_entities=None
+                            media_obj, mt, caption=None, parse_mode=None
                         )
                     group.append(item)
                 msgs = await bot.send_media_group(media=group, **common_kw)

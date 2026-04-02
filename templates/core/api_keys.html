@@ -152,21 +152,6 @@
             {% endif %}
           </div>
 
-          <hr class="my-4">
-
-          <!-- Telegram import bot -->
-          <h6 class="fw-bold mb-2">Telegram import bot (Premium emoji)</h6>
-          <div class="text-muted small mb-3">
-            <b>Токен:</b> BotFather → создайте служебного бота → вставьте токен в поле ниже и нажмите «Сохранить» в конце страницы (кнопка webhook читает токен из базы, не из черновика поля).
-          </div>
-          <div class="mb-3">
-            <label class="form-label fw-semibold">{{ form.tg_import_bot_token.label }}</label>
-            {{ form.tg_import_bot_token }}
-            {% if obj.tg_import_bot_token_enc %}
-              <div class="form-text"><i class="bi bi-check-circle-fill text-success me-1"></i>Токен задан (не отображается).</div>
-            {% endif %}
-          </div>
-
           <div class="d-flex gap-2 border-top pt-4 mt-2">
             <button type="submit" class="btn btn-brand px-4 fw-semibold">
               <i class="bi bi-check-lg me-1"></i> Сохранить
@@ -174,58 +159,11 @@
             <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary">Назад</a>
           </div>
         </form>
-
-        {# Отдельная форма: нельзя вкладывать <form> в <form> — иначе браузер «ломает» разметку и «Сохранить» не отправляет поля. #}
-        <div class="text-muted small mb-3 mt-4">
-          <b>Webhook (после сохранения токена выше):</b> Telegram должен слать обновления на наш HTTPS-адрес. Сервер вызовет Telegram <code>setWebhook</code>. Нужны <code>SITE_URL</code> с <code>https://</code> в настройках сервера и уже сохранённый в базе токен.
-        </div>
-        <div class="small fw-semibold mb-1">URL для webhook</div>
-        <div class="font-monospace small p-2 rounded border bg-light mb-2 text-break" id="tg-import-webhook-url">{{ SITE_URL }}{% url 'content:tg_import_webhook' %}</div>
-        <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="copy-tg-import-webhook-url">
-            <i class="bi bi-clipboard me-1"></i> Скопировать URL
-          </button>
-          <form method="post" action="{% url 'content:tg_import_webhook_setup' %}" class="d-inline">
-            {% csrf_token %}
-            <input type="hidden" name="next" value="api_keys">
-            <button type="submit" class="btn btn-brand btn-sm">
-              <i class="bi bi-link-45deg me-1"></i> Подключить webhook в Telegram
-            </button>
-          </form>
-          <a href="{% url 'content:tg_import_link' %}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-telegram me-1"></i> Страница «Импорт из Telegram»
-          </a>
-        </div>
-        <div class="form-text small mb-0">
-          Вручную: откройте в браузере
-          <span class="font-monospace">https://api.telegram.org/bot&lt;TOKEN&gt;/setWebhook?url=</span>
-          и укажите скопированный URL целиком (кодируйте спецсимволы при необходимости) — либо используйте кнопку выше.
-        </div>
       </div>
     </div>
   </div>
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script>
-(function () {
-  var btn = document.getElementById('copy-tg-import-webhook-url');
-  var box = document.getElementById('tg-import-webhook-url');
-  if (!btn || !box) return;
-  btn.addEventListener('click', function () {
-    var t = box.textContent.trim();
-    if (!t) return;
-    function ok() {
-      var orig = btn.innerHTML;
-      btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Скопировано';
-      setTimeout(function () { btn.innerHTML = orig; }, 2000);
-    }
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(t).then(ok).catch(function () {});
-    }
-  });
-})();
-</script>
-{% endblock %}
+{% block extra_js %}{% endblock %}
 
