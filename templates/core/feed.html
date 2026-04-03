@@ -26,24 +26,27 @@
 </div>
 {% endif %}
 
-<form method="get" class="card mb-3">
+<form method="get" id="feed-filter-form" class="card mb-3">
   <div class="card-body p-3">
     {% if chgroup_id %}
     <input type="hidden" name="chgroup" value="{{ chgroup_id }}">
     {% endif %}
+    {% if per_page %}
+    <input type="hidden" name="per_page" value="{{ per_page }}">
+    {% endif %}
     <div class="row g-2 align-items-end">
-      <div class="col-12 col-md-3">
+      <div class="col-12 col-md-2">
         <label class="form-label small text-muted mb-1">Тип</label>
-        <select class="form-select form-select-sm" name="kind">
+        <select class="form-select form-select-sm js-feed-auto-submit" name="kind">
           <option value="all" {% if kind == 'all' %}selected{% endif %}>Все</option>
           <option value="post" {% if kind == 'post' %}selected{% endif %}>Посты</option>
           <option value="subscriber" {% if kind == 'subscriber' %}selected{% endif %}>От подписчиков</option>
           <option value="parsing" {% if kind == 'parsing' %}selected{% endif %}>Парсинг</option>
         </select>
       </div>
-      <div class="col-12 col-md-3">
+      <div class="col-12 col-md-2">
         <label class="form-label small text-muted mb-1">Статус</label>
-        <select class="form-select form-select-sm" name="status">
+        <select class="form-select form-select-sm js-feed-auto-submit" name="status">
           <option value="" {% if not status_filter %}selected{% endif %}>Все</option>
           <optgroup label="Посты">
             <option value="post:draft" {% if status_filter == 'post:draft' %}selected{% endif %}>Черновик</option>
@@ -67,15 +70,18 @@
       </div>
       <div class="col-12 col-md-2">
         <label class="form-label small text-muted mb-1">Канал</label>
-        <select class="form-select form-select-sm" name="channel">
+        <select class="form-select form-select-sm js-feed-auto-submit" name="channel">
           <option value="" {% if not channel_id %}selected{% endif %}>Все</option>
           {% for ch in channels %}
             <option value="{{ ch.pk }}" {% if channel_id == ch.pk %}selected{% endif %}>{{ ch.name }}</option>
           {% endfor %}
         </select>
       </div>
-      <div class="col-12 col-md-2">
-        <button class="btn btn-brand btn-sm w-100">Фильтровать</button>
+      <div class="col-12 col-md-6">
+        <label class="form-label small text-muted mb-1" for="feed-q">Поиск по тексту</label>
+        <input type="search" class="form-control form-control-sm" name="q" id="feed-q"
+               value="{{ search_q|default:'' }}"
+               placeholder="Слова из поста, предложки или парсинга…" autocomplete="off">
       </div>
     </div>
   </div>
@@ -358,7 +364,6 @@
     post_draft: 'Черновики',
     post_scheduled: 'Запланированы',
     post_publishing: 'Публикуются',
-    post_published: 'Опубликованы',
     post_failed: 'Ошибки',
     parsing_new: 'Парсинг (новые)',
   };
@@ -387,6 +392,30 @@
       bar.classList.remove('d-none');
     }
   };
+})();
+</script>
+<script>
+(function () {
+  var form = document.getElementById('feed-filter-form');
+  if (!form) return;
+  function submitFeedFilters() {
+    form.submit();
+  }
+  form.querySelectorAll('.js-feed-auto-submit').forEach(function (el) {
+    el.addEventListener('change', submitFeedFilters);
+  });
+  var qEl = document.getElementById('feed-q');
+  var qTimer;
+  if (qEl) {
+    qEl.addEventListener('input', function () {
+      clearTimeout(qTimer);
+      qTimer = setTimeout(submitFeedFilters, 450);
+    });
+    qEl.addEventListener('search', function () {
+      clearTimeout(qTimer);
+      submitFeedFilters();
+    });
+  }
 })();
 </script>
 <script>

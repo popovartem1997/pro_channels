@@ -355,7 +355,6 @@ def compute_feed_quick_link_counts(user, *, channel_id=None, chgroup_id=None):
         'post_draft': post_qs.filter(status=Post.STATUS_DRAFT).count(),
         'post_scheduled': post_qs.filter(status=Post.STATUS_SCHEDULED).count(),
         'post_publishing': post_qs.filter(status=Post.STATUS_PUBLISHING).count(),
-        'post_published': post_qs.filter(status=Post.STATUS_PUBLISHED).count(),
         'post_failed': post_qs.filter(status=Post.STATUS_FAILED).count(),
         'parsing_new': parsed_qs.filter(status=ParsedItem.STATUS_NEW).count(),
     }
@@ -467,15 +466,6 @@ def feed(request):
                 'url': _feed_qs(kind='post', status=f'post:{Post.STATUS_PUBLISHING}'),
             }
         )
-    n_pub = post_qs.filter(status=Post.STATUS_PUBLISHED).count()
-    if n_pub:
-        feed_quick_links.append(
-            {
-                'key': 'post_published',
-                'label': f'Опубликованы · {n_pub}',
-                'url': _feed_qs(kind='post', status=f'post:{Post.STATUS_PUBLISHED}'),
-            }
-        )
     n_fail = post_qs.filter(status=Post.STATUS_FAILED).count()
     if n_fail:
         feed_quick_links.append(
@@ -545,6 +535,18 @@ def feed(request):
                     parsed_qs = parsed_qs.filter(status=ParsedItem.STATUS_IGNORED)
                 elif status_value == 'published':
                     parsed_qs = parsed_qs.filter(status=ParsedItem.STATUS_USED)
+
+    search_q = (request.GET.get('q') or '').strip()
+    if search_q:
+        from django.db.models import Q
+
+        post_qs = post_qs.filter(text__icontains=search_q)
+        sug_qs = sug_qs.filter(text__icontains=search_q)
+        parsed_qs = parsed_qs.filter(
+            Q(text__icontains=search_q)
+            | Q(original_url__icontains=search_q)
+            | Q(source__name__icontains=search_q)
+        )
 
     if kind in ('all', 'post'):
         from content.models import PostMedia
@@ -658,6 +660,7 @@ def feed(request):
         'items': list(page_obj.object_list),
         'kind': kind,
         'status_filter': status_filter,
+        'search_q': search_q,
         'channels': allowed_channels or [],
         'channel_id': cid_int or '',
         'chgroup_id': chgroup_int or '',
