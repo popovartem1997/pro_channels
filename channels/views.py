@@ -753,17 +753,23 @@ def import_history_status(request, pk: int):
     })
 
 
-def _redis_broker_celery_queue_length(broker_url: str):
-    """Длина списка Redis по умолчанию для очереди Celery (имя ключа «celery»)."""
+def _redis_broker_queue_lengths(broker_url: str):
+    """Длины списков Redis для очередей Celery (имена ключей = имена очередей)."""
     if not (broker_url or '').strip():
-        return None, 'broker_url пуст'
+        return {}, 'broker_url пуст'
     try:
         import redis
 
         r = redis.from_url(broker_url, socket_connect_timeout=2, socket_timeout=2)
-        return int(r.llen('celery')), None
+        out = {}
+        for q in ('prio', 'celery'):
+            try:
+                out[q] = int(r.llen(q))
+            except Exception:
+                out[q] = None
+        return out, None
     except Exception as exc:
-        return None, str(exc)
+        return {}, str(exc)
 
 
 @login_required
@@ -860,7 +866,9 @@ def import_history_diagnostics(request):
     if broker:
         broker_tail = broker.split('@')[-1] if '@' in broker else broker[:120]
 
-    redis_len, redis_len_err = _redis_broker_celery_queue_length(broker)
+    redis_qlens, redis_len_err = _redis_broker_queue_lengths(broker)
+    redis_prio_len = redis_qlens.get('prio') if isinstance(redis_qlens, dict) else None
+    redis_celery_len = redis_qlens.get('celery') if isinstance(redis_qlens, dict) else None
 
     telethon_lock_by_owner = []
     try:
@@ -901,10 +909,20 @@ def import_history_diagnostics(request):
             0,
             'CELERY_TASK_ALWAYS_EAGER=True — задачи не попадают в Redis; воркер их никогда не увидит. Уберите из .env.',
         )
-    if redis_len is not None and redis_len > 0 and not celery_error and celery_workers:
+    if (
+        redis_celery_len is not None
+        and redis_celery_len > 0
+        and not celery_error
+        and celery_workers
+    ):
         hints.append(
-            f'В Redis в очереди «celery» сейчас ~{redis_len} сообщ. Если воркер живой, но active пустой — '
-            'перезапустите celery после обновления (command с -Q celery) или проверьте зависшие процессы.',
+            f'В Redis в очереди «celery» сейчас ~{redis_celery_len} сообщ. Если воркер живой, но active пустой — '
+            'перезапустите celery (command с -Q prio,celery) или проверьте зависшие процессы.',
+        )
+    if redis_prio_len is not None and redis_prio_len > 50:
+        hints.append(
+            f'В очереди «prio» ~{redis_prio_len} сообщ (публикация/импорт истории). '
+            'Если число растёт — воркер не слушает prio или все слоты заняты долгими задачами.',
         )
     hints.append(
         'Блокировка Telethon: в JSON смотрите telethon_lock_by_owner.held_in_redis и celery.active_parse_tasks. '
@@ -928,11 +946,15 @@ def import_history_diagnostics(request):
                 'error': celery_error,
             },
             'broker_host': broker_tail,
-            'redis_celery_list_length': redis_len,
+            'redis_queue_lengths': redis_qlens,
+            'redis_queue_lengths_error': redis_len_err,
+            # Совместимость со старым UI/скриптами
+            'redis_celery_list_length': redis_celery_len,
             'redis_celery_list_error': redis_len_err,
             'settings': {
                 'CELERY_TASK_ALWAYS_EAGER': getattr(settings, 'CELERY_TASK_ALWAYS_EAGER', False),
                 'CELERY_TASK_DEFAULT_QUEUE': getattr(settings, 'CELERY_TASK_DEFAULT_QUEUE', 'celery'),
+                'CELERY_TASK_ROUTES': getattr(settings, 'CELERY_TASK_ROUTES', None),
                 'CELERY_WORKER_PREFETCH_MULTIPLIER': getattr(
                     settings, 'CELERY_WORKER_PREFETCH_MULTIPLIER', 1
                 ),
@@ -940,7 +962,7 @@ def import_history_diagnostics(request):
             'hints': hints
             + [
                 'Парсинг по расписанию: должен работать контейнер celery-beat и в БД PeriodicTask (setup_periodic_tasks).',
-                'После смены docker-compose перезапустите: docker compose up -d --force-recreate celery celery-beat',
+                'После смены docker-compose перезапустите: docker compose up -d --build --force-recreate web celery celery-beat',
             ],
         }
     )
