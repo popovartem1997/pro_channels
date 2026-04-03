@@ -1,17 +1,70 @@
 {% with step=step|default:1 %}
-<nav class="mb-4 small text-muted d-flex flex-wrap gap-2">
-  <span class="{% if step >= 1 %}text-dark fw-semibold{% endif %}">1. Канал</span>
-  <span>→</span>
-  <span class="{% if step >= 2 %}text-dark fw-semibold{% endif %}">2. Слоты и услуги</span>
-  <span>→</span>
-  <span class="{% if step >= 3 %}text-dark fw-semibold{% endif %}">3. Пост</span>
-  <span>→</span>
-  <span class="{% if step >= 4 %}text-dark fw-semibold{% endif %}">4. ОРД</span>
-  <span>→</span>
-  <span class="{% if step >= 5 %}text-dark fw-semibold{% endif %}">5. Сводка</span>
-  <span>→</span>
-  <span class="{% if step >= 6 %}text-dark fw-semibold{% endif %}">6. Договор</span>
-  <span>→</span>
-  <span class="{% if step >= 7 %}text-dark fw-semibold{% endif %}">7. Оплата (после одобрения)</span>
+<style>
+  .campaign-wizard-steps { row-gap: 0.35rem; }
+  .campaign-wizard-steps .sep { color: var(--bs-secondary); opacity: 0.6; user-select: none; }
+  .campaign-wizard-steps a.step-link {
+    color: var(--bs-primary);
+    text-decoration: none;
+    border-radius: 6px;
+    padding: 0.15rem 0.35rem;
+    margin: -0.15rem -0.35rem;
+  }
+  .campaign-wizard-steps a.step-link:hover { text-decoration: underline; }
+  .campaign-wizard-steps .step-current {
+    font-weight: 600;
+    color: var(--bs-body-color) !important;
+    text-decoration: none !important;
+    cursor: default;
+    pointer-events: none;
+    padding: 0.15rem 0.35rem;
+  }
+  .campaign-wizard-steps .step-muted {
+    color: var(--bs-secondary);
+    opacity: 0.75;
+    padding: 0.15rem 0.35rem;
+  }
+</style>
+<nav class="campaign-wizard-steps mb-4 d-flex flex-wrap align-items-center small" aria-label="Шаги заявки">
+  {% if app and app.status == 'draft' %}
+    <a href="{% url 'advertisers:campaign_draft_channel' app.pk %}" class="step-link {% if step == 1 %}step-current{% endif %}">1. Канал</a>
+    <span class="sep d-none d-sm-inline px-1">→</span>
+    <a href="{% url 'advertisers:campaign_slots' app.pk %}" class="step-link {% if step == 2 %}step-current{% endif %}">2. Слоты и услуги</a>
+    <span class="sep d-none d-sm-inline px-1">→</span>
+    <a href="{% url 'advertisers:campaign_content' app.pk %}" class="step-link {% if step == 3 %}step-current{% endif %}">3. Пост</a>
+    <span class="sep d-none d-sm-inline px-1">→</span>
+    <a href="{% url 'advertisers:campaign_ord' app.pk %}" class="step-link {% if step == 4 %}step-current{% endif %}">4. ОРД</a>
+    <span class="sep d-none d-sm-inline px-1">→</span>
+    <a href="{% url 'advertisers:campaign_review' app.pk %}" class="step-link {% if step == 5 %}step-current{% endif %}">5. Сводка</a>
+    <span class="sep d-none d-sm-inline px-1">→</span>
+    <a href="{% url 'advertisers:campaign_contract' app.pk %}" class="step-link {% if step == 6 %}step-current{% endif %}">6. Договор</a>
+    <span class="sep d-none d-sm-inline px-1">→</span>
+    <span class="step-muted">7. Оплата (после одобрения)</span>
+  {% else %}
+    <span class="{% if step == 1 %}step-current{% else %}step-muted{% endif %}">1. Канал</span>
+    <span class="sep d-none d-sm-inline px-1">→</span>
+    <span class="{% if step == 2 %}step-current{% else %}step-muted{% endif %}">2. Слоты и услуги</span>
+    <span class="sep d-none d-sm-inline px-1">→</span>
+    <span class="{% if step == 3 %}step-current{% else %}step-muted{% endif %}">3. Пост</span>
+    <span class="sep d-none d-sm-inline px-1">→</span>
+    <span class="{% if step == 4 %}step-current{% else %}step-muted{% endif %}">4. ОРД</span>
+    <span class="sep d-none d-sm-inline px-1">→</span>
+    <span class="{% if step == 5 %}step-current{% else %}step-muted{% endif %}">5. Сводка</span>
+    <span class="sep d-none d-sm-inline px-1">→</span>
+    <span class="{% if step == 6 %}step-current{% else %}step-muted{% endif %}">6. Договор</span>
+    <span class="sep d-none d-sm-inline px-1">→</span>
+    {% if app %}
+      {% if app.status == 'approved_for_payment' or app.status == 'awaiting_payment' %}
+        {% if step == 7 %}
+        <span class="step-current">7. Оплата</span>
+        {% else %}
+        <a href="{% url 'advertisers:campaign_checkout' app.pk %}" class="step-link">7. Оплата</a>
+        {% endif %}
+      {% else %}
+        <span class="{% if step == 7 %}step-current{% else %}step-muted{% endif %}">7. Оплата (после одобрения)</span>
+      {% endif %}
+    {% else %}
+    <span class="step-muted">7. Оплата (после одобрения)</span>
+    {% endif %}
+  {% endif %}
 </nav>
 {% endwith %}

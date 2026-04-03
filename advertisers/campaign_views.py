@@ -174,6 +174,22 @@ def campaign_new(request):
 
 
 @login_required
+def campaign_draft_channel(request, pk: int):
+    """Шаг 1 мастера после создания черновика: канал уже выбран, можно вернуться сюда из навигации."""
+    app = _app_adv(request, pk)
+    if app.status != AdApplication.STATUS_DRAFT:
+        if app.status == AdApplication.STATUS_PENDING_OWNER:
+            return redirect('advertisers:campaign_pending_owner', pk=pk)
+        if app.status == AdApplication.STATUS_APPROVED_FOR_PAYMENT:
+            return redirect('advertisers:campaign_checkout', pk=pk)
+        if app.status == AdApplication.STATUS_AWAITING_PAYMENT:
+            return redirect('advertisers:campaign_checkout', pk=pk)
+        messages.info(request, 'Эта заявка уже не в черновике.')
+        return redirect('advertisers:campaign_list')
+    return render(request, 'advertisers/campaign_draft_channel.html', {'app': app})
+
+
+@login_required
 def campaign_slots(request, pk: int):
     app = _app_adv(request, pk)
     if app.status != AdApplication.STATUS_DRAFT:
@@ -347,9 +363,6 @@ def campaign_review(request, pk: int):
     app = _app_adv(request, pk)
     if app.status != AdApplication.STATUS_DRAFT:
         return redirect('advertisers:campaign_list')
-    if not app.ord_wizard_saved_at:
-        messages.info(request, 'Сначала пройдите шаг с данными ОРД (можно оставить поля пустыми и нажать «Далее»).')
-        return redirect('advertisers:campaign_ord', pk=pk)
 
     n = len(app.selected_slot_ids or [])
     if n:

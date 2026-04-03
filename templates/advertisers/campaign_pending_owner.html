@@ -5,7 +5,7 @@
   <h1>Заявка на согласовании</h1>
   <p class="text-muted small mb-0">Владелец канала «{{ app.channel.name }}» проверяет материалы. Счёт будет доступен после одобрения.</p>
 </div>
-{% include 'advertisers/_campaign_steps.html' with step=6 %}
+{% include 'advertisers/_campaign_steps.html' with step=6 app=app %}
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body">
     <p class="mb-2">Отправлено: {% if app.submitted_to_owner_at %}{{ app.submitted_to_owner_at|date:"d.m.Y H:i" }}{% else %}—{% endif %}</p>

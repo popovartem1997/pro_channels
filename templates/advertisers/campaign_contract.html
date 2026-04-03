@@ -5,7 +5,7 @@
   <h1>Договор</h1>
   <p class="text-muted small mb-0">Ознакомьтесь и подпишите электронно. После подписи заявка уходит владельцу канала на согласование; счёт выставляется только после одобрения.</p>
 </div>
-{% include 'advertisers/_campaign_steps.html' with step=6 %}
+{% include 'advertisers/_campaign_steps.html' with step=6 app=app %}
 {% if app.owner_last_rejection_reason %}
 <div class="alert alert-warning small">
   <div class="fw-semibold mb-1">Владелец канала вернул заявку на доработку</div>

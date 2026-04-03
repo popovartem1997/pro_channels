@@ -5,7 +5,7 @@
   <h1>Слоты и доп. услуги</h1>
   <p class="text-muted small mb-0">{{ app.channel.name }} · заявка #{{ app.pk }}</p>
 </div>
-{% include 'advertisers/_campaign_steps.html' with step=2 %}
+{% include 'advertisers/_campaign_steps.html' with step=2 app=app %}
 {% if not slots %}
 <div class="alert alert-warning">Слотов пока нет. Владелец канала должен задать расписание в настройках канала (JSON слотов) и при необходимости сгенерировать слоты.</div>
 {% else %}
