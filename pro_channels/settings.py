@@ -247,6 +247,9 @@ TELETHON_REDIS_LOCK_TTL = config('TELETHON_REDIS_LOCK_TTL', default=28800, cast=
 TELETHON_REDIS_LOCK_WAIT = config('TELETHON_REDIS_LOCK_WAIT', default=600, cast=int)
 # Одна попытка redis.lock.acquire (сек.); меньше — чаще обновляется журнал импорта на шаге 4.
 TELETHON_REDIS_LOCK_WAIT_CHUNK = config('TELETHON_REDIS_LOCK_WAIT_CHUNK', default=30, cast=int)
+# Импорт истории TG→MAX: за один захват lock читать не больше N сообщений, затем отпускать сессию
+# (публикация в MAX идёт без lock — парсинг и другие задачи могут войти в Telethon между порциями).
+TG_HISTORY_IMPORT_TELETHON_BATCH = config('TG_HISTORY_IMPORT_TELETHON_BATCH', default=25, cast=int)
 # Сколько последних сообщений канала смотреть за один проход (дедуп по msg id в БД).
 PARSE_TELEGRAM_MESSAGE_LIMIT = config('PARSE_TELEGRAM_MESSAGE_LIMIT', default=20, cast=int)
 

@@ -232,6 +232,9 @@ def _telethon_session_lock_redis_impl(
 def _telethon_session_lock(
     owner_id: int,
     on_lock_wait_tick: Optional[Callable[[float], None]] = None,
+    *,
+    wait: Optional[float] = None,
+    wait_chunk: Optional[float] = None,
 ):
     """
     Один процесс Celery на один файл сессии Telethon: иначе SQLite database is locked
@@ -239,12 +242,16 @@ def _telethon_session_lock(
 
     По умолчанию TELETHON_SESSION_LOCK_BACKEND=file — fcntl на общем volume (Docker),
     без «вечных» ключей в Redis. Для нескольких хостов без общего media — redis или both.
+
+    wait / wait_chunk — переопределение таймаутов ожидания (например короткое ожидание в веб-запросе).
     """
     from django.conf import settings
 
     hold = int(getattr(settings, 'TELETHON_REDIS_LOCK_TTL', 28800))
-    wait = float(getattr(settings, 'TELETHON_REDIS_LOCK_WAIT', 600))
-    wait_chunk = float(getattr(settings, 'TELETHON_REDIS_LOCK_WAIT_CHUNK', 30))
+    wait = float(wait if wait is not None else getattr(settings, 'TELETHON_REDIS_LOCK_WAIT', 600))
+    wait_chunk = float(
+        wait_chunk if wait_chunk is not None else getattr(settings, 'TELETHON_REDIS_LOCK_WAIT_CHUNK', 30)
+    )
     backend = (getattr(settings, 'TELETHON_SESSION_LOCK_BACKEND', 'file') or 'file').strip().lower()
 
     if backend not in ('file', 'redis', 'both'):
@@ -707,7 +714,7 @@ def _parse_telegram(source, keywords, keyword_objects):
     # Один lock на файл сессии с импортом TG→MAX: пока этот блок выполняется, import_tg_history_to_max_task
     # на шаге 4 ждёт в Redis (см. лог «lock acquired» ниже и «history_import» в channels.tasks).
     logger.info(
-        'TG parse: ожидание Redis-lock сессии Telethon owner_id=%s source_id=%s (импорт истории ждёт тот же lock)',
+        'TG parse: ожидание lock сессии Telethon owner_id=%s source_id=%s (тот же lock, что у импорта истории)',
         source.owner_id,
         source.pk,
     )

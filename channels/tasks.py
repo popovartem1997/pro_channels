@@ -371,32 +371,38 @@ def import_tg_history_to_max_task(self, run_id: int):
             raise RuntimeError('Post was deleted during import')
         return _publish_max(post, target)
 
-    async def _do_import():
+    batch_limit = int(getattr(settings, 'TG_HISTORY_IMPORT_TELETHON_BATCH', 25) or 25)
+    batch_limit = max(1, min(batch_limit, 200))
+
+    async def _ensure_client_connected(client):
+        if client is None:
+            return
+        try:
+            if client.is_connected():
+                return
+        except Exception:
+            pass
+        for i in range(5):
+            try:
+                await client.connect()
+                try:
+                    if client.is_connected():
+                        return
+                except Exception:
+                    return
+            except Exception as exc:
+                logger.warning('TG import: reconnect failed (attempt=%s): %s', i + 1, exc)
+                await asyncio.sleep(1.5 + i * 1.7)
+
+    async def _fetch_tg_import_batch(*, resume_after_id, take: int):
+        """
+        За один захват lock: подключение, чтение до take сообщений канала (с учётом resume_after_id),
+        скачивание медиа. Публикация в MAX — снаружи, без lock.
+        Возвращает (items, iterator_exhausted).
+        """
+        nonlocal errors
         from telethon import TelegramClient
 
-        async def _ensure_connected():
-            nonlocal client
-            if client is None:
-                return
-            try:
-                if client.is_connected():
-                    return
-            except Exception:
-                pass
-            # Retry connect a few times
-            for i in range(5):
-                try:
-                    await client.connect()
-                    try:
-                        if client.is_connected():
-                            return
-                    except Exception:
-                        return
-                except Exception as exc:
-                    logger.warning('TG import: reconnect failed (attempt=%s): %s', i + 1, exc)
-                    await asyncio.sleep(1.5 + i * 1.7)
-
-        # Telethon sessions: same location as parsing.
         session_dir = settings.BASE_DIR / 'media' / 'telethon_sessions'
         try:
             session_dir.mkdir(parents=True, exist_ok=True)
@@ -404,6 +410,8 @@ def import_tg_history_to_max_task(self, run_id: int):
             pass
         session_path = str(session_dir / f'user_{source.owner_id}')
         client = None
+        items: list[dict] = []
+        iterator_exhausted = False
         try:
             client = TelegramClient(session_path, int(api_id), api_hash)
             await client.connect()
@@ -412,9 +420,7 @@ def import_tg_history_to_max_task(self, run_id: int):
                     await client.disconnect()
                 except Exception:
                     pass
-                client = None
-                default_path = str(session_dir / 'user_default')
-                client = TelegramClient(default_path, int(api_id), api_hash)
+                client = TelegramClient(str(session_dir / 'user_default'), int(api_id), api_hash)
                 await client.connect()
                 if not await client.is_user_authorized():
                     raise ValueError(
@@ -424,23 +430,25 @@ def import_tg_history_to_max_task(self, run_id: int):
                         'Важно: у celery должен быть смонтирован тот же /app/media.'
                     )
 
-            await _ensure_connected()
+            await _ensure_client_connected(client)
             entity = await client.get_entity(_tg_entity_id_from_channel(source))
-            # reverse=True: from oldest to newest
-            async for msg in client.iter_messages(entity, reverse=True):
-                nonlocal sent, errors, last_tg_message_id
-
-                # cancellation: check every message
+            # При каждом новом connect итератор снова с начала канала — продолжаем только через min_id.
+            min_msg_id = 0
+            if resume_after_id is not None:
+                try:
+                    min_msg_id = int(resume_after_id) + 1
+                except (TypeError, ValueError):
+                    min_msg_id = 0
+            n = 0
+            async for msg in client.iter_messages(entity, reverse=True, min_id=min_msg_id):
+                if n >= take:
+                    break
                 if await _cancel_requested():
                     raise asyncio.CancelledError()
-
-                # MAX/Telethon can drop connection mid-run; reconnect if needed
-                await _ensure_connected()
+                await _ensure_client_connected(client)
 
                 msg_id = getattr(msg, 'id', None)
                 if msg_id is None:
-                    continue
-                if last_tg_message_id is not None and int(msg_id) <= int(last_tg_message_id):
                     continue
 
                 text = ''
@@ -456,21 +464,16 @@ def import_tg_history_to_max_task(self, run_id: int):
                     except Exception:
                         pass
 
-                # If message has neither text nor media — skip
                 has_media = bool(getattr(msg, 'media', None))
                 if not text and not has_media:
-                    last_tg_message_id = int(msg_id)
-                    await _update_progress_async(sent=sent, errors=errors, last_tg_message_id=last_tg_message_id)
+                    items.append({'kind': 'skip', 'msg_id': int(msg_id)})
+                    n += 1
                     continue
 
-                post_id = await _create_post_for_target(text)
-
-                # Media: download one file per message (best-effort). MAX supports up to 10 attachments,
-                # but Telegram message usually has one; albums may come as multiple messages.
-                downloaded_paths = []
+                downloaded_paths: list[str] = []
                 if has_media:
                     try:
-                        await _ensure_connected()
+                        await _ensure_client_connected(client)
                         media_root = Path(getattr(settings, 'MEDIA_ROOT', settings.BASE_DIR / 'media'))
                         rel_dir = Path('imports') / 'tg_to_max' / f'run_{run_id}' / f'msg_{msg_id}'
                         abs_dir = media_root / rel_dir
@@ -478,55 +481,24 @@ def import_tg_history_to_max_task(self, run_id: int):
                         base = abs_dir / 'media'
                         saved_path = await client.download_media(msg, file=str(base))
                         if saved_path:
-                            downloaded_paths.append(saved_path)
+                            downloaded_paths.append(str(saved_path))
                     except Exception as exc:
                         errors += 1
                         logger.warning('Import run=%s tg_msg=%s download_media error: %s', run_id, msg_id, exc)
 
-                # Attach to post
-                for i, p in enumerate(downloaded_paths[:10], start=1):
-                    try:
-                        await _attach_file_to_post(post_id, p, i, _guess_media_type(msg))
-                    except Exception as exc:
-                        errors += 1
-                        logger.warning('Import run=%s tg_msg=%s attach error: %s', run_id, msg_id, exc)
-                try:
-                    await _normalize_media(post_id)
-                except Exception:
-                    pass
-
-                # Publish to MAX with retries/backoff
-                ok = False
-                last_exc = None
-                for attempt in range(6):
-                    try:
-                        resp = await _publish_max_sync(post_id)
-                        await _create_publish_result(
-                            post_id,
-                            True,
-                            platform_message_id=str(resp.get('message_id', '')) if isinstance(resp, dict) else '',
-                        )
-                        ok = True
-                        break
-                    except Exception as exc:
-                        last_exc = exc
-                        errors += 1
-                        await _create_publish_result(post_id, False, error_message=str(exc))
-                        # Backoff: handle common throttling/connection resets.
-                        await asyncio.sleep(min(20.0, 1.2 + attempt * 2.2))
-
-                if ok:
-                    sent += 1
-                    await _set_post_status(post_id, status='published', published_at=timezone.now())
-                else:
-                    await _set_post_status(post_id, status='failed')
-                    logger.error('Import run=%s tg_msg=%s publish failed: %s', run_id, msg_id, last_exc)
-
-                last_tg_message_id = int(msg_id)
-                await _update_progress_async(sent=sent, errors=errors, last_tg_message_id=last_tg_message_id)
-
-                # Throttle for MAX API
-                await asyncio.sleep(1.0)
+                items.append(
+                    {
+                        'kind': 'post',
+                        'msg_id': int(msg_id),
+                        'text': text,
+                        'paths': downloaded_paths[:10],
+                        'media_type': _guess_media_type(msg),
+                    }
+                )
+                n += 1
+            else:
+                iterator_exhausted = True
+            return items, iterator_exhausted
         finally:
             if client is not None:
                 try:
@@ -534,60 +506,140 @@ def import_tg_history_to_max_task(self, run_id: int):
                 except Exception:
                     pass
 
+    async def _process_import_batch(batch: list[dict]):
+        nonlocal sent, errors, last_tg_message_id
+        for item in batch:
+            if await _cancel_requested():
+                raise asyncio.CancelledError()
+            if item.get('kind') == 'skip':
+                last_tg_message_id = int(item['msg_id'])
+                await _update_progress_async(sent=sent, errors=errors, last_tg_message_id=last_tg_message_id)
+                continue
+
+            msg_id = int(item['msg_id'])
+            text = item.get('text') or ''
+            downloaded_paths = list(item.get('paths') or [])
+            mt = item.get('media_type') or 'document'
+
+            post_id = await _create_post_for_target(text)
+            for i, p in enumerate(downloaded_paths[:10], start=1):
+                try:
+                    await _attach_file_to_post(post_id, p, i, mt)
+                except Exception as exc:
+                    errors += 1
+                    logger.warning('Import run=%s tg_msg=%s attach error: %s', run_id, msg_id, exc)
+            try:
+                await _normalize_media(post_id)
+            except Exception:
+                pass
+
+            ok = False
+            last_exc = None
+            for attempt in range(6):
+                try:
+                    resp = await _publish_max_sync(post_id)
+                    await _create_publish_result(
+                        post_id,
+                        True,
+                        platform_message_id=str(resp.get('message_id', '')) if isinstance(resp, dict) else '',
+                    )
+                    ok = True
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    errors += 1
+                    await _create_publish_result(post_id, False, error_message=str(exc))
+                    await asyncio.sleep(min(20.0, 1.2 + attempt * 2.2))
+
+            if ok:
+                sent += 1
+                await _set_post_status(post_id, status='published', published_at=timezone.now())
+            else:
+                await _set_post_status(post_id, status='failed')
+                logger.error('Import run=%s tg_msg=%s publish failed: %s', run_id, msg_id, last_exc)
+
+            last_tg_message_id = msg_id
+            await _update_progress_async(sent=sent, errors=errors, last_tg_message_id=last_tg_message_id)
+            await asyncio.sleep(1.0)
+
     def _set_run_error_message(msg: str):
         try:
             HistoryImportRun.objects.filter(pk=run_id).update(error_message=(msg or '')[:2000])
         except Exception:
             pass
 
-    # Telethon session lock может быть занят параллельным парсингом или другим импортом.
-    # Сама блокировка в Redis уже ждёт до TELETHON_REDIS_LOCK_WAIT (см. parsing.tasks); здесь — запасные повторы.
+    # Telethon: lock только на порции чтения/скачивания из TG; публикация в MAX без lock —
+    # парсинг и другие задачи могут занять сессию между порциями (см. TG_HISTORY_IMPORT_TELETHON_BATCH).
     try:
         lock_last_err = None
-        for lock_attempt in range(12):
-            # Не полагаемся на run в памяти — отмена из UI пишется в БД.
+        lock_attempt = 0
+        channel_done = False
+        batch_phase_started = False
+        journal_step4_logged = False
+
+        while not channel_done:
             if HistoryImportRun.objects.filter(pk=run_id, cancel_requested=True).exists():
                 raise asyncio.CancelledError()
             if HistoryImportRun.objects.filter(pk=run_id, status=HistoryImportRun.STATUS_CANCELLED).exists():
                 raise asyncio.CancelledError()
-            if lock_attempt == 0:
+
+            if not journal_step4_logged:
                 _append_import_journal(
                     run_id,
                     'Шаг 4: ожидаю доступ к файлу сессии Telegram (тот же замок, что и у парсинга). '
-                    'Если долго — на странице «Фоновые задачи» или диагностике импорта смотрите active_parse_tasks и telethon_lock.',
+                    'Импорт читает канал порциями — между порциями сессия может использоваться парсингом. '
+                    'Если долго — см. «Фоновые задачи» (active_parse_tasks, telethon_lock) или clear_telethon_session_locks.',
                     step=4,
                     step_total=7,
                 )
+                journal_step4_logged = True
+
             try:
-                with _telethon_session_lock(source.owner_id, on_lock_wait_tick=_on_telethon_lock_wait):
-                    _append_import_journal(
-                        run_id,
-                        'Сессия свободна: подключаюсь к Telegram и перебираю сообщения канала-источника (это может занять много времени).',
-                        step=5,
-                        step_total=7,
+                tick = _on_telethon_lock_wait if not batch_phase_started else None
+                with _telethon_session_lock(source.owner_id, on_lock_wait_tick=tick):
+                    if not batch_phase_started:
+                        _append_import_journal(
+                            run_id,
+                            f'Сессия свободна: читаю Telegram порциями по ~{batch_limit} сообщений, затем отпускаю lock для других задач.',
+                            step=5,
+                            step_total=7,
+                        )
+                        batch_phase_started = True
+                    batch, exhausted = asyncio.run(
+                        _fetch_tg_import_batch(resume_after_id=last_tg_message_id, take=batch_limit)
                     )
-                    asyncio.run(_do_import())
+                lock_attempt = 0
                 lock_last_err = None
-                break
             except RuntimeError as exc:
                 msg = str(exc)
                 lock_last_err = msg
                 if 'не удалось занять сессию' in msg or 'не удалось занять' in msg or 'session' in msg.lower():
+                    lock_attempt += 1
+                    if lock_attempt >= 12:
+                        raise
                     _set_run_error_message(
                         'Ожидаю освобождения Telegram-сессии (импорт истории или парсинг того же файла сессии). '
                         f'Повтор через 45с. Детали: {msg}'
                     )
                     _append_import_journal(
                         run_id,
-                        f'Сессия занята другой задачей (парсинг или импорт). Пауза 45 с, попытка {lock_attempt + 1} из 12.',
+                        f'Сессия занята другой задачей (парсинг или импорт). Пауза 45 с, попытка {lock_attempt} из 12.',
                         step=4,
                         step_total=7,
                     )
                     time.sleep(45)
                     continue
                 raise
-        if lock_last_err:
-            raise RuntimeError(lock_last_err)
+
+            if not batch:
+                if exhausted:
+                    channel_done = True
+                continue
+
+            asyncio.run(_process_import_batch(batch))
+
+            if exhausted:
+                channel_done = True
 
         # Пользователь мог нажать «Остановить» — не перезаписать cancelled обратно в done.
         fresh = HistoryImportRun.objects.get(pk=run_id)

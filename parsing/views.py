@@ -362,7 +362,16 @@ def telethon_connect(request):
                 return res.phone_code_hash
 
             try:
-                phone_code_hash = asyncio.run(_send())
+                from parsing.tasks import _telethon_session_lock
+
+                with _telethon_session_lock(request.user.id, wait=90.0, wait_chunk=5.0):
+                    phone_code_hash = asyncio.run(_send())
+            except RuntimeError as e:
+                messages.error(
+                    request,
+                    f'Сессия Telegram занята (импорт истории или парсинг). Подождите минуту или завершите фоновую задачу: {e}',
+                )
+                return redirect('parsing:telethon_connect')
             except Exception as e:
                 messages.error(request, f'Не удалось отправить код: {e}')
                 return redirect('parsing:telethon_connect')
@@ -400,7 +409,16 @@ def telethon_connect(request):
                 return me
 
             try:
-                me = asyncio.run(_confirm())
+                from parsing.tasks import _telethon_session_lock
+
+                with _telethon_session_lock(request.user.id, wait=90.0, wait_chunk=5.0):
+                    me = asyncio.run(_confirm())
+            except RuntimeError as e:
+                messages.error(
+                    request,
+                    f'Сессия Telegram занята (импорт истории или парсинг). Повторите позже: {e}',
+                )
+                return redirect('/parsing/telethon/connect/?step=code')
             except Exception as e:
                 # If 2FA required and password empty
                 if 'SessionPasswordNeededError' in str(type(e)) or '2fa' in str(e).lower():
