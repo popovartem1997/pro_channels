@@ -9,9 +9,8 @@
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body">
     <p class="mb-2">Отправлено: {% if app.submitted_to_owner_at %}{{ app.submitted_to_owner_at|date:"d.m.Y H:i" }}{% else %}—{% endif %}</p>
-    <p class="small text-muted mb-3">Обычно ответ занимает до нескольких рабочих дней — уточнить можно по контактам ниже.</p>
-    <a href="{% url 'advertisers:campaign_contacts' app.pk %}" class="btn btn-outline-primary btn-sm">Контакты по заявке #{{ app.pk }}</a>
-    <a href="{% url 'advertisers:campaign_list' %}" class="btn btn-link btn-sm">Мои заявки</a>
+    <p class="small text-muted mb-3">Обычно ответ занимает до нескольких рабочих дней.</p>
+    <a href="{% url 'advertisers:campaign_list' %}" class="btn btn-outline-secondary btn-sm">Мои заявки</a>
   </div>
 </div>
 {% endblock %}

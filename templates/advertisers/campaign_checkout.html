@@ -7,7 +7,6 @@
 </div>
 {% include 'advertisers/_campaign_steps.html' with step=7 app=app %}
 <div class="alert alert-success small mb-3">Владелец канала одобрил заявку. Выберите способ оплаты — после этого будет выставлен счёт.</div>
-<p class="small mb-3"><a href="{% url 'advertisers:campaign_contacts' app.pk %}">Контакты по заявке #{{ app.pk }}</a></p>
 {% if not app.contract_signed_at %}
 <div class="alert alert-warning">Сначала подпишите договор.</div>
 <a href="{% url 'advertisers:campaign_contract' app.pk %}" class="btn btn-outline-primary">К договору</a>
