@@ -171,6 +171,15 @@ CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_ACCEPT_CONTENT = ['json']
+# Явная очередь по умолчанию (совпадает с `celery worker -Q celery` в Docker).
+CELERY_TASK_DEFAULT_QUEUE = 'celery'
+CELERY_TASK_CREATE_MISSING_QUEUES = True
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+# Долгие задачи (парсинг, импорт истории): не отбирать несколько сообщений в один процесс.
+CELERY_WORKER_PREFETCH_MULTIPLIER = config('CELERY_WORKER_PREFETCH_MULTIPLIER', default=1, cast=int)
+# True = задачи выполняются в процессе web, воркер и Redis-очередь не используются (только отладка).
+CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=False, cast=bool)
+CELERY_TASK_EAGER_PROPAGATES = True
 
 # ─── Cache ────────────────────────────────────────────────────────────────────
 # Общий для web + Celery (буфер альбомов Telegram). Без Redis все воркеры не видят одни данные.

@@ -753,6 +753,19 @@ def import_history_status(request, pk: int):
     })
 
 
+def _redis_broker_celery_queue_length(broker_url: str):
+    """Длина списка Redis по умолчанию для очереди Celery (имя ключа «celery»)."""
+    if not (broker_url or '').strip():
+        return None, 'broker_url пуст'
+    try:
+        import redis
+
+        r = redis.from_url(broker_url, socket_connect_timeout=2, socket_timeout=2)
+        return int(r.llen('celery')), None
+    except Exception as exc:
+        return None, str(exc)
+
+
 @login_required
 def import_history_diagnostics(request):
     """
@@ -783,6 +796,7 @@ def import_history_diagnostics(request):
     celery_error = None
     active_history = []
     reserved_history = []
+    registered_sample = []
     try:
         insp = celery_app.control.inspect(timeout=2.0)
         if insp is None:
@@ -790,6 +804,18 @@ def import_history_diagnostics(request):
         else:
             ping = insp.ping()
             celery_workers = list((ping or {}).keys())
+            reg = insp.registered() or {}
+            for worker, names in reg.items():
+                if not names:
+                    continue
+                want = [n for n in names if 'parsing.' in n or 'channels.tasks.import_tg' in n or 'content.tasks' in n]
+                registered_sample.append(
+                    {
+                        'worker': worker,
+                        'relevant_tasks': want[:40],
+                        'total_registered': len(names),
+                    }
+                )
             for worker, tasks in (insp.active() or {}).items():
                 for t in tasks or []:
                     name = t.get('name') or ''
@@ -824,6 +850,8 @@ def import_history_diagnostics(request):
     if broker:
         broker_tail = broker.split('@')[-1] if '@' in broker else broker[:120]
 
+    redis_len, redis_len_err = _redis_broker_celery_queue_length(broker)
+
     pending_payload = []
     orphan_pending_ids = []
     for r in pending:
@@ -843,6 +871,16 @@ def import_history_diagnostics(request):
             '(старый код до сохранения id, сброс Redis и т.п.). На странице импорта нажмите «Снова в очередь Celery» '
             f'или выполните: python manage.py requeue_pending_history_imports --run-ids {" ".join(str(x) for x in orphan_pending_ids)}',
         )
+    if getattr(settings, 'CELERY_TASK_ALWAYS_EAGER', False):
+        hints.insert(
+            0,
+            'CELERY_TASK_ALWAYS_EAGER=True — задачи не попадают в Redis; воркер их никогда не увидит. Уберите из .env.',
+        )
+    if redis_len is not None and redis_len > 0 and not celery_error and celery_workers:
+        hints.append(
+            f'В Redis в очереди «celery» сейчас ~{redis_len} сообщ. Если воркер живой, но active пустой — '
+            'перезапустите celery после обновления (command с -Q celery) или проверьте зависшие процессы.',
+        )
 
     return JsonResponse(
         {
@@ -854,10 +892,24 @@ def import_history_diagnostics(request):
                 'workers': celery_workers,
                 'active_history_import_tasks': active_history,
                 'reserved_history_import_tasks': reserved_history,
+                'registered_task_groups': registered_sample,
                 'error': celery_error,
             },
             'broker_host': broker_tail,
-            'hints': hints,
+            'redis_celery_list_length': redis_len,
+            'redis_celery_list_error': redis_len_err,
+            'settings': {
+                'CELERY_TASK_ALWAYS_EAGER': getattr(settings, 'CELERY_TASK_ALWAYS_EAGER', False),
+                'CELERY_TASK_DEFAULT_QUEUE': getattr(settings, 'CELERY_TASK_DEFAULT_QUEUE', 'celery'),
+                'CELERY_WORKER_PREFETCH_MULTIPLIER': getattr(
+                    settings, 'CELERY_WORKER_PREFETCH_MULTIPLIER', 1
+                ),
+            },
+            'hints': hints
+            + [
+                'Парсинг по расписанию: должен работать контейнер celery-beat и в БД PeriodicTask (setup_periodic_tasks).',
+                'После смены docker-compose перезапустите: docker compose up -d --force-recreate celery celery-beat',
+            ],
         }
     )
 

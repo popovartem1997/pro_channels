@@ -41,7 +41,8 @@ services:
   celery:
     build: .
     env_file: .env
-    command: celery -A pro_channels worker -l INFO
+    # Явно слушаем очередь celery (как CELERY_TASK_DEFAULT_QUEUE в settings).
+    command: celery -A pro_channels worker -l INFO -Q celery
     depends_on:
       web:
         condition: service_started
