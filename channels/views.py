@@ -712,7 +712,11 @@ def import_history_start(request):
         log.append(
             {
                 't': timezone.now().isoformat(timespec='seconds'),
-                'msg': f'Задача поставлена в очередь Celery (id: {async_result.id}). Ожидание свободного воркера…',
+                'msg': (
+                    f'Задача в очереди Celery «import_history» (id: {async_result.id}). '
+                    'Если статус не меняется долго — воркер должен слушать -Q import_history,... '
+                    '(см. docker-compose) и диагностику ниже.'
+                ),
             }
         )
         j['journal'] = log[-50:]
@@ -762,7 +766,7 @@ def _redis_broker_queue_lengths(broker_url: str):
 
         r = redis.from_url(broker_url, socket_connect_timeout=2, socket_timeout=2)
         out = {}
-        for q in ('prio', 'celery'):
+        for q in ('import_history', 'prio', 'celery'):
             try:
                 out[q] = int(r.llen(q))
             except Exception:
@@ -917,12 +921,18 @@ def import_history_diagnostics(request):
     ):
         hints.append(
             f'В Redis в очереди «celery» сейчас ~{redis_celery_len} сообщ. Если воркер живой, но active пустой — '
-            'перезапустите celery (command с -Q prio,celery) или проверьте зависшие процессы.',
+            'перезапустите celery (command с -Q import_history,prio,celery) или проверьте зависшие процессы.',
+        )
+    redis_import_len = redis_qlens.get('import_history') if isinstance(redis_qlens, dict) else None
+    if redis_import_len is not None and redis_import_len > 0:
+        hints.append(
+            f'В очереди «import_history» ~{redis_import_len} задач(и) импорта. '
+            'Если число не убывает — проверьте, что воркер запущен с -Q import_history,... и concurrency ≥ 1.',
         )
     if redis_prio_len is not None and redis_prio_len > 50:
         hints.append(
-            f'В очереди «prio» ~{redis_prio_len} сообщ (публикация/импорт истории). '
-            'Если число растёт — воркер не слушает prio или все слоты заняты долгими задачами.',
+            f'В очереди «prio» ~{redis_prio_len} сообщ (публикация, тик планировщика). '
+            'Если число растёт — воркер не слушает prio или все слоты заняты.',
         )
     hints.append(
         'Блокировка Telethon: в JSON смотрите telethon_lock_by_owner.held_in_redis и celery.active_parse_tasks. '

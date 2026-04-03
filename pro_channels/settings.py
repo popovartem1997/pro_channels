@@ -179,7 +179,8 @@ CELERY_TASK_ROUTES = {
     # Раз в минуту: не должна стоять в хвосте за тысячами execute_parse_task в «celery».
     'content.tasks.check_scheduled_posts': {'queue': 'prio'},
     'content.tasks.publish_post_task': {'queue': 'prio'},
-    'channels.tasks.import_tg_history_to_max_task': {'queue': 'prio'},
+    # Отдельная очередь: иначе импорт TG→MAX висит в «Ожидание воркера» за сотнями publish_post_task в prio.
+    'channels.tasks.import_tg_history_to_max_task': {'queue': 'import_history'},
 }
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 # Долгие задачи (парсинг, импорт истории): не отбирать несколько сообщений в один процесс.

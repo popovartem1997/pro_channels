@@ -64,9 +64,9 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
       CELERY_TASK_ALWAYS_EAGER: "false"
-    # prio — публикация постов и импорт истории TG→MAX (см. CELERY_TASK_ROUTES); celery — парсинг и остальное.
-    # Воркер должен слушать обе: иначе задачи в «prio» никто не заберёт.
-    command: celery -A pro_channels worker -l INFO -Q prio,celery -c 3
+    # Порядок очередей важен (Redis BRPOP): import_history первой — импорт не ждёт хвоста publish в prio.
+    # import_history — только TG→MAX (см. CELERY_TASK_ROUTES); prio — публикация/тик планировщика; celery — парсинг.
+    command: celery -A pro_channels worker -l INFO -Q import_history,prio,celery -c 4
     depends_on:
       redis:
         condition: service_started

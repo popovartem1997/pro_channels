@@ -18,8 +18,8 @@ class Command(BaseCommand):
         if routes:
             self.stdout.write(f'CELERY_TASK_ROUTES: {routes}')
             self.stdout.write(
-                'Воркер должен слушать очередь prio (и celery): '
-                'celery -A pro_channels worker -Q prio,celery -c 3'
+                'Воркер: import_history (импорт TG→MAX), prio (публикация/планировщик), celery (парсинг): '
+                'celery -A pro_channels worker -Q import_history,prio,celery -c 4'
             )
 
         if '127.0.0.1' in broker or 'localhost' in broker.lower():
