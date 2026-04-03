@@ -352,10 +352,13 @@ def ad_application_list(request):
     except Advertiser.DoesNotExist:
         messages.info(request, 'Сначала заполните профиль рекламодателя.')
         return redirect('advertisers:register')
+    from django.db.models import Count
+
     applications = (
         AdApplication.objects.filter(advertiser=adv)
         .select_related('channel', 'channel__owner', 'post', 'invoice')
         .prefetch_related('campaign_posts')
+        .annotate(_n_campaign_posts=Count('campaign_posts', distinct=True))
         .order_by('-created_at')
     )
     return render(

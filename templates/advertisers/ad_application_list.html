@@ -66,6 +66,8 @@
             <a href="{% url 'advertisers:campaign_transfer_wait' a.pk %}" class="btn btn-sm btn-outline-primary">Реквизиты</a>
             {% elif a.status == 'awaiting_payment' and a.payment_method == 'payment_link' %}
             <a href="{% url 'advertisers:campaign_pay_link_wait' a.pk %}" class="btn btn-sm btn-outline-primary">Оплата</a>
+            {% elif a.allows_campaign_wizard_edit and a.status == 'paid' %}
+            <a href="{% url 'advertisers:campaign_resume' a.pk %}" class="btn btn-sm btn-outline-primary">Исправить данные</a>
             {% endif %}
           </div>
         </div>
@@ -132,6 +134,8 @@
                 <a href="{% url 'advertisers:campaign_transfer_wait' a.pk %}" class="btn btn-sm btn-outline-primary">Реквизиты</a>
                 {% elif a.status == 'awaiting_payment' and a.payment_method == 'payment_link' %}
                 <a href="{% url 'advertisers:campaign_pay_link_wait' a.pk %}" class="btn btn-sm btn-outline-primary">Оплата</a>
+                {% elif a.allows_campaign_wizard_edit and a.status == 'paid' %}
+                <a href="{% url 'advertisers:campaign_resume' a.pk %}" class="btn btn-sm btn-outline-primary">Исправить данные</a>
                 {% endif %}
               </div>
             </td>

@@ -132,9 +132,13 @@ def tbank_webhook(request):
                 ad_app.status = AdApplication.STATUS_PAID
                 ad_app.save(update_fields=['status', 'updated_at'])
                 try:
-                    ok = fulfill_paid_ad_application(ad_app)
+                    ok, reason = fulfill_paid_ad_application(ad_app)
                     if not ok:
-                        logger.error('Fulfill AdApplication #%s после TBank вернул False', ad_app.pk)
+                        logger.error(
+                            'Fulfill AdApplication #%s после TBank: %s',
+                            ad_app.pk,
+                            reason or 'без причины',
+                        )
                 except Exception as ex:
                     logger.error('Fulfill AdApplication после TBank: %s', ex)
             elif invoice.channel_id:

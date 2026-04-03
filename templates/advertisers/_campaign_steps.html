@@ -25,7 +25,7 @@
   }
 </style>
 <nav class="campaign-wizard-steps mb-4 d-flex flex-wrap align-items-center small" aria-label="Шаги заявки">
-  {% if app and app.status == 'draft' %}
+  {% if app and app.allows_campaign_wizard_edit %}
     <a href="{% url 'advertisers:campaign_draft_channel' app.pk %}" class="step-link {% if step == 1 %}step-current{% endif %}">1. Канал</a>
     <span class="sep d-none d-sm-inline px-1">→</span>
     <a href="{% url 'advertisers:campaign_slots' app.pk %}" class="step-link {% if step == 2 %}step-current{% endif %}">2. Слоты и услуги</a>
@@ -38,7 +38,11 @@
     <span class="sep d-none d-sm-inline px-1">→</span>
     <a href="{% url 'advertisers:campaign_contract' app.pk %}" class="step-link {% if step == 6 %}step-current{% endif %}">6. Договор</a>
     <span class="sep d-none d-sm-inline px-1">→</span>
+    {% if app.status == 'paid' %}
+    <span class="step-muted">7. Оплачено — при необходимости правьте шаги 2–6 и попросите владельца снова подтвердить оплату</span>
+    {% else %}
     <span class="step-muted">7. Оплата (после одобрения)</span>
+    {% endif %}
   {% else %}
     <span class="{% if step == 1 %}step-current{% else %}step-muted{% endif %}">1. Канал</span>
     <span class="sep d-none d-sm-inline px-1">→</span>

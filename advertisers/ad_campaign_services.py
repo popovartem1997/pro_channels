@@ -337,24 +337,37 @@ def _draft_post_has_body(template) -> bool:
 
 
 @transaction.atomic
-def fulfill_paid_ad_application(app) -> bool:
+def fulfill_paid_ad_application(app) -> tuple[bool, str]:
     """
     После оплаты: создаёт посты по слотам. Идемпотентно.
-    Возвращает True если создали (или уже были) публикации.
+    Возвращает (True, '') при успехе или если публикации уже есть;
+    (False, 'причина') — если создать нельзя (текст для пользователя/лога).
     """
     from advertisers.models import AdApplication, AdvertisingSlot
     from content.models import Post
 
     app = AdApplication.objects.select_for_update().select_related('channel', 'post').get(pk=app.pk)
     if app.campaign_posts.exists():
-        return True
+        return True, ''
     template = app.post
+    if not template:
+        logger.warning('fulfill AdApplication #%s: нет привязанного черновика (post)', app.pk)
+        return False, (
+            'К заявке не привязан черновик поста. Пройдите мастер заявки до шага с текстом и сохраните материалы.'
+        )
     if not _draft_post_has_body(template):
-        return False
+        logger.warning('fulfill AdApplication #%s: пустой черновик (text/html)', app.pk)
+        return False, (
+            'В черновике нет видимого текста: заполните поле текста или оформление в редакторе '
+            '(пустой HTML или одни пробелы не подходят).'
+        )
     ids = list(app.selected_slot_ids or [])
     if not ids:
         logger.warning('fulfill AdApplication #%s: нет слотов', app.pk)
-        return False
+        return False, (
+            'В заявке не сохранены выбранные слоты размещения. Откройте шаг со слотами в мастере заявки '
+            'и сохраните даты ещё раз до оплаты.'
+        )
     slot_map = {
         s.pk: s
         for s in AdvertisingSlot.objects.filter(pk__in=ids, channel=app.channel, application_id=app.pk)
@@ -367,7 +380,11 @@ def fulfill_paid_ad_application(app) -> bool:
             len(ids),
             len(slots),
         )
-        return False
+        return False, (
+            f'Слоты в заявке не сходятся с базой: сохранено id слотов — {len(ids)}, '
+            f'найдено под этим каналом и заявкой — {len(slots)}. '
+            'Так бывает, если слоты пересоздавали или меняли канал: заново выберите слоты в мастере заявки.'
+        )
     want_pin = want_pin_for_fulfillment(app)
     _, top_mins = sum_addons_for_codes(
         app.channel,
@@ -387,7 +404,7 @@ def fulfill_paid_ad_application(app) -> bool:
     if template.status not in (Post.STATUS_PUBLISHED,):
         Post.objects.filter(pk=template.pk).update(status=Post.STATUS_DRAFT, scheduled_at=None)
     AdApplication.objects.filter(pk=app.pk).update(status=AdApplication.STATUS_SCHEDULED)
-    return True
+    return True, ''
 
 
 def build_contract_html(app) -> str:

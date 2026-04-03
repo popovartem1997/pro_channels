@@ -289,6 +289,21 @@ class AdApplication(models.Model):
     created_at = models.DateTimeField('Создана', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлена', auto_now=True)
 
+    def allows_campaign_wizard_edit(self) -> bool:
+        """
+        Доступ к шагам мастера (слоты, контент, ОРД, сводка) для правок.
+        В черновике — всегда. После оплаты — только пока не созданы посты по слотам
+        (иначе материалы уже склонированы в публикации).
+        """
+        if self.status == self.STATUS_DRAFT:
+            return True
+        if self.status != self.STATUS_PAID:
+            return False
+        n = getattr(self, '_n_campaign_posts', None)
+        if n is not None:
+            return int(n) == 0
+        return not self.campaign_posts.exists()
+
     class Meta:
         verbose_name = 'Заявка на рекламу (новый поток)'
         verbose_name_plural = 'Заявки на рекламу (новый поток)'

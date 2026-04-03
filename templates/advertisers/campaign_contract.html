@@ -21,14 +21,18 @@
 <div class="alert alert-success small">Подписано {{ app.contract_signed_at|date:"d.m.Y H:i" }}</div>
 {% endif %}
 <div class="d-flex flex-wrap gap-2 align-items-center">
-  {% if app.contract_signed_at %}
+  {% if app.contract_signed_at and app.status == 'draft' %}
   <form method="post" action="{% url 'advertisers:campaign_submit_to_owner' app.pk %}" id="submit-to-owner-form" class="d-inline">
     {% csrf_token %}
     <button type="button" class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#submitToOwnerModal" aria-haspopup="dialog">
       <i class="bi bi-send me-1" aria-hidden="true"></i>Отправить владельцу на согласование
     </button>
   </form>
-  {% else %}
+  {% elif app.contract_signed_at and app.status == 'paid' and app.allows_campaign_wizard_edit %}
+  <a href="{% url 'advertisers:campaign_resume' app.pk %}" class="btn btn-brand">
+    К слотам и материалам
+  </a>
+  {% elif not app.contract_signed_at %}
   <form method="post" id="sign-contract-form" class="d-inline">
     {% csrf_token %}
     <input type="hidden" name="action" value="sign">
@@ -42,7 +46,7 @@
   </a>
 </div>
 
-{% if app.contract_signed_at %}
+{% if app.contract_signed_at and app.status == 'draft' %}
 <div class="modal fade" id="submitToOwnerModal" tabindex="-1" aria-labelledby="submitToOwnerModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content border-0 shadow-lg overflow-hidden">
@@ -98,7 +102,7 @@
 {% endblock %}
 
 {% block extra_js %}
-{% if app.contract_signed_at %}
+{% if app.contract_signed_at and app.status == 'draft' %}
 <script>
 (function () {
   var btn = document.getElementById('submit-to-owner-confirm');

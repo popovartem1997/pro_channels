@@ -42,7 +42,13 @@ class AdApplicationAdmin(admin.ModelAdmin):
         if inv is None or inv.status != Invoice.STATUS_PAID:
             return
         try:
-            fulfill_paid_ad_application(obj)
+            ok, reason = fulfill_paid_ad_application(obj)
+            if not ok:
+                logger.warning(
+                    'fulfill from AdApplicationAdmin.save_model app=%s: %s',
+                    obj.pk,
+                    reason or 'без причины',
+                )
         except Exception:
             logger.exception('fulfill from AdApplicationAdmin.save_model app=%s', obj.pk)
 

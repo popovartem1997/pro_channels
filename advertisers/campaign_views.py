@@ -155,6 +155,15 @@ def _app_adv(request, pk: int) -> AdApplication:
     return get_object_or_404(AdApplication, pk=pk, advertiser=adv)
 
 
+def _redirect_awaiting_payment(app: AdApplication, pk: int):
+    """Куда вести при статусе «ожидает оплаты» (реквизиты / ссылка / чекаут)."""
+    if app.payment_method == AdApplication.PAY_TRANSFER:
+        return redirect('advertisers:campaign_transfer_wait', pk=pk)
+    if app.payment_method == AdApplication.PAY_PAYMENT_LINK:
+        return redirect('advertisers:campaign_pay_link_wait', pk=pk)
+    return redirect('advertisers:campaign_checkout', pk=pk)
+
+
 @login_required
 @require_POST
 def campaign_delete(request, pk: int):
@@ -186,7 +195,9 @@ def campaign_resume(request, pk: int):
         return redirect('advertisers:campaign_pending_owner', pk=pk)
     if app.status == AdApplication.STATUS_APPROVED_FOR_PAYMENT:
         return redirect('advertisers:campaign_checkout', pk=pk)
-    if app.status != AdApplication.STATUS_DRAFT:
+    if app.status == AdApplication.STATUS_AWAITING_PAYMENT:
+        return _redirect_awaiting_payment(app, pk)
+    if not app.allows_campaign_wizard_edit():
         messages.info(request, 'Эта заявка уже отправлена или оплачена.')
         return redirect('advertisers:campaign_list')
     if not app.selected_slot_ids:
@@ -253,22 +264,28 @@ def campaign_new(request):
 def campaign_draft_channel(request, pk: int):
     """Шаг 1 мастера после создания черновика: канал уже выбран, можно вернуться сюда из навигации."""
     app = _app_adv(request, pk)
-    if app.status != AdApplication.STATUS_DRAFT:
-        if app.status == AdApplication.STATUS_PENDING_OWNER:
-            return redirect('advertisers:campaign_pending_owner', pk=pk)
-        if app.status == AdApplication.STATUS_APPROVED_FOR_PAYMENT:
-            return redirect('advertisers:campaign_checkout', pk=pk)
-        if app.status == AdApplication.STATUS_AWAITING_PAYMENT:
-            return redirect('advertisers:campaign_checkout', pk=pk)
+    if app.status == AdApplication.STATUS_PENDING_OWNER:
+        return redirect('advertisers:campaign_pending_owner', pk=pk)
+    if app.status == AdApplication.STATUS_APPROVED_FOR_PAYMENT:
+        return redirect('advertisers:campaign_checkout', pk=pk)
+    if app.status == AdApplication.STATUS_AWAITING_PAYMENT:
+        return _redirect_awaiting_payment(app, pk)
+    if not app.allows_campaign_wizard_edit():
         messages.info(request, 'Эта заявка уже не в черновике.')
         return redirect('advertisers:campaign_list')
+    if app.status == AdApplication.STATUS_PAID:
+        messages.info(
+            request,
+            'Канал после оплаты изменить нельзя. Открыты слоты и материалы для правок перед повторным подтверждением оплаты.',
+        )
+        return redirect('advertisers:campaign_slots', pk=pk)
     return render(request, 'advertisers/campaign_draft_channel.html', {'app': app})
 
 
 @login_required
 def campaign_slots(request, pk: int):
     app = _app_adv(request, pk)
-    if app.status != AdApplication.STATUS_DRAFT:
+    if not app.allows_campaign_wizard_edit():
         messages.info(request, 'Эта заявка уже не в черновике.')
         return redirect('advertisers:campaign_list')
 
@@ -326,7 +343,7 @@ def campaign_slots(request, pk: int):
 @login_required
 def campaign_content(request, pk: int):
     app = _app_adv(request, pk)
-    if app.status != AdApplication.STATUS_DRAFT:
+    if not app.allows_campaign_wizard_edit():
         return redirect('advertisers:campaign_list')
 
     from content.models import PostMedia, normalize_post_media_orders
@@ -457,8 +474,8 @@ def _run_campaign_ord_prepare(app: AdApplication, *, sync_catalog: bool, use_san
 def campaign_ord_prepare(request, pk: int):
     """AJAX: подготовка ОРД (person/contract + prefill). mode=provision|sync"""
     app = _app_adv(request, pk)
-    if app.status != AdApplication.STATUS_DRAFT:
-        return JsonResponse({'ok': False, 'error': 'Заявка не в черновике.'}, status=400)
+    if not app.allows_campaign_wizard_edit():
+        return JsonResponse({'ok': False, 'error': 'Редактирование этой заявки недоступно.'}, status=400)
 
     from core.models import get_global_api_keys
 
@@ -495,7 +512,7 @@ def campaign_ord_prepare(request, pk: int):
 @login_required
 def campaign_ord(request, pk: int):
     app = _app_adv(request, pk)
-    if app.status != AdApplication.STATUS_DRAFT:
+    if not app.allows_campaign_wizard_edit():
         return redirect('advertisers:campaign_list')
 
     if request.method == 'POST':
@@ -520,7 +537,7 @@ def campaign_ord(request, pk: int):
 @login_required
 def campaign_review(request, pk: int):
     app = _app_adv(request, pk)
-    if app.status != AdApplication.STATUS_DRAFT:
+    if not app.allows_campaign_wizard_edit():
         return redirect('advertisers:campaign_list')
 
     n = len(app.selected_slot_ids or [])
@@ -547,7 +564,9 @@ def campaign_contract(request, pk: int):
         return redirect('advertisers:campaign_pending_owner', pk=pk)
     if app.status == AdApplication.STATUS_APPROVED_FOR_PAYMENT:
         return redirect('advertisers:campaign_checkout', pk=pk)
-    if app.status != AdApplication.STATUS_DRAFT:
+    if app.status == AdApplication.STATUS_AWAITING_PAYMENT:
+        return _redirect_awaiting_payment(app, pk)
+    if not app.allows_campaign_wizard_edit():
         messages.info(request, 'Эта заявка уже не в черновике.')
         return redirect('advertisers:campaign_list')
     if not app.ord_wizard_saved_at:
@@ -558,6 +577,9 @@ def campaign_contract(request, pk: int):
         app.save(update_fields=['contract_body_html', 'updated_at'])
 
     if request.method == 'POST' and request.POST.get('action') == 'sign':
+        if app.status != AdApplication.STATUS_DRAFT:
+            messages.info(request, 'Договор уже подписан.')
+            return redirect('advertisers:campaign_contract', pk=pk)
         app.contract_signed_at = timezone.now()
         app.contract_sign_ip = (request.META.get('REMOTE_ADDR') or '')[:45]
         app.save(update_fields=['contract_signed_at', 'contract_sign_ip', 'updated_at'])
@@ -929,15 +951,14 @@ def owner_campaign_confirm_payment(request, pk: int):
     app.status = AdApplication.STATUS_PAID
     app.save(update_fields=['transfer_marked_received', 'status', 'updated_at'])
     try:
-        ok = fulfill_paid_ad_application(app)
+        ok, reason = fulfill_paid_ad_application(app)
         if ok:
             messages.success(request, 'Оплата подтверждена, посты поставлены в расписание.')
         else:
             messages.warning(
                 request,
-                'Оплата отмечена, но посты по слотам не созданы: в черновике должен быть текст '
-                '(или оформление в редакторе), в заявке — выбранные слоты. Исправьте и снова нажмите '
-                '«Подтвердить оплату» здесь (повтор безопасен).',
+                'Оплата отмечена, но посты по слотам не созданы. '
+                + (reason or 'Проверьте черновик и слоты, затем снова нажмите «Подтвердить оплату» (повтор безопасен).'),
             )
     except Exception as e:
         logger.exception('fulfill after transfer')
