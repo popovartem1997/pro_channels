@@ -232,7 +232,10 @@ VK_ORD_CABINET_ID = config('VK_ORD_CABINET_ID', default='')
 # ─── Telegram Парсинг (Telethon — user API) ──────────────────────────────────
 TELEGRAM_API_ID = config('TELEGRAM_API_ID', default='')
 TELEGRAM_API_HASH = config('TELEGRAM_API_HASH', default='')
-# Сериализация доступа к файлу *.session в Redis (см. parsing.tasks._telethon_session_lock)
+# Сериализация доступа к файлу *.session Telethon (см. parsing.tasks._telethon_session_lock).
+# file — fcntl на общем volume (Docker на одном хосте, без «залипших» ключей Redis).
+# redis — только Redis SET NX; both — оба слоя (несколько машин без общего media).
+TELETHON_SESSION_LOCK_BACKEND = config('TELETHON_SESSION_LOCK_BACKEND', default='file')
 TELETHON_REDIS_LOCK_TTL = config('TELETHON_REDIS_LOCK_TTL', default=28800, cast=int)
 TELETHON_REDIS_LOCK_WAIT = config('TELETHON_REDIS_LOCK_WAIT', default=600, cast=int)
 # Одна попытка redis.lock.acquire (сек.); меньше — чаще обновляется журнал импорта на шаге 4.

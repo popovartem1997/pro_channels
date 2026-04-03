@@ -29,6 +29,8 @@ services:
     environment:
       CELERY_BROKER_URL: redis://redis:6379/0
       DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
+      # fcntl на общем media — импорт/парсинг не зависят от «залипших» ключей Redis.
+      TELETHON_SESSION_LOCK_BACKEND: file
       # Из .env иногда остаётся True — тогда .delay() в web и не попадает в Redis.
       CELERY_TASK_ALWAYS_EAGER: "false"
     ports:
@@ -63,6 +65,7 @@ services:
     environment:
       CELERY_BROKER_URL: redis://redis:6379/0
       DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
+      TELETHON_SESSION_LOCK_BACKEND: file
       CELERY_TASK_ALWAYS_EAGER: "false"
     # Порядок очередей важен (Redis BRPOP): import_history первой — импорт не ждёт хвоста publish в prio.
     # import_history — только TG→MAX (см. CELERY_TASK_ROUTES); prio — публикация/тик планировщика; celery — парсинг.
@@ -82,6 +85,7 @@ services:
     environment:
       CELERY_BROKER_URL: redis://redis:6379/0
       DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
+      TELETHON_SESSION_LOCK_BACKEND: file
       CELERY_TASK_ALWAYS_EAGER: "false"
     command: celery -A pro_channels beat -l INFO
     depends_on:

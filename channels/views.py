@@ -937,9 +937,9 @@ def import_history_diagnostics(request):
             'Если число растёт — воркер не слушает prio или все слоты заняты.',
         )
     hints.append(
-        'Блокировка Telethon: в JSON смотрите telethon_lock_by_owner.held_in_redis и celery.active_parse_tasks. '
-        'Если held_in_redis=true и в active_parse_tasks есть задачи — сессию, скорее всего, держит парсинг '
-        '(импорт истории использует тот же lock). Точного «кто именно» в Redis нет — только факт занятости ключа.',
+        'Блокировка Telethon: по умолчанию файловый lock (flock) в media/telethon_sessions/.flocks/ '
+        '(см. flock_path, flock_held_probe). Режим redis — ключ pch:telethon:sess:* (held_in_redis). '
+        'Параллельный парсинг/импорт для того же владельца держит тот же lock.',
     )
 
     return JsonResponse(

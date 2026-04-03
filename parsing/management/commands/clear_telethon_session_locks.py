@@ -10,6 +10,9 @@
 
 То же действие доступно в админке: Задачи парсинга → действие «Снять зависшие блокировки Telethon».
 
+При TELETHON_SESSION_LOCK_BACKEND=file блокировка — fcntl на volume; «снять» её можно только
+остановив процесс или убив воркер; clear_telethon_session_locks чистит только Redis.
+
 Пример (Docker):
   docker compose exec web python manage.py clear_telethon_session_locks
   docker compose exec web python manage.py clear_telethon_session_locks --dry-run
