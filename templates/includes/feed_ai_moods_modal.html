@@ -1,4 +1,13 @@
 {# feed_ai_editor_owner, feed_ai_moods_editor_data — из core.views.feed #}
+<style>
+  .feed-ai-mood-grow {
+    width: 100%;
+    min-height: 2.25rem;
+    resize: none;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+</style>
 <div class="modal fade" id="feedAiMoodsModal" tabindex="-1" aria-labelledby="feedAiMoodsModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
@@ -13,18 +22,17 @@
         </div>
         <div class="modal-body">
           <p class="small text-muted mb-3">
-            У каждой кнопки: <strong>id</strong> (латиница, цифры, _), короткая <strong>метка</strong> на кнопке,
-            <strong>подсказка</strong> при наведении и <strong>инструкция для AI</strong> (как писать в этом тоне).
+            Внутренний идентификатор кнопки создаётся автоматически из <strong>метки</strong>.
+            Укажите <strong>метку</strong> на кнопке, <strong>подсказку</strong> при наведении и <strong>инструкцию для AI</strong>.
           </p>
           <div class="table-responsive">
             <table class="table table-sm align-middle">
               <thead>
                 <tr>
-                  <th style="width:9rem">id</th>
-                  <th style="width:7rem">Метка</th>
-                  <th>Подсказка</th>
+                  <th class="w-25">Метка</th>
+                  <th class="w-25">Подсказка</th>
                   <th>Инструкция для AI</th>
-                  <th style="width:2.5rem"></th>
+                  <th style="width:2.75rem"></th>
                 </tr>
               </thead>
               <tbody id="feed-ai-moods-tbody"></tbody>
@@ -49,7 +57,22 @@
   var tbody = document.getElementById('feed-ai-moods-tbody');
   var jsonField = document.getElementById('feed-ai-moods-json');
   var initialEl = document.getElementById('feed-ai-moods-initial');
+  var modalEl = document.getElementById('feedAiMoodsModal');
   if (!form || !tbody || !jsonField || !initialEl) return;
+
+  function autoGrow(el) {
+    if (!el || el.tagName !== 'TEXTAREA') return;
+    el.style.height = 'auto';
+    el.style.height = Math.max(36, el.scrollHeight) + 'px';
+  }
+
+  function bindGrow(textarea) {
+    if (!textarea) return;
+    ['input', 'change'].forEach(function (ev) {
+      textarea.addEventListener(ev, function () { autoGrow(textarea); });
+    });
+    autoGrow(textarea);
+  }
 
   function readInitial() {
     try {
@@ -60,27 +83,21 @@
   }
 
   function addRow(m) {
-    m = m || { id: '', label: '', title: '', instruction: '' };
+    m = m || { label: '', title: '', instruction: '' };
     var tr = document.createElement('tr');
     tr.innerHTML =
-      '<td><input type="text" class="form-control form-control-sm js-m-id" value="' + escapeAttr(m.id) + '" placeholder="neutral" maxlength="40"></td>' +
-      '<td><input type="text" class="form-control form-control-sm js-m-label" value="' + escapeAttr(m.label) + '" maxlength="80"></td>' +
-      '<td><input type="text" class="form-control form-control-sm js-m-title" value="' + escapeAttr(m.title) + '" maxlength="200"></td>' +
-      '<td><textarea class="form-control form-control-sm js-m-inst" rows="2" maxlength="2000">' + escapeText(m.instruction) + '</textarea></td>' +
-      '<td><button type="button" class="btn btn-outline-danger btn-sm js-m-del" title="Удалить"><i class="bi bi-trash"></i></button></td>';
+      '<td><textarea class="form-control form-control-sm feed-ai-mood-grow js-m-label" rows="1" maxlength="80" placeholder="Например: Нейтрально">' + escapeText(m.label) + '</textarea></td>' +
+      '<td><textarea class="form-control form-control-sm feed-ai-mood-grow js-m-title" rows="1" maxlength="200" placeholder="Краткая подсказка">' + escapeText(m.title) + '</textarea></td>' +
+      '<td><textarea class="form-control form-control-sm feed-ai-mood-grow js-m-inst" rows="1" maxlength="2000" placeholder="Как писать в этом тоне для модели…">' + escapeText(m.instruction) + '</textarea></td>' +
+      '<td class="text-nowrap"><button type="button" class="btn btn-outline-danger btn-sm js-m-del" title="Удалить"><i class="bi bi-trash"></i></button></td>';
+    tr.querySelectorAll('.feed-ai-mood-grow').forEach(bindGrow);
     tr.querySelector('.js-m-del').addEventListener('click', function () {
+      if (!window.confirm('Вы точно хотите удалить эту интонацию?')) return;
       tr.remove();
     });
     tbody.appendChild(tr);
   }
 
-  function escapeAttr(s) {
-    return String(s || '')
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  }
   function escapeText(s) {
     return String(s || '')
       .replace(/&/g, '&amp;')
@@ -90,21 +107,28 @@
 
   var data = readInitial();
   if (!data.length) {
-    addRow({ id: 'neutral', label: 'Нейтрально', title: 'Спокойно и по делу', instruction: 'Нейтральный редакторский тон.' });
+    addRow({ label: 'Нейтрально', title: 'Спокойно и по делу', instruction: 'Нейтральный редакторский тон.' });
   } else {
-    data.forEach(addRow);
+    data.forEach(function (row) {
+      addRow({ label: row.label || '', title: row.title || '', instruction: row.instruction || '' });
+    });
   }
 
   document.getElementById('feed-ai-moods-add-row').addEventListener('click', function () {
-    addRow({ id: '', label: '', title: '', instruction: '' });
+    addRow({ label: '', title: '', instruction: '' });
   });
+
+  if (modalEl) {
+    modalEl.addEventListener('shown.bs.modal', function () {
+      tbody.querySelectorAll('.feed-ai-mood-grow').forEach(autoGrow);
+    });
+  }
 
   form.addEventListener('submit', function () {
     var rows = tbody.querySelectorAll('tr');
     var out = [];
     rows.forEach(function (tr) {
       out.push({
-        id: (tr.querySelector('.js-m-id') && tr.querySelector('.js-m-id').value || '').trim().toLowerCase(),
         label: (tr.querySelector('.js-m-label') && tr.querySelector('.js-m-label').value || '').trim(),
         title: (tr.querySelector('.js-m-title') && tr.querySelector('.js-m-title').value || '').trim(),
         instruction: (tr.querySelector('.js-m-inst') && tr.querySelector('.js-m-inst').value || '').trim()

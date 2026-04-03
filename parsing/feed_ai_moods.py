@@ -18,6 +18,59 @@ _MAX_LABEL = 80
 _MAX_TITLE = 200
 _MAX_INSTRUCTION = 2000
 
+# Транслитерация метки → стабильный латинский id (кнопка tone=…)
+_RU_TO_LAT = {
+    'а': 'a',
+    'б': 'b',
+    'в': 'v',
+    'г': 'g',
+    'д': 'd',
+    'е': 'e',
+    'ё': 'yo',
+    'ж': 'zh',
+    'з': 'z',
+    'и': 'i',
+    'й': 'y',
+    'к': 'k',
+    'л': 'l',
+    'м': 'm',
+    'н': 'n',
+    'о': 'o',
+    'п': 'p',
+    'р': 'r',
+    'с': 's',
+    'т': 't',
+    'у': 'u',
+    'ф': 'f',
+    'х': 'h',
+    'ц': 'ts',
+    'ч': 'ch',
+    'ш': 'sh',
+    'щ': 'sch',
+    'ъ': '',
+    'ы': 'y',
+    'ь': '',
+    'э': 'e',
+    'ю': 'yu',
+    'я': 'ya',
+}
+
+
+def _slug_id_from_label(label: str) -> str:
+    parts: list[str] = []
+    for ch in (label or '').strip().lower():
+        if ch in _RU_TO_LAT:
+            parts.append(_RU_TO_LAT[ch])
+        elif ch.isascii() and ch.isalnum():
+            parts.append(ch)
+        elif ch in ' \t\n\r\-.,:;!?«»—–':
+            parts.append('_')
+        else:
+            parts.append('_')
+    s = ''.join(parts)
+    s = re.sub(r'_+', '_', s).strip('_')[:40]
+    return s
+
 
 def workspace_owner_for_parsed_item(item) -> User | None:
     """Владелец канала/источника для материала парсинга (настройки AI)."""
@@ -95,6 +148,7 @@ def ai_tone_label_for_owner(tone: str | None, owner: User | None) -> str:
 def validate_moods_payload(data: Any) -> tuple[list[dict[str, str]] | None, str | None]:
     """
     Проверка тела сохранения. Возвращает (нормализованный список, ошибка).
+    id генерируется из «Метка» (транслит + уникальный суффикс при коллизии).
     """
     if not isinstance(data, list):
         return None, 'Ожидался список настроений'
@@ -107,18 +161,23 @@ def validate_moods_payload(data: Any) -> tuple[list[dict[str, str]] | None, str 
     for row in data:
         if not isinstance(row, dict):
             return None, 'Некорректный элемент списка'
-        i = str(row.get('id') or '').strip().lower()
         label = str(row.get('label') or '').strip()[:_MAX_LABEL]
         title = str(row.get('title') or '').strip()[:_MAX_TITLE]
         instr = str(row.get('instruction') or '').strip()[:_MAX_INSTRUCTION]
-        if not i or not label or not instr:
-            return None, 'У каждой интонации нужны id, краткая метка и инструкция для AI'
-        if not _MOOD_ID_RE.match(i):
-            return None, f'Недопустимый id «{i}»: только латиница, цифры и подчёркивание, до 40 символов'
-        if i in seen:
-            return None, f'Повтор id «{i}»'
-        seen.add(i)
-        out.append({'id': i, 'label': label, 'title': title or label, 'instruction': instr})
+        if not label or not instr:
+            return None, 'У каждой интонации нужны метка на кнопке и инструкция для AI'
+        base = (_slug_id_from_label(label) or 'mood')[:40]
+        candidate = base
+        n = 2
+        while candidate in seen:
+            suf = '_' + str(n)
+            trimmed = base[: 40 - len(suf)]
+            candidate = (trimmed + suf) if trimmed else f'm{n}'[:40]
+            n += 1
+        if not _MOOD_ID_RE.match(candidate):
+            return None, f'Не удалось сформировать id для метки «{label[:40]}»'
+        seen.add(candidate)
+        out.append({'id': candidate, 'label': label, 'title': title or label, 'instruction': instr})
     return out, None
 
 
