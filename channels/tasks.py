@@ -161,6 +161,17 @@ def import_tg_history_to_max_task(self, run_id: int):
     from content.tasks import _publish_max
     from parsing.tasks import _telethon_session_lock
 
+    def _on_telethon_lock_wait(elapsed_sec: float):
+        _append_import_journal(
+            run_id,
+            f'Шаг 4: всё ещё жду доступ к сессии Telegram (~{int(elapsed_sec)} с). '
+            'Параллельно тот же файл сессии может использовать парсинг или другой импорт. '
+            'Если так бесконечно — откройте диагностику импорта / «Фоновые задачи» (active_parse_tasks, telethon_lock) '
+            'или снимите зависшие блокировки (админка парсинга / clear_telethon_session_locks).',
+            step=4,
+            step_total=7,
+        )
+
     try:
         run = HistoryImportRun.objects.select_related('source_channel', 'target_channel').get(pk=run_id)
     except HistoryImportRun.DoesNotExist:
@@ -548,7 +559,7 @@ def import_tg_history_to_max_task(self, run_id: int):
                     step_total=7,
                 )
             try:
-                with _telethon_session_lock(source.owner_id):
+                with _telethon_session_lock(source.owner_id, on_lock_wait_tick=_on_telethon_lock_wait):
                     _append_import_journal(
                         run_id,
                         'Сессия свободна: подключаюсь к Telegram и перебираю сообщения канала-источника (это может занять много времени).',
