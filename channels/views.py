@@ -795,6 +795,7 @@ def import_history_diagnostics(request):
     celery_workers = []
     celery_error = None
     active_history = []
+    active_parse_tasks = []
     reserved_history = []
     registered_sample = []
     try:
@@ -828,6 +829,15 @@ def import_history_diagnostics(request):
                                 'args': str(t.get('args', ''))[:180],
                             }
                         )
+                    if 'execute_parse_task' in name:
+                        active_parse_tasks.append(
+                            {
+                                'worker': worker,
+                                'task_id': t.get('id', ''),
+                                'name': name,
+                                'args': str(t.get('args', ''))[:180],
+                            }
+                        )
             for worker, tasks in (insp.reserved() or {}).items():
                 for t in tasks or []:
                     if not isinstance(t, dict):
@@ -851,6 +861,21 @@ def import_history_diagnostics(request):
         broker_tail = broker.split('@')[-1] if '@' in broker else broker[:120]
 
     redis_len, redis_len_err = _redis_broker_celery_queue_length(broker)
+
+    telethon_lock_by_owner = []
+    try:
+        from parsing.tasks import telethon_session_lock_redis_status
+
+        seen_owners = set()
+        for r in list(running) + list(pending):
+            sc = getattr(r, 'source_channel', None)
+            oid = getattr(sc, 'owner_id', None) if sc is not None else None
+            if oid is None or oid in seen_owners:
+                continue
+            seen_owners.add(oid)
+            telethon_lock_by_owner.append(telethon_session_lock_redis_status(int(oid)))
+    except Exception as exc:
+        telethon_lock_by_owner = [{'error': str(exc)}]
 
     pending_payload = []
     orphan_pending_ids = []
@@ -881,6 +906,11 @@ def import_history_diagnostics(request):
             f'В Redis в очереди «celery» сейчас ~{redis_len} сообщ. Если воркер живой, но active пустой — '
             'перезапустите celery после обновления (command с -Q imports,celery) или проверьте зависшие процессы.',
         )
+    hints.append(
+        'Блокировка Telethon: в JSON смотрите telethon_lock_by_owner.held_in_redis и celery.active_parse_tasks. '
+        'Если held_in_redis=true и в active_parse_tasks есть задачи — сессию, скорее всего, держит парсинг '
+        '(импорт истории использует тот же lock). Точного «кто именно» в Redis нет — только факт занятости ключа.',
+    )
 
     return JsonResponse(
         {
@@ -888,9 +918,11 @@ def import_history_diagnostics(request):
             'pending': pending_payload,
             'running': [_run_short(r) for r in running],
             'orphan_pending_ids': orphan_pending_ids,
+            'telethon_lock_by_owner': telethon_lock_by_owner,
             'celery': {
                 'workers': celery_workers,
                 'active_history_import_tasks': active_history,
+                'active_parse_tasks': active_parse_tasks,
                 'reserved_history_import_tasks': reserved_history,
                 'registered_task_groups': registered_sample,
                 'error': celery_error,

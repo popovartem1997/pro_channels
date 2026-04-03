@@ -505,7 +505,8 @@ def import_tg_history_to_max_task(self, run_id: int):
             if lock_attempt == 0:
                 _append_import_journal(
                     run_id,
-                    'Запрос блокировки сессии Telethon (если занято парсингом — возможно долгое ожидание).',
+                    'Жду блокировку Telethon (Redis). Кто держит: в «Диагностике» — '
+                    'telethon_lock_by_owner.held_in_redis и celery.active_parse_tasks.',
                 )
             try:
                 with _telethon_session_lock(source.owner_id):

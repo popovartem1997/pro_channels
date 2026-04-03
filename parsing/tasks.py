@@ -104,6 +104,48 @@ def _telethon_session_lock(owner_id: int):
                 pass
 
 
+def telethon_session_lock_redis_status(owner_id: int) -> dict:
+    """
+    Диагностика: в Redis при удержании lock существует ключ pch:telethon:sess:…
+    (не различает парсинг и импорт — оба используют один и тот же lock).
+    """
+    from django.conf import settings
+
+    out: dict = {'owner_id': int(owner_id), 'lock_key': '', 'held_in_redis': None, 'ttl_sec': None, 'error': None}
+    try:
+        import redis
+    except ImportError:
+        out['error'] = 'redis не установлен'
+        return out
+
+    url = getattr(settings, 'DJANGO_CACHE_REDIS_URL', None) or ''
+    if not url:
+        out['error'] = 'DJANGO_CACHE_REDIS_URL пуст'
+        return out
+
+    key = _telethon_redis_lock_key(int(owner_id))
+    out['lock_key'] = key
+    try:
+        r = redis.from_url(
+            url,
+            socket_connect_timeout=3,
+            socket_timeout=3,
+            health_check_interval=30,
+        )
+        if r.exists(key):
+            out['held_in_redis'] = True
+            try:
+                t = r.ttl(key)
+                out['ttl_sec'] = int(t) if t is not None and int(t) > 0 else None
+            except Exception:
+                pass
+        else:
+            out['held_in_redis'] = False
+    except Exception as exc:
+        out['error'] = str(exc)
+    return out
+
+
 # ─── AI рерайт ───────────────────────────────────────────────────────────────
 
 @shared_task(bind=True, max_retries=3)
