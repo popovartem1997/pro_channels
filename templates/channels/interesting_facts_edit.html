@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block title %}Интересные факты · {{ channel.name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'channels:detail' channel.pk %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К каналу
+  </a>
+  <h1>Интересные факты</h1>
+  <p class="text-muted small mb-0">{{ channel.name }} · черновики через DeepSeek, без автопубликации</p>
+</div>
+
+<div class="alert alert-light border small mb-4">
+  <p class="mb-2">Укажите <strong>тему</strong> (как вы бы сформулировали задачу редактору) и <strong>как часто</strong> создавать новый черновик.</p>
+  <p class="mb-0">Нужен ключ <strong>DeepSeek</strong> в разделе «Ключи API». Посты создаются со статусом <strong>черновик</strong> — проверьте и опубликуйте вручную из раздела контента.</p>
+  <p class="mb-0 mt-2 text-muted small">Celery Beat: задача <code>channels.tasks.channel_interesting_facts_tick</code> (рекомендуется раз в 5 мин.) — после деплоя выполните <code>python manage.py setup_periodic_tasks</code>.</p>
+</div>
+
+<form method="post" class="card border-0 shadow-sm">
+  {% csrf_token %}
+  <div class="card-body">
+    <div class="form-check form-switch mb-3">
+      <input class="form-check-input" type="checkbox" name="is_enabled" id="id_is_enabled" {% if facts.is_enabled %}checked{% endif %}>
+      <label class="form-check-label fw-semibold" for="id_is_enabled">Включить автоматическую генерацию черновиков</label>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label fw-semibold" for="id_topic">Тема / запрос к ИИ</label>
+      <textarea class="form-control" name="topic" id="id_topic" rows="4" placeholder="Например: интересные факты о городе Щёлково Московской области для подписчиков новостного канала">{{ facts.topic }}</textarea>
+    </div>
+
+    <div class="mb-3" style="max-width: 24rem;">
+      <label class="form-label fw-semibold" for="id_interval_hours">Периодичность</label>
+      <select class="form-select" name="interval_hours" id="id_interval_hours">
+        {% for val, label in interval_choices %}
+        <option value="{{ val }}" {% if facts.interval_hours == val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {% if facts.last_generated_at %}
+    <p class="small text-muted">Последняя генерация: <strong>{{ facts.last_generated_at }}</strong></p>
+    {% endif %}
+    {% if facts.last_error %}
+    <div class="alert alert-warning small py-2">{{ facts.last_error|truncatechars:400 }}</div>
+    {% endif %}
+
+    <div class="d-flex flex-wrap gap-2 mt-3">
+      <button type="submit" class="btn btn-brand">Сохранить</button>
+      <button type="submit" name="action" value="generate_now" class="btn btn-outline-primary">
+        Создать черновик сейчас
+      </button>
+      <a href="{% url 'channels:detail' channel.pk %}" class="btn btn-outline-secondary">Назад</a>
+    </div>
+  </div>
+</form>
+{% endblock %}

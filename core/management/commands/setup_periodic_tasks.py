@@ -37,5 +37,25 @@ class Command(BaseCommand):
             },
         )
 
+        every_2m, _ = IntervalSchedule.objects.get_or_create(every=2, period=IntervalSchedule.MINUTES)
+        PeriodicTask.objects.update_or_create(
+            name="channels: morning digest tick (every 2m)",
+            defaults={
+                "interval": every_2m,
+                "task": "channels.tasks.channel_morning_digest_tick",
+                "enabled": True,
+            },
+        )
+
+        every_5m, _ = IntervalSchedule.objects.get_or_create(every=5, period=IntervalSchedule.MINUTES)
+        PeriodicTask.objects.update_or_create(
+            name="channels: interesting facts tick (every 5m)",
+            defaults={
+                "interval": every_5m,
+                "task": "channels.tasks.channel_interesting_facts_tick",
+                "enabled": True,
+            },
+        )
+
         self.stdout.write(self.style.SUCCESS("Periodic tasks are configured."))
 

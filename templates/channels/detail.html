@@ -28,6 +28,14 @@
     <a href="{% url 'channels:edit' channel.pk %}" class="btn btn-outline-primary">
       <i class="bi bi-pencil me-1"></i> {% if channel_team_access %}Подпись{% else %}Редактировать{% endif %}
     </a>
+    {% if not channel_team_access %}
+    <a href="{% url 'channels:digest_edit' channel.pk %}" class="btn btn-outline-secondary">
+      <i class="bi bi-sunrise me-1"></i> Утренний дайджест
+    </a>
+    <a href="{% url 'channels:interesting_facts_edit' channel.pk %}" class="btn btn-outline-secondary">
+      <i class="bi bi-lightbulb me-1"></i> Интересные факты
+    </a>
+    {% endif %}
     {% if not channel_team_access and channel.platform == 'max' %}
     <a href="{% url 'channels:import_history' channel.pk %}" class="btn btn-outline-secondary">
       <i class="bi bi-arrow-down-up me-1"></i> Импорт истории из Telegram

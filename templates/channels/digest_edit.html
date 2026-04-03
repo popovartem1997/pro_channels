@@ -1,0 +1,189 @@
+{% extends 'base.html' %}
+{% block title %}Утренний дайджест · {{ channel.name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'channels:detail' channel.pk %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К каналу
+  </a>
+  <h1>Утренний дайджест</h1>
+  <p class="text-muted small mb-0">{{ channel.name }} · автоматическая публикация по расписанию</p>
+</div>
+
+<div class="alert alert-light border small mb-4">
+  <div class="fw-semibold mb-1">Как это работает</div>
+  <ul class="mb-0 ps-3">
+    <li><strong>Погода</strong> — Open-Meteo (без ключа), по широте/долготе.</li>
+    <li><strong>Солнце</strong> — публичный API sunrise-sunset.org.</li>
+    <li><strong>Праздники</strong> — библиотека <code>holidays</code> по коду страны.</li>
+    <li><strong>Цитата, слово, гороскоп</strong> — при включённых опциях и ключе DeepSeek в «Ключи API» текст генерируется моделью; иначе подставляются нейтральные шаблоны.</li>
+    <li><strong>Картинка</strong> — сервис picsum.photos по дате и seed (DeepSeek <strong>не генерирует изображения</strong>; для своих картинок позже можно подключить отдельный API).</li>
+  </ul>
+  <p class="mb-0 mt-2 text-muted">Celery Beat должен выполнять задачу <code>channels.tasks.channel_morning_digest_tick</code> (раз в ~2 мин.) — после деплоя выполните <code>python manage.py setup_periodic_tasks</code>.</p>
+</div>
+
+<form method="post" class="card border-0 shadow-sm">
+  {% csrf_token %}
+  <div class="card-body">
+    <div class="form-check form-switch mb-3">
+      <input class="form-check-input" type="checkbox" name="is_enabled" id="id_is_enabled" {% if digest.is_enabled %}checked{% endif %}>
+      <label class="form-check-label fw-semibold" for="id_is_enabled">Включить автоматическую отправку</label>
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-4">
+        <label class="form-label small fw-semibold" for="id_send_time">Время (локальное)</label>
+        <input type="time" class="form-control" name="send_time" id="id_send_time"
+               value="{{ digest.send_time|time:'H:i' }}">
+      </div>
+      <div class="col-md-8">
+        <label class="form-label small fw-semibold" for="id_timezone_name">Часовой пояс (IANA)</label>
+        <input type="text" class="form-control font-monospace" name="timezone_name" id="id_timezone_name"
+               value="{{ digest.timezone_name }}" placeholder="Europe/Moscow">
+      </div>
+    </div>
+
+    <div class="mb-3">
+      <div class="fw-semibold small mb-2">Дни недели</div>
+      <p class="small text-muted">Если ничего не отмечено — дайджест каждый день.</p>
+      <div class="d-flex flex-wrap gap-3">
+        {% for num, label in weekday_meta %}
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="weekdays" value="{{ num }}" id="wd{{ num }}"
+                 {% if num in selected_weekdays %}checked{% endif %}>
+          <label class="form-check-label" for="wd{{ num }}">{{ label }}</label>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <hr>
+    <div class="fw-semibold mb-2">Место для погоды и солнца</div>
+    <div class="row g-3 mb-2">
+      <div class="col-md-6">
+        <label class="form-label small" for="id_location_label">Подпись (город)</label>
+        <input type="text" class="form-control" name="location_label" id="id_location_label"
+               value="{{ digest.location_label }}" placeholder="Москва">
+      </div>
+      <div class="col-md-6 d-flex align-items-end gap-2 flex-wrap">
+        <button type="submit" name="action" value="geocode" class="btn btn-outline-secondary btn-sm">
+          Найти координаты по подписи
+        </button>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small" for="id_latitude">Широта</label>
+        <input type="text" class="form-control font-monospace" name="latitude" id="id_latitude" value="{{ digest.latitude }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small" for="id_longitude">Долгота</label>
+        <input type="text" class="form-control font-monospace" name="longitude" id="id_longitude" value="{{ digest.longitude }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small" for="id_country_for_holidays">Страна (праздники)</label>
+        <input type="text" class="form-control" name="country_for_holidays" id="id_country_for_holidays"
+               value="{{ digest.country_for_holidays }}" maxlength="2">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small" for="id_horoscope_sign">Знак / гороскоп</label>
+        <select class="form-select" name="horoscope_sign" id="id_horoscope_sign">
+          {% for val, lab in zodiac_choices %}
+          <option value="{{ val }}" {% if digest.horoscope_sign == val %}selected{% endif %}>{{ lab }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <hr>
+    <div class="fw-semibold mb-2">Блоки сообщения</div>
+    <div class="row g-2 small">
+      <div class="col-md-4">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="block_date" id="id_block_date" {% if digest.block_date %}checked{% endif %}>
+          <label class="form-check-label" for="id_block_date">Дата</label>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="block_weather" id="id_block_weather" {% if digest.block_weather %}checked{% endif %}>
+          <label class="form-check-label" for="id_block_weather">Погода по периодам</label>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="block_sun" id="id_block_sun" {% if digest.block_sun %}checked{% endif %}>
+          <label class="form-check-label" for="id_block_sun">Рассвет и закат</label>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="block_quote" id="id_block_quote" {% if digest.block_quote %}checked{% endif %}>
+          <label class="form-check-label" for="id_block_quote">Цитата дня</label>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="block_english" id="id_block_english" {% if digest.block_english %}checked{% endif %}>
+          <label class="form-check-label" for="id_block_english">Английское слово</label>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="block_holidays" id="id_block_holidays" {% if digest.block_holidays %}checked{% endif %}>
+          <label class="form-check-label" for="id_block_holidays">Праздники</label>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="block_horoscope" id="id_block_horoscope" {% if digest.block_horoscope %}checked{% endif %}>
+          <label class="form-check-label" for="id_block_horoscope">Гороскоп</label>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="block_image" id="id_block_image" {% if digest.block_image %}checked{% endif %}>
+          <label class="form-check-label" for="id_block_image">Картинка</label>
+        </div>
+      </div>
+    </div>
+
+    <hr>
+    <div class="fw-semibold mb-2">DeepSeek (только текст)</div>
+    <div class="row g-2 small mb-2">
+      <div class="col-md-4">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="use_ai_quote" id="id_use_ai_quote"
+                 {% if digest.use_ai_quote %}checked{% endif %}>
+          <label class="form-check-label" for="id_use_ai_quote">Цитата через AI</label>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="use_ai_english" id="id_use_ai_english"
+                 {% if digest.use_ai_english %}checked{% endif %}>
+          <label class="form-check-label" for="id_use_ai_english">Слово дня через AI</label>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="use_ai_horoscope" id="id_use_ai_horoscope"
+                 {% if digest.use_ai_horoscope %}checked{% endif %}>
+          <label class="form-check-label" for="id_use_ai_horoscope">Гороскоп через AI</label>
+        </div>
+      </div>
+    </div>
+    <div class="mb-0">
+      <label class="form-label small" for="id_image_seed_extra">Доп. seed для картинки (разные каналы — разный текст)</label>
+      <input type="text" class="form-control form-control-sm" name="image_seed_extra" id="id_image_seed_extra"
+             value="{{ digest.image_seed_extra }}" maxlength="80">
+    </div>
+
+    {% if digest.last_sent_on %}
+    <p class="small text-muted mt-3 mb-0">Последняя отправка (локальная дата канала): <strong>{{ digest.last_sent_on }}</strong></p>
+    {% endif %}
+
+    <div class="mt-4 d-flex gap-2 flex-wrap">
+      <button type="submit" class="btn btn-brand">Сохранить</button>
+      <a href="{% url 'channels:detail' channel.pk %}" class="btn btn-outline-secondary">Назад</a>
+    </div>
+  </div>
+</form>
+{% endblock %}

@@ -35,3 +35,4 @@ Pillow==10.2.0
 django-storages==1.14.2
 Markdown==3.5.2
 pytz==2024.1
+holidays==0.57

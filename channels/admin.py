@@ -1,5 +1,12 @@
 from django.contrib import admin
-from .models import Channel, ChannelAdAddon, ChannelAdVolumeDiscount, ChannelGroup
+from .models import (
+    Channel,
+    ChannelAdAddon,
+    ChannelAdVolumeDiscount,
+    ChannelGroup,
+    ChannelInterestingFacts,
+    ChannelMorningDigest,
+)
 
 
 @admin.register(ChannelGroup)
@@ -27,6 +34,22 @@ class ChannelAdAddonInline(admin.TabularInline):
         'top_duration_minutes',
         'is_active',
     )
+
+
+@admin.register(ChannelInterestingFacts)
+class ChannelInterestingFactsAdmin(admin.ModelAdmin):
+    list_display = ['channel', 'is_enabled', 'interval_hours', 'last_generated_at']
+    list_filter = ['is_enabled']
+    search_fields = ['channel__name', 'topic']
+    raw_id_fields = ['channel']
+
+
+@admin.register(ChannelMorningDigest)
+class ChannelMorningDigestAdmin(admin.ModelAdmin):
+    list_display = ['channel', 'is_enabled', 'send_time', 'timezone_name', 'last_sent_on']
+    list_filter = ['is_enabled']
+    search_fields = ['channel__name']
+    raw_id_fields = ['channel']
 
 
 @admin.register(Channel)

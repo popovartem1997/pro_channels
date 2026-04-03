@@ -14,7 +14,7 @@ from django.contrib import messages
 from django.http import JsonResponse
 from django.db import IntegrityError, transaction
 from django.utils import timezone
-from .models import Channel, ChannelGroup, HistoryImportRun
+from .models import Channel, ChannelGroup, ChannelInterestingFacts, ChannelMorningDigest, HistoryImportRun
 
 
 def _team_channel_editor_user(user) -> bool:
@@ -775,3 +775,153 @@ def import_history_stop(request, pk: int):
         'progress': run.progress_json or {},
         'error_message': run.error_message or '',
     }})
+
+
+@login_required
+def channel_digest_edit(request, pk):
+    """Настройка автоматического утреннего дайджеста (только владелец канала)."""
+    import datetime as pydt
+    from decimal import Decimal, InvalidOperation
+
+    if _team_channel_editor_user(request.user):
+        messages.error(request, 'Раздел доступен только владельцу канала.')
+        return redirect('channels:list')
+    channel = get_object_or_404(Channel, pk=pk, owner=request.user)
+    digest, _ = ChannelMorningDigest.objects.get_or_create(channel=channel)
+
+    if request.method == 'POST':
+        action = (request.POST.get('action') or '').strip()
+        if action == 'geocode':
+            from .digest_services import geocode_place_label
+
+            label = (request.POST.get('location_label') or digest.location_label or '').strip()
+            lat, lon = geocode_place_label(label)
+            if lat is not None and lon is not None:
+                digest.location_label = label or digest.location_label
+                digest.latitude = Decimal(str(lat))
+                digest.longitude = Decimal(str(lon))
+                digest.save(update_fields=['location_label', 'latitude', 'longitude', 'updated_at'])
+                messages.success(
+                    request,
+                    f'Координаты обновлены: {digest.latitude}, {digest.longitude}.',
+                )
+            else:
+                messages.warning(
+                    request,
+                    'Не удалось найти место. Уточните запрос или введите широту и долготу вручную.',
+                )
+            return redirect('channels:digest_edit', pk=pk)
+
+        digest.is_enabled = request.POST.get('is_enabled') == 'on'
+        tz_raw = (request.POST.get('timezone_name') or '').strip()
+        if tz_raw:
+            digest.timezone_name = tz_raw[:64]
+        st = (request.POST.get('send_time') or '05:00').strip().replace('.', ':')[:5]
+        try:
+            digest.send_time = pydt.datetime.strptime(st, '%H:%M').time()
+        except ValueError:
+            pass
+        digest.weekdays = sorted(
+            {int(x) for x in request.POST.getlist('weekdays') if str(x).isdigit() and 0 <= int(x) <= 6}
+        )
+
+        try:
+            digest.latitude = Decimal((request.POST.get('latitude') or str(digest.latitude)).replace(',', '.'))
+            digest.longitude = Decimal((request.POST.get('longitude') or str(digest.longitude)).replace(',', '.'))
+        except InvalidOperation:
+            messages.error(request, 'Некорректные широта или долгота.')
+            return redirect('channels:digest_edit', pk=pk)
+
+        digest.location_label = (request.POST.get('location_label') or '').strip()[:120]
+        digest.country_for_holidays = (request.POST.get('country_for_holidays') or 'RU').strip().upper()[:2]
+        hs = (request.POST.get('horoscope_sign') or 'general').strip()[:20]
+        digest.horoscope_sign = hs if hs in dict(ChannelMorningDigest.ZODIAC_CHOICES) else ChannelMorningDigest.ZODIAC_GENERAL
+
+        digest.block_date = request.POST.get('block_date') == 'on'
+        digest.block_weather = request.POST.get('block_weather') == 'on'
+        digest.block_sun = request.POST.get('block_sun') == 'on'
+        digest.block_quote = request.POST.get('block_quote') == 'on'
+        digest.block_english = request.POST.get('block_english') == 'on'
+        digest.block_holidays = request.POST.get('block_holidays') == 'on'
+        digest.block_horoscope = request.POST.get('block_horoscope') == 'on'
+        digest.block_image = request.POST.get('block_image') == 'on'
+
+        digest.use_ai_quote = request.POST.get('use_ai_quote') == 'on'
+        digest.use_ai_english = request.POST.get('use_ai_english') == 'on'
+        digest.use_ai_horoscope = request.POST.get('use_ai_horoscope') == 'on'
+        digest.image_seed_extra = (request.POST.get('image_seed_extra') or '')[:80]
+
+        digest.save()
+        messages.success(request, 'Настройки утреннего дайджеста сохранены.')
+        return redirect('channels:digest_edit', pk=pk)
+
+    selected_wd = {int(x) for x in (digest.weekdays or []) if str(x).isdigit()}
+    weekday_meta = [
+        (0, 'Пн'),
+        (1, 'Вт'),
+        (2, 'Ср'),
+        (3, 'Чт'),
+        (4, 'Пт'),
+        (5, 'Сб'),
+        (6, 'Вс'),
+    ]
+    return render(
+        request,
+        'channels/digest_edit.html',
+        {
+            'channel': channel,
+            'digest': digest,
+            'selected_weekdays': selected_wd,
+            'weekday_meta': weekday_meta,
+            'zodiac_choices': ChannelMorningDigest.ZODIAC_CHOICES,
+        },
+    )
+
+
+@login_required
+def channel_interesting_facts_edit(request, pk):
+    """Интересные факты по теме → черновики (DeepSeek). Только владелец канала."""
+    if _team_channel_editor_user(request.user):
+        messages.error(request, 'Раздел доступен только владельцу канала.')
+        return redirect('channels:list')
+    channel = get_object_or_404(Channel, pk=pk, owner=request.user)
+    facts, _ = ChannelInterestingFacts.objects.get_or_create(channel=channel)
+
+    if request.method == 'POST':
+        action = (request.POST.get('action') or '').strip()
+        if action == 'generate_now':
+            from .facts_services import create_draft_post_for_facts
+
+            ok, msg = create_draft_post_for_facts(facts.pk, force=True)
+            if ok:
+                messages.success(request, msg)
+            else:
+                messages.error(request, msg)
+            return redirect('channels:interesting_facts_edit', pk=pk)
+
+        facts.is_enabled = request.POST.get('is_enabled') == 'on'
+        facts.topic = (request.POST.get('topic') or '').strip()
+        ih = (request.POST.get('interval_hours') or '').strip()
+        if ih.isdigit():
+            v = int(ih)
+            allowed = {c[0] for c in ChannelInterestingFacts.INTERVAL_CHOICES}
+            if v in allowed:
+                facts.interval_hours = v
+
+        if facts.is_enabled and len(facts.topic) < 5:
+            messages.error(request, 'Для включения укажите тему запроса (не меньше нескольких слов).')
+            return redirect('channels:interesting_facts_edit', pk=pk)
+
+        facts.save()
+        messages.success(request, 'Настройки сохранены.')
+        return redirect('channels:interesting_facts_edit', pk=pk)
+
+    return render(
+        request,
+        'channels/interesting_facts_edit.html',
+        {
+            'channel': channel,
+            'facts': facts,
+            'interval_choices': ChannelInterestingFacts.INTERVAL_CHOICES,
+        },
+    )

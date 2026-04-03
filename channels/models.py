@@ -310,6 +310,155 @@ class ChannelAdAddon(models.Model):
         return f'{self.channel_id} · {self.title}'
 
 
+class ChannelMorningDigest(models.Model):
+    """
+    Автоматическая публикация «утреннего дайджеста» в канал (погода, солнце, праздники,
+    цитата / слово / гороскоп через DeepSeek при наличии ключа, картинка — отдельно от DeepSeek).
+    """
+
+    ZODIAC_GENERAL = 'general'
+    ZODIAC_CHOICES = [
+        (ZODIAC_GENERAL, 'Общий (без знака)'),
+        ('aries', 'Овен'),
+        ('taurus', 'Телец'),
+        ('gemini', 'Близнецы'),
+        ('cancer', 'Рак'),
+        ('leo', 'Лев'),
+        ('virgo', 'Дева'),
+        ('libra', 'Весы'),
+        ('scorpio', 'Скорпион'),
+        ('sagittarius', 'Стрелец'),
+        ('capricorn', 'Козерог'),
+        ('aquarius', 'Водолей'),
+        ('pisces', 'Рыбы'),
+    ]
+
+    channel = models.OneToOneField(
+        Channel,
+        on_delete=models.CASCADE,
+        related_name='morning_digest',
+        verbose_name='Канал',
+    )
+    is_enabled = models.BooleanField('Включено', default=False)
+
+    send_time = models.TimeField('Время отправки (локальное)', default='05:00:00')
+    timezone_name = models.CharField(
+        'Часовой пояс (IANA)',
+        max_length=64,
+        default='Europe/Moscow',
+        help_text='Например: Europe/Moscow, Asia/Yekaterinburg',
+    )
+    weekdays = models.JSONField(
+        'Дни недели (пусто = каждый день)',
+        default=list,
+        blank=True,
+        help_text='Список чисел 0–6: пн=0 … вс=6. Пустой список — все дни.',
+    )
+
+    latitude = models.DecimalField('Широта', max_digits=9, decimal_places=6, default=55.7558)
+    longitude = models.DecimalField('Долгота', max_digits=9, decimal_places=6, default=37.6173)
+    location_label = models.CharField(
+        'Название места (подпись)',
+        max_length=120,
+        blank=True,
+        help_text='Например: Москва — показывается в шапке блока погоды.',
+    )
+
+    country_for_holidays = models.CharField(
+        'Код страны для праздников (ISO)',
+        max_length=2,
+        default='RU',
+        help_text='RU, UA, BY, KZ и др. — библиотека holidays.',
+    )
+    horoscope_sign = models.CharField(
+        'Знак для гороскопа',
+        max_length=20,
+        choices=ZODIAC_CHOICES,
+        default=ZODIAC_GENERAL,
+    )
+
+    block_date = models.BooleanField('Дата', default=True)
+    block_weather = models.BooleanField('Погода по периодам дня', default=True)
+    block_sun = models.BooleanField('Восход и закат', default=True)
+    block_quote = models.BooleanField('Цитата дня', default=True)
+    block_english = models.BooleanField('Английское слово', default=True)
+    block_holidays = models.BooleanField('Праздники сегодня', default=True)
+    block_horoscope = models.BooleanField('Гороскоп на сегодня', default=True)
+    block_image = models.BooleanField('Картинка к посту', default=True)
+
+    use_ai_quote = models.BooleanField('Цитату генерировать через DeepSeek', default=True)
+    use_ai_english = models.BooleanField('Слово дня — через DeepSeek', default=True)
+    use_ai_horoscope = models.BooleanField('Гороскоп — через DeepSeek', default=True)
+
+    image_seed_extra = models.CharField(
+        'Доп. seed для картинки',
+        max_length=80,
+        blank=True,
+        help_text='Уникальность картинки дня между каналами (любой короткий текст).',
+    )
+
+    last_sent_on = models.DateField('Последняя отправка (локальная дата)', null=True, blank=True)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Утренний дайджест канала'
+        verbose_name_plural = 'Утренние дайджесты каналов'
+
+    def __str__(self):
+        return f'Дайджест · {self.channel.name}'
+
+
+class ChannelInterestingFacts(models.Model):
+    """
+    Периодические «интересные факты» по заданной теме (DeepSeek) — посты только в черновики.
+    """
+
+    INTERVAL_6H = 6
+    INTERVAL_12H = 12
+    INTERVAL_24H = 24
+    INTERVAL_48H = 48
+    INTERVAL_72H = 72
+    INTERVAL_168H = 168
+    INTERVAL_CHOICES = [
+        (INTERVAL_6H, 'Каждые 6 часов'),
+        (INTERVAL_12H, 'Каждые 12 часов'),
+        (INTERVAL_24H, 'Раз в сутки'),
+        (INTERVAL_48H, 'Раз в 2 суток'),
+        (INTERVAL_72H, 'Раз в 3 суток'),
+        (INTERVAL_168H, 'Раз в неделю'),
+    ]
+
+    channel = models.OneToOneField(
+        Channel,
+        on_delete=models.CASCADE,
+        related_name='interesting_facts',
+        verbose_name='Канал',
+    )
+    is_enabled = models.BooleanField('Включено', default=False)
+    topic = models.TextField(
+        'Тема / запрос',
+        blank=True,
+        help_text='Например: интересные факты о городе Щёлково Московской области. Обязательно, если включена автогенерация.',
+    )
+    interval_hours = models.PositiveSmallIntegerField(
+        'Периодичность',
+        choices=INTERVAL_CHOICES,
+        default=INTERVAL_24H,
+    )
+    last_generated_at = models.DateTimeField('Последняя генерация', null=True, blank=True)
+    last_error = models.TextField('Последняя ошибка', blank=True)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Интересные факты (канал)'
+        verbose_name_plural = 'Интересные факты (каналы)'
+
+    def __str__(self):
+        return f'Факты · {self.channel.name}'
+
+
 class HistoryImportRun(models.Model):
     """
     Фоновый импорт истории сообщений из Telegram-канала в MAX-канал.

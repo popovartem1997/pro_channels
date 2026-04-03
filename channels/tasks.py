@@ -512,3 +512,19 @@ def import_tg_history_to_max_task(self, run_id: int):
         run.save(update_fields=['status', 'finished_at', 'error_message', 'progress_json'])
         logger.exception('Import run=%s failed: %s', run_id, exc)
 
+
+@shared_task(ignore_result=True)
+def channel_morning_digest_tick():
+    """Периодически (Celery Beat): проверка утренних дайджестов по расписанию."""
+    from channels.digest_services import tick_morning_digests
+
+    tick_morning_digests()
+
+
+@shared_task(ignore_result=True)
+def channel_interesting_facts_tick():
+    """Периодически: генерация черновиков «интересные факты» по расписанию."""
+    from channels.facts_services import tick_interesting_facts
+
+    tick_interesting_facts()
+
