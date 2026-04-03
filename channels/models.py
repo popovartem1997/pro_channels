@@ -2,6 +2,8 @@
 Channel — один паблик/канал в любой соцсети (TG, VK, MAX, Instagram).
 Токены хранятся зашифрованными через bots.utils.
 """
+import datetime
+
 from django.db import models
 from django.contrib.auth import get_user_model
 from bots.utils import encrypt_token, decrypt_token
@@ -341,7 +343,10 @@ class ChannelMorningDigest(models.Model):
     )
     is_enabled = models.BooleanField('Включено', default=False)
 
-    send_time = models.TimeField('Время отправки (локальное)', default='05:00:00')
+    send_time = models.TimeField(
+        'Время отправки (локальное)',
+        default=datetime.time(5, 0),
+    )
     timezone_name = models.CharField(
         'Часовой пояс (IANA)',
         max_length=64,
@@ -374,7 +379,7 @@ class ChannelMorningDigest(models.Model):
         'Знак для гороскопа',
         max_length=20,
         choices=ZODIAC_CHOICES,
-        default=ZODIAC_GENERAL,
+        default='general',
     )
 
     block_date = models.BooleanField('Дата', default=True)
