@@ -7,6 +7,23 @@
     overflow: hidden;
     box-sizing: border-box;
   }
+  /* Форма — единственный ребёнок .modal-content, без flex тела модалки не ограничивается по высоте */
+  #feedAiMoodsModal .modal-dialog-scrollable .modal-content > form {
+    display: flex;
+    flex-direction: column;
+    max-height: 100%;
+    min-height: 0;
+  }
+  #feedAiMoodsModal .modal-dialog-scrollable .modal-header,
+  #feedAiMoodsModal .modal-dialog-scrollable .modal-footer {
+    flex-shrink: 0;
+  }
+  #feedAiMoodsModal .modal-dialog-scrollable .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 </style>
 <div class="modal fade" id="feedAiMoodsModal" tabindex="-1" aria-labelledby="feedAiMoodsModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
