@@ -933,9 +933,19 @@ def item_ai_to_post(request, pk):
         )
         return redirect(request.META.get('HTTP_REFERER') or reverse('core:feed'))
 
-    from .deepseek_snippet import ai_tone_label, normalize_ai_tone, rewrite_for_feed_post
+    from .deepseek_snippet import rewrite_for_feed_post
+    from .feed_ai_moods import (
+        ai_tone_label_for_owner,
+        mood_instructions_map,
+        normalize_ai_tone_for_owner,
+        workspace_owner_for_parsed_item,
+    )
 
-    tone = normalize_ai_tone(request.POST.get('tone'))
+    ws_owner = workspace_owner_for_parsed_item(item)
+    tone = normalize_ai_tone_for_owner(request.POST.get('tone'), ws_owner)
+    tone_rule = mood_instructions_map(ws_owner).get(tone)
+    with_headline = request.POST.get('ai_with_headline') == 'on'
+    embed_source = request.POST.get('ai_embed_source') == 'on'
     try:
         plain, ht = rewrite_for_feed_post(
             original_text=item.text or '',
@@ -943,6 +953,9 @@ def item_ai_to_post(request, pk):
             api_key=api_key,
             model_name=getattr(settings, 'DEEPSEEK_MODEL', 'deepseek-chat'),
             tone=tone,
+            tone_rule=tone_rule,
+            with_headline=with_headline,
+            embed_source_link=embed_source,
         )
     except Exception as exc:
         messages.error(request, f'Не удалось сгенерировать текст: {exc}')
@@ -984,9 +997,45 @@ def item_ai_to_post(request, pk):
 
     messages.success(
         request,
-        f'Черновик создан (тон: «{ai_tone_label(tone)}»), медиа из материала прикреплены при наличии файлов.',
+        f'Черновик создан (тон: «{ai_tone_label_for_owner(tone, ws_owner)}»), медиа из материала прикреплены при наличии файлов.',
     )
     return redirect('content:edit', pk=post.pk)
+
+
+@login_required
+@require_POST
+def feed_ai_moods_save(request):
+    """Сохранение списка интонаций AI для ленты (владелец workspace / менеджер с доступом)."""
+    import json
+
+    from django.contrib.auth import get_user_model
+
+    from .feed_ai_moods import can_manage_feed_ai_moods, validate_moods_payload
+
+    User = get_user_model()
+    nxt = (request.POST.get('next') or '').strip() or reverse('core:feed')
+    raw_owner = (request.POST.get('owner_id') or '').strip()
+    if not raw_owner.isdigit():
+        messages.error(request, 'Не указан владелец настроек.')
+        return redirect(nxt)
+    owner = get_object_or_404(User, pk=int(raw_owner))
+    if not can_manage_feed_ai_moods(request.user, owner):
+        messages.error(request, 'Нет прав на изменение этих настроек.')
+        return redirect(nxt)
+    raw_json = request.POST.get('moods_json', '')
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError:
+        messages.error(request, 'Некорректный формат данных.')
+        return redirect(nxt)
+    normalized, err = validate_moods_payload(data)
+    if err:
+        messages.error(request, err)
+        return redirect(nxt)
+    owner.feed_ai_moods = normalized
+    owner.save(update_fields=['feed_ai_moods'])
+    messages.success(request, 'Кнопки интонации для AI обновлены.')
+    return redirect(nxt)
 
 @login_required
 def parse_tasks_list(request):

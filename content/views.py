@@ -445,6 +445,7 @@ def post_ai_from_suggestion(request, tracking_id):
             api_key=api_key,
             model_name=getattr(settings, 'DEEPSEEK_MODEL', 'deepseek-chat'),
             tone=tone,
+            embed_source_link=True,
         )
     except Exception as exc:
         messages.error(request, f'Не удалось сгенерировать текст: {exc}')

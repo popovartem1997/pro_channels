@@ -335,7 +335,7 @@ def feed(request):
         'bot__channel_groups__channels',
     )
     parsed_qs = parsed_qs.select_related(
-        'source', 'source__channel', 'source__channel_group', 'keyword',
+        'source', 'source__channel', 'source__channel_group', 'keyword', 'keyword__channel',
     )
 
     items = []
@@ -494,10 +494,13 @@ def feed(request):
 
     if kind in ('all', 'parsing'):
         q = parsed_qs.order_by('-found_at')
+        from parsing.feed_ai_moods import moods_for_template, workspace_owner_for_parsed_item
+
         for pi in q[:200]:
             st = 'pending' if pi.status == ParsedItem.STATUS_NEW else ('published' if pi.status == ParsedItem.STATUS_USED else 'rejected')
             st_display = 'Новые' if pi.status == ParsedItem.STATUS_NEW else ('Использованы' if pi.status == ParsedItem.STATUS_USED else 'Пропущены')
             cg = getattr(pi.source, 'channel_group', None)
+            pwo = workspace_owner_for_parsed_item(pi)
             items.append({
                 'kind': 'parsing',
                 'dt': pi.found_at,
@@ -510,6 +513,8 @@ def feed(request):
                 'url': pi.original_url or '',
                 'meta': f'{pi.source.get_platform_display()} · {pi.source.name}',
                 'obj': pi,
+                'parse_workspace_owner_id': pwo.pk if pwo else None,
+                'parse_ai_moods': moods_for_template(pwo),
             })
 
     items.sort(key=lambda x: x.get('dt') or timezone.now(), reverse=True)
@@ -526,6 +531,26 @@ def feed(request):
     page_number = (request.GET.get('page') or '').strip()
     paginator = Paginator(items, per_page)
     page_obj = paginator.get_page(page_number)
+
+    from django.contrib.auth import get_user_model
+    from parsing.feed_ai_moods import can_manage_feed_ai_moods, moods_list_for_owner
+
+    User = get_user_model()
+    parse_owner_ids = {
+        it.get('parse_workspace_owner_id')
+        for it in page_obj.object_list
+        if it.get('kind') == 'parsing' and it.get('parse_workspace_owner_id')
+    }
+    parse_owner_ids.discard(None)
+    feed_ai_editor_owner = None
+    if len(parse_owner_ids) == 1:
+        feed_ai_editor_owner = User.objects.filter(pk=next(iter(parse_owner_ids))).first()
+    feed_ai_can_edit_moods = bool(
+        feed_ai_editor_owner and can_manage_feed_ai_moods(request.user, feed_ai_editor_owner)
+    )
+    feed_ai_moods_editor_data = (
+        moods_list_for_owner(feed_ai_editor_owner) if feed_ai_editor_owner else []
+    )
 
     # Base querystring without page/per_page (used for pagination links)
     try:
@@ -552,4 +577,7 @@ def feed(request):
         'paginator': paginator,
         'per_page': per_page,
         'page_base_qs': page_base_qs,
+        'feed_ai_editor_owner': feed_ai_editor_owner,
+        'feed_ai_can_edit_moods': feed_ai_can_edit_moods,
+        'feed_ai_moods_editor_data': feed_ai_moods_editor_data,
     })

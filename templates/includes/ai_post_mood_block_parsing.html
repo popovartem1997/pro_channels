@@ -1,0 +1,31 @@
+{# ai_form_url, ai_post_moods (на материал); feed_ai_can_edit_moods — из контекста ленты #}
+<div class="ai-mood-block border rounded-2 p-2 bg-light w-100">
+  <div class="small fw-semibold text-muted mb-2 d-flex flex-wrap align-items-center gap-2">
+    <span><i class="bi bi-stars me-1" style="color:var(--brand)"></i>AI — интонация</span>
+    {% if feed_ai_can_edit_moods %}
+    <button type="button" class="btn btn-link btn-sm p-0 ms-auto text-decoration-none" data-bs-toggle="modal" data-bs-target="#feedAiMoodsModal">Редактировать кнопки</button>
+    {% endif %}
+  </div>
+  <form method="post" action="{{ ai_form_url }}" class="m-0">
+    {% csrf_token %}
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+      {% for m in ai_post_moods %}
+        <button type="submit" name="tone" value="{{ m.id }}"
+                class="btn btn-outline-secondary btn-sm"
+                title="{{ m.title }}">
+          {{ m.label }}
+        </button>
+      {% endfor %}
+    </div>
+    <div class="d-flex flex-column gap-1 small text-muted">
+      <label class="d-flex align-items-start gap-2 mb-0">
+        <input class="form-check-input mt-1" type="checkbox" name="ai_with_headline" checked>
+        <span>Сделать пост с заголовком</span>
+      </label>
+      <label class="d-flex align-items-start gap-2 mb-0">
+        <input class="form-check-input mt-1" type="checkbox" name="ai_embed_source">
+        <span>Добавить ссылку на источник внутрь поста</span>
+      </label>
+    </div>
+  </form>
+</div>

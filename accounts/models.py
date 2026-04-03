@@ -12,6 +12,10 @@ from django.utils import timezone
 from datetime import timedelta
 
 
+def _default_feed_ai_moods():
+    return []
+
+
 class User(AbstractUser):
     """Расширенный пользователь с данными для платформы."""
 
@@ -51,6 +55,14 @@ class User(AbstractUser):
         blank=True,
         verbose_name='Текст реквизитов для перевода (реклама)',
         help_text='Доп. данные: банк, ФИО получателя, комментарий к переводу.',
+    )
+
+    # Лента → парсинг (новые): кастомные кнопки «интонации» для AI (список dict: id, label, title, instruction).
+    feed_ai_moods = models.JSONField(
+        default=_default_feed_ai_moods,
+        blank=True,
+        verbose_name='AI: интонации в ленте (парсинг)',
+        help_text='Пусто — встроенный набор. Иначе JSON-массив объектов с полями id, label, title, instruction.',
     )
 
     class Meta:

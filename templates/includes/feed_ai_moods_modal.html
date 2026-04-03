@@ -1,0 +1,116 @@
+{# feed_ai_editor_owner, feed_ai_moods_editor_data — из core.views.feed #}
+<div class="modal fade" id="feedAiMoodsModal" tabindex="-1" aria-labelledby="feedAiMoodsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{% url 'parsing:feed_ai_moods_save' %}" id="feed-ai-moods-form">
+        {% csrf_token %}
+        <input type="hidden" name="owner_id" value="{{ feed_ai_editor_owner.pk }}">
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <input type="hidden" name="moods_json" id="feed-ai-moods-json" value="">
+        <div class="modal-header">
+          <h5 class="modal-title" id="feedAiMoodsModalLabel">Кнопки интонации AI</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted mb-3">
+            У каждой кнопки: <strong>id</strong> (латиница, цифры, _), короткая <strong>метка</strong> на кнопке,
+            <strong>подсказка</strong> при наведении и <strong>инструкция для AI</strong> (как писать в этом тоне).
+          </p>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead>
+                <tr>
+                  <th style="width:9rem">id</th>
+                  <th style="width:7rem">Метка</th>
+                  <th>Подсказка</th>
+                  <th>Инструкция для AI</th>
+                  <th style="width:2.5rem"></th>
+                </tr>
+              </thead>
+              <tbody id="feed-ai-moods-tbody"></tbody>
+            </table>
+          </div>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="feed-ai-moods-add-row">
+            <i class="bi bi-plus-lg me-1"></i>Добавить
+          </button>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-brand">Сохранить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{{ feed_ai_moods_editor_data|json_script:"feed-ai-moods-initial" }}
+<script>
+(function () {
+  var form = document.getElementById('feed-ai-moods-form');
+  var tbody = document.getElementById('feed-ai-moods-tbody');
+  var jsonField = document.getElementById('feed-ai-moods-json');
+  var initialEl = document.getElementById('feed-ai-moods-initial');
+  if (!form || !tbody || !jsonField || !initialEl) return;
+
+  function readInitial() {
+    try {
+      return JSON.parse(initialEl.textContent);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function addRow(m) {
+    m = m || { id: '', label: '', title: '', instruction: '' };
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><input type="text" class="form-control form-control-sm js-m-id" value="' + escapeAttr(m.id) + '" placeholder="neutral" maxlength="40"></td>' +
+      '<td><input type="text" class="form-control form-control-sm js-m-label" value="' + escapeAttr(m.label) + '" maxlength="80"></td>' +
+      '<td><input type="text" class="form-control form-control-sm js-m-title" value="' + escapeAttr(m.title) + '" maxlength="200"></td>' +
+      '<td><textarea class="form-control form-control-sm js-m-inst" rows="2" maxlength="2000">' + escapeText(m.instruction) + '</textarea></td>' +
+      '<td><button type="button" class="btn btn-outline-danger btn-sm js-m-del" title="Удалить"><i class="bi bi-trash"></i></button></td>';
+    tr.querySelector('.js-m-del').addEventListener('click', function () {
+      tr.remove();
+    });
+    tbody.appendChild(tr);
+  }
+
+  function escapeAttr(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+  function escapeText(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  var data = readInitial();
+  if (!data.length) {
+    addRow({ id: 'neutral', label: 'Нейтрально', title: 'Спокойно и по делу', instruction: 'Нейтральный редакторский тон.' });
+  } else {
+    data.forEach(addRow);
+  }
+
+  document.getElementById('feed-ai-moods-add-row').addEventListener('click', function () {
+    addRow({ id: '', label: '', title: '', instruction: '' });
+  });
+
+  form.addEventListener('submit', function () {
+    var rows = tbody.querySelectorAll('tr');
+    var out = [];
+    rows.forEach(function (tr) {
+      out.push({
+        id: (tr.querySelector('.js-m-id') && tr.querySelector('.js-m-id').value || '').trim().toLowerCase(),
+        label: (tr.querySelector('.js-m-label') && tr.querySelector('.js-m-label').value || '').trim(),
+        title: (tr.querySelector('.js-m-title') && tr.querySelector('.js-m-title').value || '').trim(),
+        instruction: (tr.querySelector('.js-m-inst') && tr.querySelector('.js-m-inst').value || '').trim()
+      });
+    });
+    jsonField.value = JSON.stringify(out);
+  });
+})();
+</script>

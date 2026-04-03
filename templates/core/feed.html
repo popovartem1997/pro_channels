@@ -214,13 +214,6 @@
               </div>
             {% endif %}
 
-            {% if it.kind == 'subscriber' and it.obj and it.status != 'rejected' %}
-              <div class="mt-2 w-100">
-                {% url 'content:ai_from_suggestion' tracking_id=it.obj.tracking_id as subscriber_ai_url %}
-                {% include 'includes/ai_post_mood_block.html' with ai_form_url=subscriber_ai_url %}
-              </div>
-            {% endif %}
-
             {% if it.kind == 'parsing' and it.obj %}
               <div class="mt-3 w-100">
                 <div class="d-flex flex-wrap gap-2 align-items-center">
@@ -242,10 +235,12 @@
                   </form>
                   {% endif %}
                 </div>
+                {% if it.status == 'pending' %}
                 <div class="mt-2 w-100">
                   {% url 'parsing:item_ai_to_post' it.obj.pk as parsing_ai_url %}
-                  {% include 'includes/ai_post_mood_block.html' with ai_form_url=parsing_ai_url %}
+                  {% include 'includes/ai_post_mood_block_parsing.html' with ai_form_url=parsing_ai_url ai_post_moods=it.parse_ai_moods %}
                 </div>
+                {% endif %}
               </div>
             {% endif %}
 
@@ -319,6 +314,10 @@
       Записей пока нет
     </div>
   </div>
+{% endif %}
+
+{% if feed_ai_can_edit_moods and feed_ai_editor_owner %}
+  {% include 'includes/feed_ai_moods_modal.html' %}
 {% endif %}
 {% endblock %}
 
