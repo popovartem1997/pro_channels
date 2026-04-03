@@ -802,7 +802,9 @@ def owner_campaign_detail(request, pk: int):
         messages.error(request, 'Нет доступа.')
         return redirect('dashboard')
     app = get_object_or_404(
-        AdApplication.objects.select_related('advertiser', 'channel', 'channel__owner', 'post')
+        AdApplication.objects.select_related(
+            'advertiser', 'channel', 'channel__owner', 'post', 'invoice',
+        )
         .prefetch_related('post__media_files', 'campaign_posts'),
         pk=pk,
         channel__owner=request.user,
@@ -819,10 +821,40 @@ def owner_campaign_detail(request, pk: int):
         ):
             ord_rows.append(r)
 
+    inv = app.invoice
+    pm_ok = app.payment_method in (
+        AdApplication.PAY_TRANSFER,
+        AdApplication.PAY_PAYMENT_LINK,
+    )
+    owner_confirm_initial = bool(
+        pm_ok
+        and inv
+        and inv.status != Invoice.STATUS_PAID
+        and app.status == AdApplication.STATUS_AWAITING_PAYMENT
+    )
+    owner_confirm_retry_fulfill = bool(
+        pm_ok
+        and inv
+        and inv.status == Invoice.STATUS_PAID
+        and app.status == AdApplication.STATUS_PAID
+        and not app.campaign_posts.exists()
+    )
+    owner_confirm_js_prompt = (
+        'Снова создать посты по слотам? Оплата уже учтена, повтор безопасен.'
+        if owner_confirm_retry_fulfill
+        else 'Подтвердить поступление оплаты и запустить публикации?'
+    )
+
     return render(
         request,
         'advertisers/owner_campaign_detail.html',
-        {'app': app, 'ord_rows': ord_rows},
+        {
+            'app': app,
+            'ord_rows': ord_rows,
+            'owner_confirm_initial': owner_confirm_initial,
+            'owner_confirm_retry_fulfill': owner_confirm_retry_fulfill,
+            'owner_confirm_js_prompt': owner_confirm_js_prompt,
+        },
     )
 
 
@@ -944,23 +976,57 @@ def owner_campaign_confirm_payment(request, pk: int):
         messages.error(request, 'Подтверждение доступно для заявок со счётом (перевод или оплата по ссылке).')
         return redirect('advertisers:owner_campaign_detail', pk=pk)
 
-    app.transfer_marked_received = True
-    app.invoice.status = Invoice.STATUS_PAID
-    app.invoice.paid_at = timezone.now()
-    app.invoice.save(update_fields=['status', 'paid_at'])
-    app.status = AdApplication.STATUS_PAID
-    app.save(update_fields=['transfer_marked_received', 'status', 'updated_at'])
+    app = AdApplication.objects.select_related('invoice').get(pk=app.pk)
+    is_first_confirm = (
+        app.status == AdApplication.STATUS_AWAITING_PAYMENT
+        and app.invoice
+        and app.invoice.status != Invoice.STATUS_PAID
+    )
+    is_retry_fulfill = (
+        app.status == AdApplication.STATUS_PAID
+        and app.invoice
+        and app.invoice.status == Invoice.STATUS_PAID
+        and not app.campaign_posts.exists()
+    )
+    if not is_first_confirm and not is_retry_fulfill:
+        messages.error(
+            request,
+            'Подтверждение сейчас недоступно: ожидается оплата по счёту или посты по заявке уже созданы.',
+        )
+        return redirect('advertisers:owner_campaign_detail', pk=pk)
+
+    if is_first_confirm:
+        app.transfer_marked_received = True
+        app.invoice.status = Invoice.STATUS_PAID
+        app.invoice.paid_at = timezone.now()
+        app.invoice.save(update_fields=['status', 'paid_at'])
+        app.status = AdApplication.STATUS_PAID
+        app.save(update_fields=['transfer_marked_received', 'status', 'updated_at'])
+
     try:
         ok, reason = fulfill_paid_ad_application(app)
         if ok:
-            messages.success(request, 'Оплата подтверждена, посты поставлены в расписание.')
+            if is_retry_fulfill:
+                messages.success(request, 'Посты по слотам созданы и поставлены в расписание.')
+            else:
+                messages.success(request, 'Оплата подтверждена, посты поставлены в расписание.')
         else:
-            messages.warning(
-                request,
-                'Оплата отмечена, но посты по слотам не созданы. '
-                + (reason or 'Проверьте черновик и слоты, затем снова нажмите «Подтвердить оплату» (повтор безопасен).'),
-            )
+            if is_retry_fulfill:
+                messages.warning(
+                    request,
+                    'Посты по слотам всё ещё не созданы. '
+                    + (reason or 'Пусть рекламодатель проверит черновик и слоты, затем нажмите кнопку снова.'),
+                )
+            else:
+                messages.warning(
+                    request,
+                    'Оплата отмечена, но посты по слотам не созданы. '
+                    + (reason or 'Проверьте черновик и слоты, затем снова нажмите «Подтвердить оплату» (повтор безопасен).'),
+                )
     except Exception as e:
         logger.exception('fulfill after transfer')
-        messages.warning(request, f'Оплата отмечена, но публикации нужно проверить: {e}')
+        if is_retry_fulfill:
+            messages.warning(request, f'Не удалось создать посты: {e}')
+        else:
+            messages.warning(request, f'Оплата отмечена, но публикации нужно проверить: {e}')
     return redirect('advertisers:owner_campaign_detail', pk=pk)

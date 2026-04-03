@@ -143,11 +143,19 @@
 </div>
 {% endif %}
 
-{% if app.payment_method == 'transfer' or app.payment_method == 'payment_link' %}
-{% if app.invoice and app.invoice.status != 'paid' and app.status == 'awaiting_payment' %}
+{% if owner_confirm_initial or owner_confirm_retry_fulfill %}
 <div class="card border-warning mb-4">
-  <div class="card-header bg-transparent fw-semibold">Подтверждение оплаты</div>
+  <div class="card-header bg-transparent fw-semibold">
+    {% if owner_confirm_retry_fulfill %}
+    Повторно создать посты по слотам
+    {% else %}
+    Подтверждение оплаты
+    {% endif %}
+  </div>
   <div class="card-body small">
+    {% if owner_confirm_retry_fulfill %}
+    <p class="text-muted mb-3">Счёт уже оплачен, но публикации по слотам не появились (например, не хватало текста в черновике или слотов). Пусть рекламодатель нажмёт «Исправить данные», сохранит правки, затем нажмите кнопку ниже — оплата не дублируется, создаются только посты.</p>
+    {% endif %}
     {% if app.payment_method == 'transfer' and app.transfer_dest_card_number %}
     <p class="mb-1"><span class="text-muted">Вы указывали рекламодателю:</span> {{ app.transfer_dest_card_number }}, {{ app.transfer_dest_bank_name }}, {{ app.transfer_dest_recipient_hint }}</p>
     {% endif %}
@@ -159,17 +167,16 @@
     <a href="{{ app.transfer_screenshot.url }}" target="_blank" rel="noopener noreferrer" class="d-inline-block mb-3">
       <img src="{{ app.transfer_screenshot.url }}" alt="Скриншот перевода" class="img-fluid rounded border" style="max-height:220px;">
     </a>
-    {% else %}
+    {% elif owner_confirm_initial %}
     <p class="text-muted mb-3">Рекламодатель ещё не приложил скриншот — при необходимости дождитесь или уточните у него.</p>
     {% endif %}
     <form method="post" action="{% url 'advertisers:owner_campaign_confirm_payment' app.pk %}"
-          onsubmit="return confirm('Подтвердить поступление оплаты и запустить публикации?');">
+          onsubmit="return confirm('{{ owner_confirm_js_prompt|escapejs }}');">
       {% csrf_token %}
-      <button type="submit" class="btn btn-warning">Подтвердить оплату</button>
+      <button type="submit" class="btn btn-warning">{% if owner_confirm_retry_fulfill %}Создать посты по слотам{% else %}Подтвердить оплату{% endif %}</button>
     </form>
   </div>
 </div>
-{% endif %}
 {% endif %}
 
 <h6 class="fw-bold">Посты кампании</h6>
