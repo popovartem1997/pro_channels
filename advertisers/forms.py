@@ -9,6 +9,7 @@ class AdvertiserRequisitesForm(forms.ModelForm):
     class Meta:
         model = Advertiser
         fields = [
+            'ord_model_scheme',
             'company_name',
             'inn',
             'kpp',
@@ -23,6 +24,7 @@ class AdvertiserRequisitesForm(forms.ModelForm):
             'bank_corr_account',
         ]
         widgets = {
+            'ord_model_scheme': forms.Select(attrs={'class': 'form-select'}),
             'company_name': forms.TextInput(attrs={'class': 'form-control'}),
             'inn': forms.TextInput(attrs={'class': 'form-control', 'maxlength': '12', 'inputmode': 'numeric'}),
             'kpp': forms.TextInput(attrs={'class': 'form-control', 'maxlength': '9'}),

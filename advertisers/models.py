@@ -33,6 +33,28 @@ class Advertiser(models.Model):
         blank=True,
         help_text='Из кабинета ord.vk.com — для креативов с привязкой к рекламодателю (person).',
     )
+    ORD_MODEL_SCHEME_AUTO = ''
+    ORD_MODEL_SCHEME_JURIDICAL = 'juridical'
+    ORD_MODEL_SCHEME_IP = 'ip'
+    ORD_MODEL_SCHEME_PHYSICAL = 'physical'
+    ORD_MODEL_SCHEME_FOREIGN_JURIDICAL = 'foreign_juridical'
+    ORD_MODEL_SCHEME_FOREIGN_PHYSICAL = 'foreign_physical'
+    ORD_MODEL_SCHEME_CHOICES = [
+        (ORD_MODEL_SCHEME_AUTO, 'Авто по ИНН (10 цифр — юрлицо, 12 — ИП)'),
+        (ORD_MODEL_SCHEME_JURIDICAL, 'Юридическое лицо (ООО, АО и т.п.)'),
+        (ORD_MODEL_SCHEME_IP, 'Индивидуальный предприниматель (ИП)'),
+        (ORD_MODEL_SCHEME_PHYSICAL, 'Физическое лицо (РФ)'),
+        (ORD_MODEL_SCHEME_FOREIGN_JURIDICAL, 'Иностранное юридическое лицо'),
+        (ORD_MODEL_SCHEME_FOREIGN_PHYSICAL, 'Иностранное физическое лицо'),
+    ]
+    ord_model_scheme = models.CharField(
+        'Тип контрагента для ВК ОРД',
+        max_length=32,
+        blank=True,
+        choices=ORD_MODEL_SCHEME_CHOICES,
+        default='',
+        help_text='Передаётся в ОРД как model_scheme. Если «Авто» — берётся по длине ИНН; при 12 цифрах уточните ИП или физлицо вручную.',
+    )
     created_at = models.DateTimeField('Создан', auto_now_add=True)
 
     class Meta:

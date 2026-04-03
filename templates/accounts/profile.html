@@ -63,6 +63,12 @@
             <div class="alert alert-danger small">{{ adv_form.non_field_errors }}</div>
           {% endif %}
           <div class="mb-3">
+            <label class="form-label fw-semibold" for="{{ adv_form.ord_model_scheme.id_for_label }}">{{ adv_form.ord_model_scheme.label }}</label>
+            {{ adv_form.ord_model_scheme }}
+            {% if adv_form.ord_model_scheme.help_text %}<div class="form-text">{{ adv_form.ord_model_scheme.help_text }}</div>{% endif %}
+            {% for e in adv_form.ord_model_scheme.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="mb-3">
             <label class="form-label fw-semibold">{{ adv_form.company_name.label }}</label>
             {{ adv_form.company_name }}
             {% for e in adv_form.company_name.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
