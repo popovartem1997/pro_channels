@@ -15,6 +15,7 @@
 """
 
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
 from channels.models import HistoryImportRun
 from channels.tasks import import_tg_history_to_max_task
@@ -53,7 +54,19 @@ class Command(BaseCommand):
             return
 
         for pk in ids:
-            import_tg_history_to_max_task.delay(pk)
-            self.stdout.write('Отправлено в очередь: run_id=%s' % pk)
+            ar = import_tg_history_to_max_task.delay(pk)
+            run = HistoryImportRun.objects.filter(pk=pk).first()
+            if run:
+                j = dict(run.progress_json or {})
+                log = list(j.get('journal') or [])
+                log.append(
+                    {
+                        't': timezone.now().isoformat(timespec='seconds'),
+                        'msg': f'Повторно отправлено в Celery (id: {ar.id}).',
+                    }
+                )
+                j['journal'] = log[-50:]
+                HistoryImportRun.objects.filter(pk=pk).update(celery_task_id=ar.id, progress_json=j)
+            self.stdout.write('Отправлено в очередь: run_id=%s celery=%s' % (pk, ar.id))
 
         self.stdout.write(self.style.SUCCESS('Готово. Убедитесь, что контейнеры celery и redis запущены.'))

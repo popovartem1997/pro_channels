@@ -19,5 +19,6 @@ urlpatterns = [
     path('<int:pk>/import-history/', views.channel_import_history, name='import_history'),
     path('import-history/start/', views.import_history_start, name='import_history_start'),
     path('import-history/status/<int:pk>/', views.import_history_status, name='import_history_status'),
+    path('import-history/diagnostics/', views.import_history_diagnostics, name='import_history_diagnostics'),
     path('import-history/stop/<int:pk>/', views.import_history_stop, name='import_history_stop'),
 ]

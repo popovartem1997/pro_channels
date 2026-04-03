@@ -119,6 +119,26 @@ def _update_progress(run_id: int, *, sent=None, errors=None, last_tg_message_id=
         pass
 
 
+def _append_import_journal(run_id: int, message: str) -> None:
+    """Короткий журнал в progress_json.journal — виден в UI и в админке без отдельной таблицы."""
+    try:
+        with transaction.atomic():
+            run = HistoryImportRun.objects.select_for_update().get(pk=run_id)
+            p = dict(run.progress_json or {})
+            log = list(p.get('journal') or [])
+            log.append(
+                {
+                    't': timezone.now().isoformat(timespec='seconds'),
+                    'msg': (message or '')[:500],
+                }
+            )
+            p['journal'] = log[-50:]
+            run.progress_json = p
+            run.save(update_fields=['progress_json', 'updated_at'])
+    except Exception:
+        pass
+
+
 @shared_task(bind=True, max_retries=0)
 def import_tg_history_to_max_task(self, run_id: int):
     """
@@ -134,19 +154,29 @@ def import_tg_history_to_max_task(self, run_id: int):
     except HistoryImportRun.DoesNotExist:
         return
 
+    celery_tid = getattr(getattr(self, 'request', None), 'id', None) or ''
+    logger.info('history_import run_id=%s celery_task_id=%s', run_id, celery_tid)
+
     if run.status in (HistoryImportRun.STATUS_DONE, HistoryImportRun.STATUS_CANCELLED):
         return
 
     if run.cancel_requested:
+        _append_import_journal(run_id, 'Отмена: запись помечена до старта воркера.')
         run.status = HistoryImportRun.STATUS_CANCELLED
         run.finished_at = timezone.now()
         run.save(update_fields=['status', 'finished_at'])
         return
 
+    _append_import_journal(
+        run_id,
+        f'Воркер Celery принял задачу{f" (id: {celery_tid})" if celery_tid else ""}. Проверка каналов и ключей…',
+    )
+
     # Validate channels
     source = run.source_channel
     target = run.target_channel
     if source.platform != Channel.PLATFORM_TELEGRAM or target.platform != Channel.PLATFORM_MAX:
+        _append_import_journal(run_id, 'Ошибка: нужна пара каналов Telegram → MAX.')
         run.status = HistoryImportRun.STATUS_ERROR
         run.error_message = 'Некорректные каналы для импорта (нужен Telegram → MAX).'
         run.finished_at = timezone.now()
@@ -157,6 +187,7 @@ def import_tg_history_to_max_task(self, run_id: int):
     api_id = (keys.telegram_api_id or '').strip()
     api_hash = (keys.get_telegram_api_hash() or '').strip()
     if not api_id or not api_hash:
+        _append_import_journal(run_id, 'Ошибка: не заданы TELEGRAM_API_ID / TELEGRAM_API_HASH (Ключи API).')
         run.status = HistoryImportRun.STATUS_ERROR
         run.error_message = 'TELEGRAM_API_ID / TELEGRAM_API_HASH не заданы (Ключи API → Парсинг Telegram).'
         run.finished_at = timezone.now()
@@ -177,6 +208,10 @@ def import_tg_history_to_max_task(self, run_id: int):
             status=HistoryImportRun.STATUS_RUNNING,
         ).exclude(pk=run.pk).first()
         if competing:
+            _append_import_journal(
+                run_id,
+                f'Ошибка: пара каналов занята активным импортом #{competing.pk}.',
+            )
             run.status = HistoryImportRun.STATUS_ERROR
             run.error_message = f'Уже выполняется импорт #{competing.pk} для этой пары каналов.'
             run.finished_at = timezone.now()
@@ -186,6 +221,11 @@ def import_tg_history_to_max_task(self, run_id: int):
         run.started_at = timezone.now()
         run.error_message = ''
         run.save(update_fields=['status', 'started_at', 'error_message'])
+
+    _append_import_journal(
+        run_id,
+        'Статус «В работе». Далее — блокировка сессии Telethon и перебор сообщений.',
+    )
 
     sent = int((run.progress_json or {}).get('sent') or 0)
     errors = int((run.progress_json or {}).get('errors') or 0)
@@ -462,8 +502,14 @@ def import_tg_history_to_max_task(self, run_id: int):
                 raise asyncio.CancelledError()
             if HistoryImportRun.objects.filter(pk=run_id, status=HistoryImportRun.STATUS_CANCELLED).exists():
                 raise asyncio.CancelledError()
+            if lock_attempt == 0:
+                _append_import_journal(
+                    run_id,
+                    'Запрос блокировки сессии Telethon (если занято парсингом — возможно долгое ожидание).',
+                )
             try:
                 with _telethon_session_lock(source.owner_id):
+                    _append_import_journal(run_id, 'Сессия захвачена, загрузка истории сообщений из Telegram…')
                     asyncio.run(_do_import())
                 lock_last_err = None
                 break
@@ -474,6 +520,10 @@ def import_tg_history_to_max_task(self, run_id: int):
                     _set_run_error_message(
                         'Ожидаю освобождения Telegram-сессии (импорт истории или парсинг того же файла сессии). '
                         f'Повтор через 45с. Детали: {msg}'
+                    )
+                    _append_import_journal(
+                        run_id,
+                        f'Сессия занята, пауза 45 с (попытка {lock_attempt + 1}/12).',
                     )
                     time.sleep(45)
                     continue
@@ -486,29 +536,51 @@ def import_tg_history_to_max_task(self, run_id: int):
         final_progress = {'sent': sent, 'errors': errors, 'last_tg_message_id': last_tg_message_id}
         now = timezone.now()
         if fresh.cancel_requested or fresh.status == HistoryImportRun.STATUS_CANCELLED:
+            _append_import_journal(run_id, 'Импорт остановлен пользователем.')
+            fresh = HistoryImportRun.objects.get(pk=run_id)
+            pj = dict(fresh.progress_json or {})
+            log = list(pj.get('journal') or [])
+            pj.update(final_progress)
+            pj['journal'] = log[-50:]
             fresh.status = HistoryImportRun.STATUS_CANCELLED
             fresh.finished_at = now
-            pj = dict(fresh.progress_json or {})
-            pj.update(final_progress)
             fresh.progress_json = pj
             fresh.updated_at = now
             fresh.save(update_fields=['status', 'finished_at', 'progress_json', 'updated_at'])
         else:
+            _append_import_journal(run_id, 'Импорт завершён успешно.')
+            fresh = HistoryImportRun.objects.get(pk=run_id)
+            pj = dict(fresh.progress_json or {})
+            log = list(pj.get('journal') or [])
+            pj.update(final_progress)
+            pj['journal'] = log[-50:]
             fresh.status = HistoryImportRun.STATUS_DONE
             fresh.finished_at = now
-            fresh.progress_json = final_progress
+            fresh.progress_json = pj
             fresh.updated_at = now
             fresh.save(update_fields=['status', 'finished_at', 'progress_json', 'updated_at'])
     except asyncio.CancelledError:
+        _append_import_journal(run_id, 'Импорт отменён (cancel / остановка).')
+        run = HistoryImportRun.objects.get(pk=run_id)
+        pj = dict(run.progress_json or {})
+        log = list(pj.get('journal') or [])
+        pj.update({'sent': sent, 'errors': errors, 'last_tg_message_id': last_tg_message_id})
+        pj['journal'] = log[-50:]
         run.status = HistoryImportRun.STATUS_CANCELLED
         run.finished_at = timezone.now()
-        run.progress_json = {'sent': sent, 'errors': errors, 'last_tg_message_id': last_tg_message_id}
+        run.progress_json = pj
         run.save(update_fields=['status', 'finished_at', 'progress_json'])
     except Exception as exc:
+        _append_import_journal(run_id, f'Ошибка: {str(exc)[:400]}')
+        run = HistoryImportRun.objects.get(pk=run_id)
+        pj = dict(run.progress_json or {})
+        log = list(pj.get('journal') or [])
+        pj.update({'sent': sent, 'errors': errors, 'last_tg_message_id': last_tg_message_id})
+        pj['journal'] = log[-50:]
         run.status = HistoryImportRun.STATUS_ERROR
         run.finished_at = timezone.now()
         run.error_message = str(exc)
-        run.progress_json = {'sent': sent, 'errors': errors, 'last_tg_message_id': last_tg_message_id}
+        run.progress_json = pj
         run.save(update_fields=['status', 'finished_at', 'error_message', 'progress_json'])
         logger.exception('Import run=%s failed: %s', run_id, exc)
 

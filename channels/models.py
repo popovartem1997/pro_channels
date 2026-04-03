@@ -513,6 +513,14 @@ class HistoryImportRun(models.Model):
 
     cancel_requested = models.BooleanField(default=False, db_index=True)
 
+    celery_task_id = models.CharField(
+        'ID задачи Celery',
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Идентификатор задачи в брокере (для диагностики очереди).',
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

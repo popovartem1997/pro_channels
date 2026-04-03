@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.utils.html import escape, format_html
 from .models import (
     Channel,
     ChannelAdAddon,
@@ -6,6 +7,7 @@ from .models import (
     ChannelGroup,
     ChannelInterestingFacts,
     ChannelMorningDigest,
+    HistoryImportRun,
 )
 
 
@@ -50,6 +52,64 @@ class ChannelMorningDigestAdmin(admin.ModelAdmin):
     list_filter = ['is_enabled']
     search_fields = ['channel__name']
     raw_id_fields = ['channel']
+
+
+@admin.register(HistoryImportRun)
+class HistoryImportRunAdmin(admin.ModelAdmin):
+    list_display = [
+        'pk',
+        'status',
+        'source_channel',
+        'target_channel',
+        'created_by',
+        'celery_task_id_short',
+        'started_at',
+        'finished_at',
+        'progress_sent',
+    ]
+    list_filter = ['status']
+    search_fields = ['celery_task_id', 'error_message', 'source_channel__name', 'target_channel__name']
+    readonly_fields = [
+        'created_by',
+        'source_channel',
+        'target_channel',
+        'status',
+        'started_at',
+        'finished_at',
+        'progress_json',
+        'journal_formatted',
+        'error_message',
+        'cancel_requested',
+        'celery_task_id',
+        'created_at',
+        'updated_at',
+    ]
+    raw_id_fields = ['created_by', 'source_channel', 'target_channel']
+
+    @admin.display(description='Celery id')
+    def celery_task_id_short(self, obj):
+        s = (obj.celery_task_id or '').strip()
+        return (s[:16] + '…') if len(s) > 18 else s or '—'
+
+    @admin.display(description='Отправлено')
+    def progress_sent(self, obj):
+        pj = obj.progress_json or {}
+        return pj.get('sent', '—')
+
+    @admin.display(description='Журнал')
+    def journal_formatted(self, obj):
+        lines = (obj.progress_json or {}).get('journal') or []
+        if not lines:
+            return '—'
+        parts = []
+        for row in lines[-30:]:
+            t = escape(str(row.get('t', '')))
+            m = escape(str(row.get('msg', '')))
+            parts.append(f'{t}  {m}')
+        return format_html('<pre style="white-space:pre-wrap;max-height:320px;overflow:auto;">{}</pre>', '\n'.join(parts))
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(Channel)

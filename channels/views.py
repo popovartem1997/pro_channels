@@ -705,7 +705,20 @@ def import_history_start(request):
 
     try:
         from .tasks import import_tg_history_to_max_task
-        import_tg_history_to_max_task.delay(run.pk)
+
+        async_result = import_tg_history_to_max_task.delay(run.pk)
+        j = dict(run.progress_json or {})
+        log = list(j.get('journal') or [])
+        log.append(
+            {
+                't': timezone.now().isoformat(timespec='seconds'),
+                'msg': f'Задача поставлена в очередь Celery (id: {async_result.id}). Ожидание свободного воркера…',
+            }
+        )
+        j['journal'] = log[-50:]
+        run.celery_task_id = async_result.id
+        run.progress_json = j
+        run.save(update_fields=['celery_task_id', 'progress_json'])
     except Exception as exc:
         run.status = HistoryImportRun.STATUS_ERROR
         run.error_message = f'Не удалось поставить задачу в очередь: {exc}'
@@ -732,11 +745,102 @@ def import_history_status(request, pk: int):
             'finished_at': run.finished_at.isoformat() if run.finished_at else None,
             'progress': run.progress_json or {},
             'error_message': run.error_message or '',
+            'celery_task_id': run.celery_task_id or '',
             'source_channel': {'id': run.source_channel_id, 'name': run.source_channel.name},
             'target_channel': {'id': run.target_channel_id, 'name': run.target_channel.name},
             'cancel_requested': bool(run.cancel_requested),
         }
     })
+
+
+@login_required
+def import_history_diagnostics(request):
+    """
+    Сводка для отладки «висит в очереди»: записи pending/running в БД и ответ Celery inspect.
+    """
+    from pro_channels.celery import app as celery_app
+
+    qs = HistoryImportRun.objects.select_related('source_channel', 'target_channel')
+    if not (request.user.is_staff or request.user.is_superuser):
+        qs = qs.filter(created_by=request.user)
+
+    pending = list(qs.filter(status=HistoryImportRun.STATUS_PENDING).order_by('-created_at')[:30])
+    running = list(qs.filter(status=HistoryImportRun.STATUS_RUNNING).order_by('-created_at')[:30])
+
+    def _run_short(r):
+        return {
+            'id': r.pk,
+            'status': r.status,
+            'celery_task_id': r.celery_task_id or '',
+            'source': r.source_channel.name,
+            'target': r.target_channel.name,
+            'created_at': r.created_at.isoformat(timespec='seconds'),
+            'started_at': r.started_at.isoformat(timespec='seconds') if r.started_at else None,
+        }
+
+    celery_workers = []
+    celery_error = None
+    active_history = []
+    reserved_history = []
+    try:
+        insp = celery_app.control.inspect(timeout=2.0)
+        if insp is None:
+            celery_error = 'inspect() вернул None — нет связи с брокером или воркерами.'
+        else:
+            ping = insp.ping()
+            celery_workers = list((ping or {}).keys())
+            for worker, tasks in (insp.active() or {}).items():
+                for t in tasks or []:
+                    name = t.get('name') or ''
+                    if 'import_tg_history' in name:
+                        active_history.append(
+                            {
+                                'worker': worker,
+                                'task_id': t.get('id', ''),
+                                'name': name,
+                                'args': str(t.get('args', ''))[:180],
+                            }
+                        )
+            for worker, tasks in (insp.reserved() or {}).items():
+                for t in tasks or []:
+                    if not isinstance(t, dict):
+                        continue
+                    name = t.get('name') or ''
+                    if 'import_tg_history' in name:
+                        reserved_history.append(
+                            {
+                                'worker': worker,
+                                'task_id': str(t.get('id', '')),
+                                'name': name,
+                                'args': str(t.get('args', ''))[:180],
+                            }
+                        )
+    except Exception as exc:
+        celery_error = str(exc)
+
+    broker = (getattr(settings, 'CELERY_BROKER_URL', None) or '').strip()
+    broker_tail = ''
+    if broker:
+        broker_tail = broker.split('@')[-1] if '@' in broker else broker[:120]
+
+    return JsonResponse(
+        {
+            'ok': True,
+            'pending': [_run_short(r) for r in pending],
+            'running': [_run_short(r) for r in running],
+            'celery': {
+                'workers': celery_workers,
+                'active_history_import_tasks': active_history,
+                'reserved_history_import_tasks': reserved_history,
+                'error': celery_error,
+            },
+            'broker_host': broker_tail,
+            'hints': [
+                'Если pending не пустой, а workers пустой — контейнер celery не запущен или другой CELERY_BROKER_URL, чем у web.',
+                'Команда: python manage.py requeue_pending_history_imports',
+            ],
+        }
+    )
 
 
 @login_required
