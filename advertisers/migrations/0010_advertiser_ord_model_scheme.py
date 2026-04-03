@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
                     ('foreign_physical', 'Иностранное физическое лицо'),
                 ],
                 default='',
-                help_text='Передаётся в ОРД как model_scheme. Если «Авто» — берётся по длине ИНН; при 12 цифрах уточните ИП или физлицо вручную.',
+                help_text='Передаётся в ОРД в juridical_details.type. Если «Авто» — по длине ИНН; при 12 цифрах уточните ИП или физлицо.',
                 max_length=32,
                 verbose_name='Тип контрагента для ВК ОРД',
             ),

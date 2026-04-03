@@ -31,7 +31,7 @@ def contract_external_id_for_advertiser(adv: Advertiser) -> str:
 
 def _ord_juridical_model_scheme(inn: str) -> str:
     """
-    Обязательное поле juridical_details.model_scheme в API ОРД (PersonCreateOrUpdateDto).
+    Обязательное поле juridical_details.type в JSON API ОРД (physical, juridical, ip, …).
     При пустом Advertiser.ord_model_scheme — эвристика по длине ИНН (12 по умолчанию ip).
     """
     n = len((inn or '').strip())
@@ -47,8 +47,9 @@ def build_person_put_body(adv: Advertiser) -> dict:
     inn = (adv.inn or '').strip()
     chosen = (getattr(adv, 'ord_model_scheme', None) or '').strip()
     scheme = chosen if chosen else _ord_juridical_model_scheme(inn)
+    # В API ОРД ключ — «type», не «model_scheme» (см. PUT /v1/person в документации).
     jd: dict = {
-        'model_scheme': scheme,
+        'type': scheme,
         'inn': inn,
     }
     if len(inn) == 10 and (adv.kpp or '').strip():

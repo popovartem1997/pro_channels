@@ -53,7 +53,7 @@ class Advertiser(models.Model):
         blank=True,
         choices=ORD_MODEL_SCHEME_CHOICES,
         default='',
-        help_text='Передаётся в ОРД как model_scheme. Если «Авто» — берётся по длине ИНН; при 12 цифрах уточните ИП или физлицо вручную.',
+        help_text='Передаётся в ОРД в juridical_details.type. Если «Авто» — по длине ИНН; при 12 цифрах уточните ИП или физлицо.',
     )
     created_at = models.DateTimeField('Создан', auto_now_add=True)
 
