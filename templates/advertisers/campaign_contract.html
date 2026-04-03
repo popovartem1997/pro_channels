@@ -22,10 +22,11 @@
 {% endif %}
 <div class="d-flex flex-wrap gap-2 align-items-center">
   {% if app.contract_signed_at %}
-  <form method="post" action="{% url 'advertisers:campaign_submit_to_owner' app.pk %}" class="d-inline"
-        onsubmit="return confirm('Отправить заявку владельцу канала «{{ app.channel.name }}» на согласование? До одобрения оплата будет недоступна.');">
+  <form method="post" action="{% url 'advertisers:campaign_submit_to_owner' app.pk %}" id="submit-to-owner-form" class="d-inline">
     {% csrf_token %}
-    <button type="submit" class="btn btn-brand">Отправить владельцу на согласование</button>
+    <button type="button" class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#submitToOwnerModal" aria-haspopup="dialog">
+      <i class="bi bi-send me-1" aria-hidden="true"></i>Отправить владельцу на согласование
+    </button>
   </form>
   {% else %}
   <form method="post" id="sign-contract-form" class="d-inline">
@@ -40,6 +41,37 @@
     <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Назад
   </a>
 </div>
+
+{% if app.contract_signed_at %}
+<div class="modal fade" id="submitToOwnerModal" tabindex="-1" aria-labelledby="submitToOwnerModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg overflow-hidden">
+      <div class="text-center px-4 pt-4 pb-2 position-relative" style="background: linear-gradient(180deg, var(--brand-light) 0%, transparent 85%);">
+        <button type="button" class="btn-close position-absolute top-0 end-0 mt-3 me-3" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+        <div class="rounded-circle d-inline-flex align-items-center justify-content-center mb-3 shadow-sm" style="width: 64px; height: 64px; background: var(--brand); color: #fff;">
+          <i class="bi bi-send-fill fs-3" aria-hidden="true"></i>
+        </div>
+        <h5 class="modal-title fw-bold mb-0" id="submitToOwnerModalLabel">Отправить заявку владельцу?</h5>
+      </div>
+      <div class="modal-body px-4 pt-2 pb-1">
+        <p class="text-muted small text-center mb-2">
+          Заявка уйдёт владельцу канала <strong>«{{ app.channel.name }}»</strong> на согласование материалов.
+        </p>
+        <ul class="small text-muted mb-0 ps-3" style="max-width: 22rem; margin-left: auto; margin-right: auto;">
+          <li class="mb-1">До одобрения оплата будет недоступна.</li>
+          <li class="mb-0">После одобрения вы сможете перейти к оплате размещения.</li>
+        </ul>
+      </div>
+      <div class="modal-footer border-0 flex-nowrap gap-2 px-4 pb-4 pt-0 justify-content-center">
+        <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">Отмена</button>
+        <button type="button" class="btn btn-brand px-4" id="submit-to-owner-confirm">
+          <i class="bi bi-send-fill me-1" aria-hidden="true"></i>Отправить
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {% if not app.contract_signed_at %}
 <div class="modal fade" id="signContractModal" tabindex="-1" aria-labelledby="signContractModalLabel" aria-hidden="true">
@@ -66,7 +98,21 @@
 {% endblock %}
 
 {% block extra_js %}
-{% if not app.contract_signed_at %}
+{% if app.contract_signed_at %}
+<script>
+(function () {
+  var btn = document.getElementById('submit-to-owner-confirm');
+  var form = document.getElementById('submit-to-owner-form');
+  var modalEl = document.getElementById('submitToOwnerModal');
+  if (!btn || !form || !modalEl) return;
+  btn.addEventListener('click', function () {
+    var inst = bootstrap.Modal.getInstance(modalEl);
+    if (inst) inst.hide();
+    form.submit();
+  });
+})();
+</script>
+{% elif not app.contract_signed_at %}
 <script>
 (function () {
   var btn = document.getElementById('sign-contract-confirm');
