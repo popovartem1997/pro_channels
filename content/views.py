@@ -657,7 +657,10 @@ def post_edit(request, pk):
                 post.published_by = request.user
                 post.scheduled_at = None
                 post.status = Post.STATUS_PUBLISHING
-                post.save(update_fields=['published_by', 'scheduled_at', 'status'])
+                post.updated_at = timezone.now()
+                post.save(
+                    update_fields=['published_by', 'scheduled_at', 'status', 'updated_at']
+                )
             except Exception:
                 pass
             publish_post_task.delay(post.pk, force=force)
@@ -778,7 +781,10 @@ def post_publish_now(request, pk):
         # чтобы в UI сразу было видно, что это немедленная публикация.
         post.scheduled_at = None
         post.status = Post.STATUS_PUBLISHING
-        post.save(update_fields=['published_by', 'scheduled_at', 'status'])
+        post.updated_at = timezone.now()
+        post.save(
+            update_fields=['published_by', 'scheduled_at', 'status', 'updated_at']
+        )
     except Exception:
         pass
     publish_post_task.delay(post.pk, force=force)

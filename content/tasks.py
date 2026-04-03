@@ -576,6 +576,16 @@ def import_media_from_suggestion_task(self, post_id: int):
     return imported
 
 
+def _save_post_touch_updated_at(post, *fields: str) -> None:
+    """
+    save(update_fields=[...]) не обновляет поле auto_now updated_at.
+    check_scheduled_posts опирается на updated_at для повторной постановки «Публикуется»;
+    без явного touch зависшие посты не подхватываются ~N минут (или наоборот — лишние delay).
+    """
+    post.updated_at = timezone.now()
+    post.save(update_fields=[*fields, 'updated_at'])
+
+
 @shared_task(bind=True, max_retries=8, default_retry_delay=60)
 def publish_post_task(self, post_id: int, force: bool = False):
     """Публикует пост во все подключённые каналы."""
@@ -628,11 +638,12 @@ def publish_post_task(self, post_id: int, force: bool = False):
         Post.objects.filter(pk=post_id).update(
             status=Post.STATUS_SCHEDULED,
             scheduled_at=latest_pause_end,
+            updated_at=timezone.now(),
         )
         return
 
     post.status = Post.STATUS_PUBLISHING
-    post.save(update_fields=['status'])
+    _save_post_touch_updated_at(post, 'status')
 
     success_count = 0
     fail_count = 0
@@ -676,7 +687,7 @@ def publish_post_task(self, post_id: int, force: bool = False):
                             max_r,
                         )
                         post.status = Post.STATUS_FAILED
-                        post.save(update_fields=['status'])
+                        _save_post_touch_updated_at(post, 'status')
                         return
                     logger.info(
                         'Пост #%s: лимит Telegram (flood), повтор задачи через %s с',
@@ -705,7 +716,7 @@ def publish_post_task(self, post_id: int, force: bool = False):
     if success_count > 0:
         post.status = Post.STATUS_PUBLISHED
         post.published_at = timezone.now()
-        post.save(update_fields=['status', 'published_at'])
+        _save_post_touch_updated_at(post, 'status', 'published_at')
         block_min = int(getattr(post, 'ad_top_block_minutes', 0) or 0)
         if block_min > 0:
             until = timezone.now() + datetime.timedelta(minutes=block_min)
@@ -719,7 +730,7 @@ def publish_post_task(self, post_id: int, force: bool = False):
             _auto_register_ord(post)
     elif fail_count > 0:
         post.status = Post.STATUS_FAILED
-        post.save(update_fields=['status'])
+        _save_post_touch_updated_at(post, 'status')
     else:
         n_ch = post.channels.count()
         if n_ch == 0:
@@ -731,7 +742,7 @@ def publish_post_task(self, post_id: int, force: bool = False):
                 n_ch,
             )
         post.status = Post.STATUS_FAILED
-        post.save(update_fields=['status'])
+        _save_post_touch_updated_at(post, 'status')
 
 
 def _auto_register_ord(post):
