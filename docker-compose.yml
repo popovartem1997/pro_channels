@@ -29,6 +29,8 @@ services:
     environment:
       CELERY_BROKER_URL: redis://redis:6379/0
       DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
+      # Из .env иногда остаётся True — тогда .delay() в web и не попадает в Redis.
+      CELERY_TASK_ALWAYS_EAGER: "false"
     ports:
       # Временно открываем web наружу по IP:8001 (пока домен/HTTPS в процессе настройки)
       - "8001:8000"
@@ -61,8 +63,10 @@ services:
     environment:
       CELERY_BROKER_URL: redis://redis:6379/0
       DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
-    # Явно слушаем очередь celery (как CELERY_TASK_DEFAULT_QUEUE в settings).
-    command: celery -A pro_channels worker -l INFO -Q celery
+      CELERY_TASK_ALWAYS_EAGER: "false"
+    # -c 3: на VPS с 1 CPU по умолчанию был бы один процесс — долгий импорт истории
+    # блокировал бы парсинг и остальные задачи в очереди «навсегда».
+    command: celery -A pro_channels worker -l INFO -Q celery -c 3
     depends_on:
       redis:
         condition: service_started
@@ -78,6 +82,7 @@ services:
     environment:
       CELERY_BROKER_URL: redis://redis:6379/0
       DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
+      CELERY_TASK_ALWAYS_EAGER: "false"
     command: celery -A pro_channels beat -l INFO
     depends_on:
       redis:

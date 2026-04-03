@@ -75,7 +75,12 @@ def _telethon_session_lock(owner_id: int):
         yield
         return
 
-    r = redis.from_url(url)
+    r = redis.from_url(
+        url,
+        socket_connect_timeout=5,
+        socket_timeout=5,
+        health_check_interval=30,
+    )
     lock_name = _telethon_redis_lock_key(owner_id)
     lock = r.lock(
         lock_name,
@@ -182,6 +187,7 @@ def execute_parse_task(self, task_id: int):
 
     if not keywords:
         logger.info(f'ParseTask #{task_id}: нет активных ключевых слов, пропуск')
+        ParseTask.objects.filter(pk=task_id).update(last_run_at=timezone.now())
         return
 
     total_found = 0
