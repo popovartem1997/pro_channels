@@ -92,31 +92,63 @@ def _telethon_session_lock(
         health_check_interval=30,
     )
     lock_name = _telethon_redis_lock_key(owner_id)
-    lock = r.lock(lock_name, timeout=hold, blocking_timeout=None)
+    # Только неблокирующий acquire в цикле + sleep в Python. Блокирующий acquire(blocking=True)
+    # в redis-py на пуле с соединениями иногда «залипает» без уважения blocking_timeout — импорт
+    # вечно на шаге 4 без новых записей в журнале.
+    lock = r.lock(lock_name, timeout=hold)
     acquired = False
     wait_start = time.monotonic()
     deadline = wait_start + wait
+    # Интервал между попытками SET NX (сек.): не чаще чем нужно для журнала/нагрузки на Redis.
+    poll_interval = max(0.25, min(4.0, float(wait_chunk)))
+    last_tick_at = wait_start
     try:
         while True:
             now = time.monotonic()
             remaining = deadline - now
             if remaining <= 0:
                 break
-            chunk = min(wait_chunk, remaining)
-            acquired = lock.acquire(blocking=True, blocking_timeout=chunk)
+            try:
+                acquired = bool(lock.acquire(blocking=False))
+            except redis.RedisError as exc:
+                logger.warning(
+                    'Telethon Redis lock poll error owner_id=%s key=%s: %s',
+                    owner_id,
+                    lock_name,
+                    exc,
+                )
+                acquired = False
+            except Exception as exc:
+                logger.warning(
+                    'Telethon Redis lock poll unexpected error owner_id=%s key=%s: %s',
+                    owner_id,
+                    lock_name,
+                    exc,
+                )
+                acquired = False
             if acquired:
                 break
             if on_lock_wait_tick:
                 elapsed = time.monotonic() - wait_start
-                if elapsed >= 15:
+                if elapsed >= 15 and (now - last_tick_at) >= 25:
                     try:
                         on_lock_wait_tick(elapsed)
                     except Exception:
                         pass
+                    last_tick_at = now
+            time.sleep(min(poll_interval, max(remaining, 0.05)))
         if not acquired:
             raise RuntimeError(
                 f'Парсинг Telegram: не удалось занять сессию за {int(wait)} с '
                 '(параллельно идёт другой импорт истории или парсинг этого же файла сессии).'
+            )
+        waited = time.monotonic() - wait_start
+        if waited > 2:
+            logger.info(
+                'Telethon session lock acquired owner_id=%s key=%s after %.1fs',
+                owner_id,
+                lock_name,
+                waited,
             )
         yield
     finally:
