@@ -176,6 +176,8 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_DEFAULT_QUEUE = 'celery'
 CELERY_TASK_CREATE_MISSING_QUEUES = True
 CELERY_TASK_ROUTES = {
+    # Раз в минуту: не должна стоять в хвосте за тысячами execute_parse_task в «celery».
+    'content.tasks.check_scheduled_posts': {'queue': 'prio'},
     'content.tasks.publish_post_task': {'queue': 'prio'},
     'channels.tasks.import_tg_history_to_max_task': {'queue': 'prio'},
 }
@@ -233,7 +235,7 @@ TELEGRAM_API_HASH = config('TELEGRAM_API_HASH', default='')
 TELETHON_REDIS_LOCK_TTL = config('TELETHON_REDIS_LOCK_TTL', default=28800, cast=int)
 TELETHON_REDIS_LOCK_WAIT = config('TELETHON_REDIS_LOCK_WAIT', default=600, cast=int)
 # Сколько последних сообщений канала смотреть за один проход (дедуп по msg id в БД).
-PARSE_TELEGRAM_MESSAGE_LIMIT = config('PARSE_TELEGRAM_MESSAGE_LIMIT', default=80, cast=int)
+PARSE_TELEGRAM_MESSAGE_LIMIT = config('PARSE_TELEGRAM_MESSAGE_LIMIT', default=20, cast=int)
 
 # ─── VK Парсинг ──────────────────────────────────────────────────────────────
 VK_PARSE_ACCESS_TOKEN = config('VK_PARSE_ACCESS_TOKEN', default='')

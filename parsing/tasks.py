@@ -395,7 +395,7 @@ def _parse_telegram(source, keywords, keyword_objects):
                         'Важно: у celery должен быть смонтирован тот же /app/media.'
                     )
             found = 0
-            msg_limit = int(getattr(settings, 'PARSE_TELEGRAM_MESSAGE_LIMIT', 80) or 80)
+            msg_limit = int(getattr(settings, 'PARSE_TELEGRAM_MESSAGE_LIMIT', 20) or 20)
             msg_limit = max(5, min(msg_limit, 500))
             scanned_with_text = 0
             keyword_hits = 0
