@@ -14,6 +14,7 @@ from django.contrib import messages
 from django.http import JsonResponse
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+from .forms import ChannelAdAddonOwnerFormSet
 from .models import Channel, ChannelGroup, ChannelInterestingFacts, ChannelMorningDigest, HistoryImportRun
 
 
@@ -372,7 +373,36 @@ def channel_edit(request, pk):
         else:
             channel.channel_group = None
 
-        channel.save()
+        ad_addon_formset = ChannelAdAddonOwnerFormSet(request.POST, instance=channel, prefix='adaddons')
+        if not ad_addon_formset.is_valid():
+            messages.error(
+                request,
+                'Проверьте блок «Доп. платные опции для рекламы» — есть ошибки в полях.',
+            )
+            groups = ChannelGroup.objects.filter(owner=request.user).order_by('name', 'pk')
+            sel = _ad_slot_selected_hours_from_json(channel.ad_slot_schedule_json)
+            day_labels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+            ad_slot_days = [
+                {'weekday': i, 'label': day_labels[i], 'hours': sel[i]} for i in range(7)
+            ]
+            ad_slot_hours = [{'v': h, 'lb': f'{h:02d}'} for h in range(24)]
+            return render(
+                request,
+                'channels/edit.html',
+                {
+                    'channel': channel,
+                    'footer_only': False,
+                    'channel_groups': groups,
+                    'ad_slot_days': ad_slot_days,
+                    'ad_slot_hours': ad_slot_hours,
+                    'server_timezone': getattr(settings, 'TIME_ZONE', 'UTC'),
+                    'ad_addon_formset': ad_addon_formset,
+                },
+            )
+
+        with transaction.atomic():
+            channel.save()
+            ad_addon_formset.save()
         messages.success(request, 'Канал обновлён.')
         return redirect('channels:detail', pk=pk)
 
@@ -383,6 +413,9 @@ def channel_edit(request, pk):
         {'weekday': i, 'label': day_labels[i], 'hours': sel[i]} for i in range(7)
     ]
     ad_slot_hours = [{'v': h, 'lb': f'{h:02d}'} for h in range(24)]
+    ad_addon_formset = None
+    if not footer_only:
+        ad_addon_formset = ChannelAdAddonOwnerFormSet(instance=channel, prefix='adaddons')
     return render(
         request,
         'channels/edit.html',
@@ -393,6 +426,7 @@ def channel_edit(request, pk):
             'ad_slot_days': ad_slot_days,
             'ad_slot_hours': ad_slot_hours,
             'server_timezone': getattr(settings, 'TIME_ZONE', 'UTC'),
+            'ad_addon_formset': ad_addon_formset,
         },
     )
 

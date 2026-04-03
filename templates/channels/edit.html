@@ -168,6 +168,79 @@
                      min="1" max="365" value="{{ channel.ad_post_lifetime_days|default:7 }}">
               <div class="form-text">После публикации — период для закрытия кампании и акта.</div>
             </div>
+
+            {% if ad_addon_formset %}
+            <div class="col-12">
+              <h6 class="fw-bold mt-2 mb-2 text-muted">
+                <i class="bi bi-stars me-1"></i> Доп. платные опции для рекламы
+              </h6>
+              <p class="small text-muted mb-3">
+                Рекламодатель выберет их в заявке на шаге «Слоты и услуги».
+                <strong>Топ-блок</strong> — задайте «часов блока» (например 1) и цену за услугу целиком.
+                <strong>Закреп почасовой</strong> — цена за один час; «макс. часов» ≥ 24, если нужен закреп на сутки.
+              </p>
+              {% localize off %}
+              {{ ad_addon_formset.management_form }}
+              {% if ad_addon_formset.non_form_errors %}
+              <div class="alert alert-danger small">{{ ad_addon_formset.non_form_errors }}</div>
+              {% endif %}
+              {% for form in ad_addon_formset %}
+              <div class="border rounded-3 p-3 mb-3 bg-body-secondary bg-opacity-25">
+                {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+                {% if form.instance.pk %}
+                <div class="form-check mb-2">
+                  {{ form.DELETE }}
+                  <label class="form-check-label small text-danger" for="{{ form.DELETE.id_for_label }}">Удалить опцию</label>
+                </div>
+                {% endif %}
+                <div class="row g-2 align-items-end">
+                  <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="{{ form.code.id_for_label }}">Код</label>
+                    {{ form.code }}
+                    {% if form.code.errors %}<div class="text-danger small">{{ form.code.errors }}</div>{% endif %}
+                  </div>
+                  <div class="col-12 col-md-3">
+                    <label class="form-label small mb-0" for="{{ form.title.id_for_label }}">Название</label>
+                    {{ form.title }}
+                    {% if form.title.errors %}<div class="text-danger small">{{ form.title.errors }}</div>{% endif %}
+                  </div>
+                  <div class="col-12 col-md-3">
+                    <label class="form-label small mb-0" for="{{ form.addon_kind.id_for_label }}">Тип</label>
+                    {{ form.addon_kind }}
+                    {% if form.addon_kind.errors %}<div class="text-danger small">{{ form.addon_kind.errors }}</div>{% endif %}
+                  </div>
+                  <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="{{ form.price.id_for_label }}">Цена (₽)</label>
+                    {{ form.price }}
+                    {% if form.price.errors %}<div class="text-danger small">{{ form.price.errors }}</div>{% endif %}
+                  </div>
+                  <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="{{ form.block_hours.id_for_label }}">Часов топа</label>
+                    {{ form.block_hours }}
+                    <div class="form-text" style="font-size:.7rem;">Только топ-блок</div>
+                    {% if form.block_hours.errors %}<div class="text-danger small">{{ form.block_hours.errors }}</div>{% endif %}
+                  </div>
+                  <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="{{ form.max_pin_hours.id_for_label }}">Макс. ч. закрепа</label>
+                    {{ form.max_pin_hours }}
+                    {% if form.max_pin_hours.errors %}<div class="text-danger small">{{ form.max_pin_hours.errors }}</div>{% endif %}
+                  </div>
+                  <div class="col-6 col-md-2 d-flex align-items-center pt-3">
+                    <div class="form-check">
+                      {{ form.is_active }}
+                      <label class="form-check-label small" for="{{ form.is_active.id_for_label }}">Вкл.</label>
+                    </div>
+                    {% if form.is_active.errors %}<div class="text-danger small">{{ form.is_active.errors }}</div>{% endif %}
+                  </div>
+                </div>
+                {% if form.non_field_errors %}
+                <div class="text-danger small mt-2">{{ form.non_field_errors }}</div>
+                {% endif %}
+              </div>
+              {% endfor %}
+              {% endlocalize %}
+            </div>
+            {% endif %}
           </div>
 
           <!-- Контакты админа -->
