@@ -92,7 +92,7 @@
           <dt class="text-muted fw-normal">Каналы</dt>
           <dd class="mb-0">
             <div class="d-flex flex-column gap-1 mt-1">
-              {% for channel in order.channels.all %}
+              {% for channel in placement_channels %}
               <div class="d-flex align-items-center gap-2">
                 {% if channel.platform == 'telegram' %}
                   <span class="badge badge-tg">TG</span>

@@ -7,6 +7,7 @@ from django.contrib import messages
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from .models import Advertiser, AdvertisingOrder, Act
+from .placement_channels import channels_for_placement_display
 from billing.models import Invoice
 from .services import ensure_ad_post_for_order
 
@@ -242,6 +243,7 @@ def order_detail(request, pk):
         'order': order,
         'acts': acts,
         'invoice': order.invoice,
+        'placement_channels': channels_for_placement_display(order.channels),
     })
 
 
@@ -292,6 +294,7 @@ def owner_order_detail(request, pk):
     return render(request, 'advertisers/owner_order_detail.html', {
         'order': order,
         'acts': acts,
+        'placement_channels': channels_for_placement_display(order.channels),
     })
 
 

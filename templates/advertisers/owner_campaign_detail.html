@@ -102,19 +102,19 @@
 </div>
 
 <h6 class="fw-bold">ОРД (маркировка)</h6>
+<p class="text-muted small mb-2">Канал заявки: <span class="text-dark fw-semibold">{{ app.channel.name }}</span> ({{ app.channel.get_platform_display }}). В таблице — только ОРД по этому каналу.</p>
 <div class="table-responsive card">
   <table class="table table-sm mb-0">
-    <thead><tr><th>Пост</th><th>Канал</th><th>Статус</th><th>Статистика в ОРД</th></tr></thead>
+    <thead><tr><th>Пост</th><th>Статус</th><th>Статистика в ОРД</th></tr></thead>
     <tbody>
       {% for r in ord_rows %}
       <tr>
         <td>#{{ r.post_id }}</td>
-        <td>{{ r.channel.name }}</td>
         <td>{{ r.get_status_display }}</td>
         <td class="small">{% if r.stats_submitted_at %}Отправлена {{ r.stats_submitted_at|date:"d.m.Y" }}{% elif r.stats_error_message %}<span class="text-danger">Ошибка</span>{% else %}—{% endif %}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="4" class="text-muted small">Регистраций ОРД пока нет (после публикации ВК)</td></tr>
+      <tr><td colspan="3" class="text-muted small">Регистраций ОРД пока нет (после публикации ВК)</td></tr>
       {% endfor %}
     </tbody>
   </table>

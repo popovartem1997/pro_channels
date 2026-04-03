@@ -60,7 +60,7 @@
 
 <p>
   Каналы размещения:
-  {% if order %}{% for ch in order.channels.all %}{{ ch.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+  {% if order %}{% for ch in placement_channels %}{{ ch.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
   {% elif ad_application %}{{ ad_application.channel.name }}{% else %}—{% endif %}
 </p>
 

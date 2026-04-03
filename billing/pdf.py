@@ -60,6 +60,10 @@ def generate_act_pdf(act):
         'site_name': settings.SITE_NAME,
         'site_url': settings.SITE_URL,
     }
+    if order is not None:
+        from advertisers.placement_channels import channels_for_placement_display
+
+        context['placement_channels'] = channels_for_placement_display(order.channels)
     html = render_to_string('advertisers/act_pdf.html', context)
     pdf_bytes = _render_pdf(html)
     filename = f'act_{act.number}.pdf'

@@ -158,7 +158,7 @@
     <div class="card border-0 shadow-sm">
       <div class="card-body">
         <h2 class="h6 fw-bold text-muted text-uppercase small mb-3">Каналы размещения</h2>
-        {% with chs=order.channels.all %}
+        {% with chs=placement_channels %}
           {% if chs %}
             <ul class="list-unstyled mb-0 small">
               {% for channel in chs %}

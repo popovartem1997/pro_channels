@@ -674,9 +674,13 @@ def owner_campaign_detail(request, pk: int):
 
     from ord_marking.models import ORDRegistration
 
+    app_channel_id = app.channel_id
     ord_rows = []
     for p in app.campaign_posts.all()[:50]:
-        for r in ORDRegistration.objects.filter(post=p).select_related('channel'):
+        for r in (
+            ORDRegistration.objects.filter(post=p, channel_id=app_channel_id)
+            .select_related('channel')
+        ):
             ord_rows.append(r)
 
     return render(
