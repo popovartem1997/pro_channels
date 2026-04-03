@@ -1060,12 +1060,53 @@ def import_history_stop(request, pk: int):
     }})
 
 
+def _apply_morning_digest_from_post(request, digest) -> Optional[str]:
+    """Заполняет экземпляр ChannelMorningDigest из POST. Ошибка валидации — строка, иначе None."""
+    import datetime as pydt
+
+    digest.is_enabled = request.POST.get('is_enabled') == 'on'
+    tz_raw = (request.POST.get('timezone_name') or '').strip()
+    if tz_raw:
+        digest.timezone_name = tz_raw[:64]
+    st = (request.POST.get('send_time') or '05:00').strip().replace('.', ':')[:5]
+    try:
+        digest.send_time = pydt.datetime.strptime(st, '%H:%M').time()
+    except ValueError:
+        pass
+    digest.weekdays = sorted(
+        {int(x) for x in request.POST.getlist('weekdays') if str(x).isdigit() and 0 <= int(x) <= 6}
+    )
+
+    try:
+        digest.latitude = Decimal((request.POST.get('latitude') or str(digest.latitude)).replace(',', '.'))
+        digest.longitude = Decimal((request.POST.get('longitude') or str(digest.longitude)).replace(',', '.'))
+    except InvalidOperation:
+        return 'Некорректные широта или долгота.'
+
+    digest.location_label = (request.POST.get('location_label') or '').strip()[:120]
+    digest.country_for_holidays = (request.POST.get('country_for_holidays') or 'RU').strip().upper()[:2]
+    hs = (request.POST.get('horoscope_sign') or 'general').strip()[:20]
+    digest.horoscope_sign = hs if hs in dict(ChannelMorningDigest.ZODIAC_CHOICES) else ChannelMorningDigest.ZODIAC_GENERAL
+
+    digest.block_date = request.POST.get('block_date') == 'on'
+    digest.block_weather = request.POST.get('block_weather') == 'on'
+    digest.block_sun = request.POST.get('block_sun') == 'on'
+    digest.block_quote = request.POST.get('block_quote') == 'on'
+    digest.block_english = request.POST.get('block_english') == 'on'
+    digest.block_holidays = request.POST.get('block_holidays') == 'on'
+    digest.block_horoscope = request.POST.get('block_horoscope') == 'on'
+    digest.block_image = request.POST.get('block_image') == 'on'
+
+    digest.use_ai_quote = request.POST.get('use_ai_quote') == 'on'
+    digest.use_ai_english = request.POST.get('use_ai_english') == 'on'
+    digest.use_ai_horoscope = request.POST.get('use_ai_horoscope') == 'on'
+    digest.image_seed_extra = (request.POST.get('image_seed_extra') or '')[:80]
+    return None
+
+
 @login_required
 def channel_digest_edit(request, pk):
     """Настройка автоматического утреннего дайджеста (только владелец канала)."""
-    import datetime as pydt
-    from decimal import Decimal, InvalidOperation
-
     if _team_channel_editor_user(request.user):
         messages.error(request, 'Раздел доступен только владельцу канала.')
         return redirect('channels:list')
@@ -1095,44 +1136,21 @@ def channel_digest_edit(request, pk):
                 )
             return redirect('channels:digest_edit', pk=pk)
 
-        digest.is_enabled = request.POST.get('is_enabled') == 'on'
-        tz_raw = (request.POST.get('timezone_name') or '').strip()
-        if tz_raw:
-            digest.timezone_name = tz_raw[:64]
-        st = (request.POST.get('send_time') or '05:00').strip().replace('.', ':')[:5]
-        try:
-            digest.send_time = pydt.datetime.strptime(st, '%H:%M').time()
-        except ValueError:
-            pass
-        digest.weekdays = sorted(
-            {int(x) for x in request.POST.getlist('weekdays') if str(x).isdigit() and 0 <= int(x) <= 6}
-        )
-
-        try:
-            digest.latitude = Decimal((request.POST.get('latitude') or str(digest.latitude)).replace(',', '.'))
-            digest.longitude = Decimal((request.POST.get('longitude') or str(digest.longitude)).replace(',', '.'))
-        except InvalidOperation:
-            messages.error(request, 'Некорректные широта или долгота.')
+        err = _apply_morning_digest_from_post(request, digest)
+        if err:
+            messages.error(request, err)
             return redirect('channels:digest_edit', pk=pk)
 
-        digest.location_label = (request.POST.get('location_label') or '').strip()[:120]
-        digest.country_for_holidays = (request.POST.get('country_for_holidays') or 'RU').strip().upper()[:2]
-        hs = (request.POST.get('horoscope_sign') or 'general').strip()[:20]
-        digest.horoscope_sign = hs if hs in dict(ChannelMorningDigest.ZODIAC_CHOICES) else ChannelMorningDigest.ZODIAC_GENERAL
+        if action == 'generate_now':
+            digest.save()
+            from .digest_services import create_morning_digest_draft_now
 
-        digest.block_date = request.POST.get('block_date') == 'on'
-        digest.block_weather = request.POST.get('block_weather') == 'on'
-        digest.block_sun = request.POST.get('block_sun') == 'on'
-        digest.block_quote = request.POST.get('block_quote') == 'on'
-        digest.block_english = request.POST.get('block_english') == 'on'
-        digest.block_holidays = request.POST.get('block_holidays') == 'on'
-        digest.block_horoscope = request.POST.get('block_horoscope') == 'on'
-        digest.block_image = request.POST.get('block_image') == 'on'
-
-        digest.use_ai_quote = request.POST.get('use_ai_quote') == 'on'
-        digest.use_ai_english = request.POST.get('use_ai_english') == 'on'
-        digest.use_ai_horoscope = request.POST.get('use_ai_horoscope') == 'on'
-        digest.image_seed_extra = (request.POST.get('image_seed_extra') or '')[:80]
+            ok, msg = create_morning_digest_draft_now(digest.pk)
+            if ok:
+                messages.success(request, msg)
+            else:
+                messages.error(request, msg)
+            return redirect('channels:digest_edit', pk=pk)
 
         digest.save()
         messages.success(request, 'Настройки утреннего дайджеста сохранены.')

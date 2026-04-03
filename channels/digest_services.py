@@ -519,8 +519,80 @@ def compose_digest_text(cfg, *, local_now: dt.datetime, day: dt.date, lat: float
     return plain, html
 
 
-def publish_morning_digest(cfg_id: int) -> None:
+def _create_morning_digest_draft_post(cfg, *, day: dt.date, local_now: dt.datetime):
+    """
+    Собирает текст/медиа и создаёт черновик поста, привязанный к каналу.
+    Используется и по расписанию, и по кнопке «создать сейчас».
+    """
     from content.models import Post, PostMedia, normalize_post_media_orders
+
+    channel = cfg.channel
+    lat = float(cfg.latitude)
+    lon = float(cfg.longitude)
+    plain, html = compose_digest_text(cfg, local_now=local_now, day=day, lat=lat, lon=lon)
+
+    post = Post.objects.create(
+        author=channel.owner,
+        text=plain,
+        text_html=html,
+        status=Post.STATUS_DRAFT,
+        ord_label='',
+    )
+    post.channels.add(channel)
+
+    if cfg.block_image:
+        seed = f'{day.isoformat()}-{channel.pk}-{cfg.image_seed_extra or "d"}'
+        blob = download_digest_image_bytes(seed)
+        if blob:
+            PostMedia.objects.create(
+                post=post,
+                file=ContentFile(blob, name=f'digest_{day.isoformat()}.jpg'),
+                media_type=PostMedia.TYPE_PHOTO,
+                order=1,
+            )
+            normalize_post_media_orders(post)
+
+    return post
+
+
+def create_morning_digest_draft_now(cfg_id: int) -> tuple[bool, str]:
+    """
+    Ручная генерация черновика (без проверки окна времени и без автопубликации).
+    Не меняет last_sent_on — расписание по-прежнему срабатывает в своё время.
+    """
+    from .models import ChannelMorningDigest
+
+    try:
+        cfg = ChannelMorningDigest.objects.select_related('channel', 'channel__owner').get(pk=cfg_id)
+    except ChannelMorningDigest.DoesNotExist:
+        return False, 'Настройки дайджеста не найдены.'
+
+    channel = cfg.channel
+    if not channel.is_active:
+        return False, 'Канал неактивен — черновик не создан.'
+
+    lock_key = f'morning_digest_manual:{cfg_id}'
+    if not cache.add(lock_key, '1', timeout=90):
+        return False, 'Генерация уже запущена, подождите немного.'
+
+    try:
+        tz = ZoneInfo(cfg.timezone_name or 'Europe/Moscow')
+        local_now = timezone.now().astimezone(tz)
+        day = local_now.date()
+        try:
+            post = _create_morning_digest_draft_post(cfg, day=day, local_now=local_now)
+        except (TypeError, ValueError) as exc:
+            logger.warning('morning digest manual cfg=%s bad coords: %s', cfg_id, exc)
+            return False, 'Проверьте широту и долготу в настройках.'
+        except Exception:
+            logger.exception('morning digest manual cfg=%s', cfg_id)
+            return False, 'Не удалось собрать дайджест (сеть или внешние API). Повторите позже.'
+        return True, f'Черновик дайджеста создан (пост №{post.pk}). Откройте раздел постов.'
+    finally:
+        cache.delete(lock_key)
+
+
+def publish_morning_digest(cfg_id: int) -> None:
     from content.tasks import publish_post_task
 
     from .models import ChannelMorningDigest
@@ -541,36 +613,14 @@ def publish_morning_digest(cfg_id: int) -> None:
         return
 
     try:
-        if not channel.is_active or not channel.token_configured:
+        if not channel.is_active:
             cache.delete(cache_key)
             return
 
-        lat = float(cfg.latitude)
-        lon = float(cfg.longitude)
-        plain, html = compose_digest_text(cfg, local_now=local_now, day=day, lat=lat, lon=lon)
+        post = _create_morning_digest_draft_post(cfg, day=day, local_now=local_now)
 
-        post = Post.objects.create(
-            author=channel.owner,
-            text=plain,
-            text_html=html,
-            status=Post.STATUS_DRAFT,
-            ord_label='',
-        )
-        post.channels.add(channel)
-
-        if cfg.block_image:
-            seed = f'{day.isoformat()}-{channel.pk}-{cfg.image_seed_extra or "d"}'
-            blob = download_digest_image_bytes(seed)
-            if blob:
-                PostMedia.objects.create(
-                    post=post,
-                    file=ContentFile(blob, name=f'digest_{day.isoformat()}.jpg'),
-                    media_type=PostMedia.TYPE_PHOTO,
-                    order=1,
-                )
-                normalize_post_media_orders(post)
-
-        publish_post_task.delay(post.pk)
+        if channel.token_configured:
+            publish_post_task.delay(post.pk)
 
         cfg.last_sent_on = day
         cfg.save(update_fields=['last_sent_on', 'updated_at'])

@@ -19,6 +19,7 @@
     <li><strong>Картинка</strong> — сервис picsum.photos по дате и seed (DeepSeek <strong>не генерирует изображения</strong>; для своих картинок позже можно подключить отдельный API).</li>
   </ul>
   <p class="mb-0 mt-2 text-muted">Celery Beat должен выполнять задачу <code>channels.tasks.channel_morning_digest_tick</code> (раз в ~2 мин.) — после деплоя выполните <code>python manage.py setup_periodic_tasks</code>.</p>
+  <p class="mb-0 mt-2 small">Если токен канала ещё не настроен, по расписанию всё равно создаётся <strong>черновик</strong>; в очередь на публикацию пост попадёт только при настроенном токене.</p>
 </div>
 
 <form method="post" class="card border-0 shadow-sm">
@@ -182,6 +183,9 @@
 
     <div class="mt-4 d-flex gap-2 flex-wrap">
       <button type="submit" class="btn btn-brand">Сохранить</button>
+      <button type="submit" name="action" value="generate_now" class="btn btn-outline-primary">
+        Создать черновик сейчас
+      </button>
       <a href="{% url 'channels:detail' channel.pk %}" class="btn btn-outline-secondary">Назад</a>
     </div>
   </div>
