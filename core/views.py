@@ -273,6 +273,88 @@ def audit_log(request):
     })
 
 
+def _feed_scoped_querysets(user, *, channel_id=None, chgroup_id=None):
+    """
+    Базовые queryset'ы ленты (роль, фильтр канала, группа каналов) без kind/status.
+    channel_id / chgroup_id — int или None.
+    """
+    from content.models import Post
+    from bots.models import Suggestion
+    from channels.models import Channel, ChannelGroup
+    from parsing.models import ParsedItem
+
+    if getattr(user, 'role', '') in ('manager', 'assistant_admin') and not (user.is_staff or user.is_superuser):
+        from managers.models import TeamMember
+
+        allowed_channel_ids = TeamMember.objects.filter(
+            member=user,
+            is_active=True,
+        ).values_list('channels__pk', flat=True)
+        allowed_channel_ids = list(set(int(x) for x in allowed_channel_ids if str(x).isdigit()))
+        allowed_channels = list(Channel.objects.filter(pk__in=allowed_channel_ids, is_active=True).order_by('name'))
+        post_qs = Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct()
+        sug_qs = Suggestion.objects.filter(
+            bot__channel_groups__channels__pk__in=allowed_channel_ids
+        ).distinct()
+        parsed_qs = ParsedItem.objects.filter(
+            Q(source__channel_id__in=allowed_channel_ids) | Q(keyword__channel_id__in=allowed_channel_ids)
+        ).distinct()
+    else:
+        if user.is_staff or user.is_superuser:
+            allowed_channels = list(Channel.objects.filter(is_active=True).order_by('name'))
+        else:
+            allowed_channels = list(Channel.objects.filter(owner=user, is_active=True).order_by('name'))
+        post_qs = Post.objects.filter(author=user) if not (user.is_staff or user.is_superuser) else Post.objects.all()
+        sug_qs = Suggestion.objects.filter(bot__owner=user) if not (user.is_staff or user.is_superuser) else Suggestion.objects.all()
+        if user.is_staff or user.is_superuser:
+            parsed_qs = ParsedItem.objects.all()
+        else:
+            parsed_qs = ParsedItem.objects.filter(
+                Q(source__owner=user) | Q(keyword__owner=user)
+            ).distinct()
+
+    if channel_id is not None:
+        post_qs = post_qs.filter(channels__pk=channel_id).distinct()
+        sug_qs = sug_qs.filter(bot__channel_groups__channels__pk=channel_id).distinct()
+        parsed_qs = parsed_qs.filter(Q(source__channel_id=channel_id) | Q(keyword__channel_id=channel_id)).distinct()
+
+    if chgroup_id is not None:
+        g = ChannelGroup.objects.filter(pk=chgroup_id).first()
+        if g:
+            if user.is_staff or user.is_superuser:
+                feed_chgroup_cids = list(g.channels.filter(is_active=True).values_list('pk', flat=True))
+            else:
+                allowed_set = {c.pk for c in (allowed_channels or [])}
+                feed_chgroup_cids = [x for x in g.channels.values_list('pk', flat=True) if x in allowed_set]
+            post_qs = post_qs.filter(channels__pk__in=feed_chgroup_cids).distinct()
+            sug_qs = sug_qs.filter(bot__channel_groups__pk=chgroup_id).distinct()
+            parsed_qs = parsed_qs.filter(
+                Q(source__channel_id__in=feed_chgroup_cids) | Q(keyword__channel_id__in=feed_chgroup_cids)
+            ).distinct()
+
+    return post_qs, sug_qs, parsed_qs, allowed_channels
+
+
+def compute_feed_quick_link_counts(user, *, channel_id=None, chgroup_id=None):
+    """Актуальные числа для плашек над лентой (тот же scope, что у страницы)."""
+    from content.models import Post
+    from bots.models import Suggestion
+    from parsing.models import ParsedItem
+
+    post_qs, sug_qs, parsed_qs, _ = _feed_scoped_querysets(
+        user, channel_id=channel_id, chgroup_id=chgroup_id
+    )
+    return {
+        'subscriber_pending': sug_qs.filter(status=Suggestion.STATUS_PENDING).count(),
+        'post_draft': post_qs.filter(status=Post.STATUS_DRAFT).count(),
+        'post_scheduled': post_qs.filter(status=Post.STATUS_SCHEDULED).count(),
+        'post_publishing': post_qs.filter(status=Post.STATUS_PUBLISHING).count(),
+        'post_published': post_qs.filter(status=Post.STATUS_PUBLISHED).count(),
+        'post_failed': post_qs.filter(status=Post.STATUS_FAILED).count(),
+        'parsing_new': parsed_qs.filter(status=ParsedItem.STATUS_NEW).count(),
+    }
+
+
 @login_required
 def feed(request):
     """
@@ -295,38 +377,22 @@ def feed(request):
         status_value = (status_value or '').strip()
     channel_id = (request.GET.get('channel') or '').strip()
 
-    # Visibility scopes
-    allowed_channels = None
-    if getattr(request.user, 'role', '') in ('manager', 'assistant_admin') and not (request.user.is_staff or request.user.is_superuser):
-        from managers.models import TeamMember
-        allowed_channel_ids = TeamMember.objects.filter(
-            member=request.user,
-            is_active=True,
-        ).values_list('channels__pk', flat=True)
-        allowed_channel_ids = list(set(int(x) for x in allowed_channel_ids if str(x).isdigit()))
-        allowed_channels = list(Channel.objects.filter(pk__in=allowed_channel_ids, is_active=True).order_by('name'))
-        post_qs = Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct()
-        sug_qs = Suggestion.objects.filter(
-            bot__channel_groups__channels__pk__in=allowed_channel_ids
-        ).distinct()
-        parsed_qs = ParsedItem.objects.filter(
-            Q(source__channel_id__in=allowed_channel_ids) | Q(keyword__channel_id__in=allowed_channel_ids)
-        ).distinct()
-    else:
-        # owner/staff
-        if request.user.is_staff or request.user.is_superuser:
-            allowed_channels = list(Channel.objects.filter(is_active=True).order_by('name'))
-        else:
-            allowed_channels = list(Channel.objects.filter(owner=request.user, is_active=True).order_by('name'))
-        post_qs = Post.objects.filter(author=request.user) if not (request.user.is_staff or request.user.is_superuser) else Post.objects.all()
-        sug_qs = Suggestion.objects.filter(bot__owner=request.user) if not (request.user.is_staff or request.user.is_superuser) else Suggestion.objects.all()
-        if request.user.is_staff or request.user.is_superuser:
-            parsed_qs = ParsedItem.objects.all()
-        else:
-            # Источник и ключ могли быть созданы с разными FK owner — показываем, если совпадает любой.
-            parsed_qs = ParsedItem.objects.filter(
-                Q(source__owner=request.user) | Q(keyword__owner=request.user)
-            ).distinct()
+    cid_int = int(channel_id) if (channel_id and str(channel_id).isdigit()) else None
+
+    chgroup_param = (request.GET.get('chgroup') or '').strip()
+    chgroup_applied = False
+    if chgroup_param.isdigit():
+        from channels.models import ChannelGroup
+
+        if ChannelGroup.objects.filter(pk=int(chgroup_param)).exists():
+            chgroup_applied = True
+    chgroup_int = int(chgroup_param) if chgroup_applied else None
+
+    post_qs, sug_qs, parsed_qs, allowed_channels = _feed_scoped_querysets(
+        request.user,
+        channel_id=cid_int,
+        chgroup_id=chgroup_int,
+    )
 
     post_qs = post_qs.prefetch_related(
         Prefetch('channels', queryset=Channel.objects.select_related('channel_group')),
@@ -350,37 +416,6 @@ def feed(request):
                 out.append(g)
         return out
 
-    # Channel filter (applies to all kinds)
-    if channel_id and str(channel_id).isdigit():
-        cid = int(channel_id)
-        post_qs = post_qs.filter(channels__pk=cid).distinct()
-        sug_qs = sug_qs.filter(bot__channel_groups__channels__pk=cid).distinct()
-        parsed_qs = parsed_qs.filter(Q(source__channel_id=cid) | Q(keyword__channel_id=cid)).distinct()
-
-    cid_int = int(channel_id) if (channel_id and str(channel_id).isdigit()) else None
-
-    # Группа каналов (как в парсинге): один паблик в нескольких соцсетях
-    chgroup_param = (request.GET.get('chgroup') or '').strip()
-    chgroup_applied = False
-    if chgroup_param.isdigit():
-        from channels.models import ChannelGroup
-
-        g = ChannelGroup.objects.filter(pk=int(chgroup_param)).first()
-        if g:
-            if request.user.is_staff or request.user.is_superuser:
-                feed_chgroup_cids = list(g.channels.filter(is_active=True).values_list('pk', flat=True))
-            else:
-                allowed_set = {c.pk for c in (allowed_channels or [])}
-                feed_chgroup_cids = [x for x in g.channels.values_list('pk', flat=True) if x in allowed_set]
-            post_qs = post_qs.filter(channels__pk__in=feed_chgroup_cids).distinct()
-            sug_qs = sug_qs.filter(bot__channel_groups__pk=int(chgroup_param)).distinct()
-            parsed_qs = parsed_qs.filter(
-                Q(source__channel_id__in=feed_chgroup_cids) | Q(keyword__channel_id__in=feed_chgroup_cids)
-            ).distinct()
-            chgroup_applied = True
-
-    chgroup_int = int(chgroup_param) if chgroup_applied else None
-
     def _feed_qs(**params):
         q = {k: v for k, v in params.items() if v is not None and v != ''}
         if cid_int:
@@ -392,19 +427,67 @@ def feed(request):
     feed_quick_links = []
     n_mod = sug_qs.filter(status=Suggestion.STATUS_PENDING).count()
     if n_mod:
-        feed_quick_links.append({'label': f'На модерации · {n_mod}', 'url': _feed_qs(kind='subscriber', status='subscriber:pending')})
+        feed_quick_links.append(
+            {
+                'key': 'subscriber_pending',
+                'label': f'На модерации · {n_mod}',
+                'url': _feed_qs(kind='subscriber', status='subscriber:pending'),
+            }
+        )
     n_draft = post_qs.filter(status=Post.STATUS_DRAFT).count()
     if n_draft:
-        feed_quick_links.append({'label': f'Черновики · {n_draft}', 'url': _feed_qs(kind='post', status=f'post:{Post.STATUS_DRAFT}')})
+        feed_quick_links.append(
+            {
+                'key': 'post_draft',
+                'label': f'Черновики · {n_draft}',
+                'url': _feed_qs(kind='post', status=f'post:{Post.STATUS_DRAFT}'),
+            }
+        )
     n_sch = post_qs.filter(status=Post.STATUS_SCHEDULED).count()
     if n_sch:
-        feed_quick_links.append({'label': f'Запланированы · {n_sch}', 'url': _feed_qs(kind='post', status=f'post:{Post.STATUS_SCHEDULED}')})
+        feed_quick_links.append(
+            {
+                'key': 'post_scheduled',
+                'label': f'Запланированы · {n_sch}',
+                'url': _feed_qs(kind='post', status=f'post:{Post.STATUS_SCHEDULED}'),
+            }
+        )
+    n_pubing = post_qs.filter(status=Post.STATUS_PUBLISHING).count()
+    if n_pubing:
+        feed_quick_links.append(
+            {
+                'key': 'post_publishing',
+                'label': f'Публикуются · {n_pubing}',
+                'url': _feed_qs(kind='post', status=f'post:{Post.STATUS_PUBLISHING}'),
+            }
+        )
+    n_pub = post_qs.filter(status=Post.STATUS_PUBLISHED).count()
+    if n_pub:
+        feed_quick_links.append(
+            {
+                'key': 'post_published',
+                'label': f'Опубликованы · {n_pub}',
+                'url': _feed_qs(kind='post', status=f'post:{Post.STATUS_PUBLISHED}'),
+            }
+        )
     n_fail = post_qs.filter(status=Post.STATUS_FAILED).count()
     if n_fail:
-        feed_quick_links.append({'label': f'Ошибки · {n_fail}', 'url': _feed_qs(kind='post', status=f'post:{Post.STATUS_FAILED}')})
+        feed_quick_links.append(
+            {
+                'key': 'post_failed',
+                'label': f'Ошибки · {n_fail}',
+                'url': _feed_qs(kind='post', status=f'post:{Post.STATUS_FAILED}'),
+            }
+        )
     n_parse = parsed_qs.filter(status=ParsedItem.STATUS_NEW).count()
     if n_parse:
-        feed_quick_links.append({'label': f'Парсинг (новые) · {n_parse}', 'url': _feed_qs(kind='parsing', status='parsing:pending')})
+        feed_quick_links.append(
+            {
+                'key': 'parsing_new',
+                'label': f'Парсинг (новые) · {n_parse}',
+                'url': _feed_qs(kind='parsing', status='parsing:pending'),
+            }
+        )
 
     # Apply unified status filter depending on kind.
     if status_filter:

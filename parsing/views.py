@@ -828,7 +828,23 @@ def item_skip(request, pk):
     item.save(update_fields=['status'])
     wants_json = request.POST.get('ajax') == '1' or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
     if wants_json:
-        return JsonResponse({'ok': True, 'id': item.pk})
+        from core.views import compute_feed_quick_link_counts
+
+        fc = (request.POST.get('feed_channel') or '').strip()
+        fg = (request.POST.get('feed_chgroup') or '').strip()
+        cid_scope = int(fc) if fc.isdigit() else None
+        cg_scope = int(fg) if fg.isdigit() else None
+        return JsonResponse(
+            {
+                'ok': True,
+                'id': item.pk,
+                'feed_counts': compute_feed_quick_link_counts(
+                    request.user,
+                    channel_id=cid_scope,
+                    chgroup_id=cg_scope,
+                ),
+            }
+        )
     messages.info(request, 'Материал помечен как пропущенный.')
     return redirect(_parse_url('parsing:items', scope))
 

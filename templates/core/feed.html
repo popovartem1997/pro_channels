@@ -13,10 +13,15 @@
   </div>
 </div>
 
+<input type="hidden" id="feed-scope-channel" value="{{ channel_id|default:'' }}">
+<input type="hidden" id="feed-scope-chgroup" value="{{ chgroup_id|default:'' }}">
+
 {% if feed_quick_links %}
-<div class="d-flex flex-wrap gap-2 mb-3">
+<div id="feed-quick-links-bar" class="d-flex flex-wrap gap-2 mb-3">
   {% for link in feed_quick_links %}
-  <a href="{{ link.url }}" class="btn btn-sm btn-outline-secondary rounded-pill">{{ link.label }}</a>
+  <a href="{{ link.url }}"
+     class="btn btn-sm btn-outline-secondary rounded-pill"
+     data-feed-count-key="{{ link.key }}">{{ link.label }}</a>
   {% endfor %}
 </div>
 {% endif %}
@@ -348,6 +353,44 @@
 </script>
 <script>
 (function () {
+  var FEED_COUNT_LABELS = {
+    subscriber_pending: 'На модерации',
+    post_draft: 'Черновики',
+    post_scheduled: 'Запланированы',
+    post_publishing: 'Публикуются',
+    post_published: 'Опубликованы',
+    post_failed: 'Ошибки',
+    parsing_new: 'Парсинг (новые)',
+  };
+  window.updateFeedQuickLinksBar = function (counts) {
+    if (!counts) return;
+    var bar = document.getElementById('feed-quick-links-bar');
+    if (!bar) return;
+    var keys = Object.keys(FEED_COUNT_LABELS);
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      var n = parseInt(counts[key], 10);
+      if (isNaN(n)) n = 0;
+      var a = bar.querySelector('a[data-feed-count-key="' + key + '"]');
+      if (n <= 0) {
+        if (a) a.remove();
+        continue;
+      }
+      var text = FEED_COUNT_LABELS[key] + ' · ' + n;
+      if (a) {
+        a.textContent = text;
+      }
+    }
+    if (!bar.querySelector('a')) {
+      bar.classList.add('d-none');
+    } else {
+      bar.classList.remove('d-none');
+    }
+  };
+})();
+</script>
+<script>
+(function () {
   function getCookie(name) {
     var m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
     return m ? decodeURIComponent(m[2]) : '';
@@ -361,6 +404,10 @@
       var fd = new FormData();
       fd.append('ajax', '1');
       fd.append('csrfmiddlewaretoken', getCookie('csrftoken'));
+      var chEl = document.getElementById('feed-scope-channel');
+      var cgEl = document.getElementById('feed-scope-chgroup');
+      if (chEl) fd.append('feed_channel', chEl.value || '');
+      if (cgEl) fd.append('feed_chgroup', cgEl.value || '');
       fetch(url, {
         method: 'POST',
         body: fd,
@@ -378,6 +425,9 @@
               card.style.transition = 'opacity .2s ease';
               card.style.opacity = '0';
               setTimeout(function () { card.remove(); }, 220);
+            }
+            if (data.feed_counts && window.updateFeedQuickLinksBar) {
+              window.updateFeedQuickLinksBar(data.feed_counts);
             }
           } else {
             btn.disabled = false;
@@ -444,6 +494,10 @@
     const url = form.getAttribute('action');
     const fd = new FormData(form);
     fd.set('ajax', '1');
+    var chEl = document.getElementById('feed-scope-channel');
+    var cgEl = document.getElementById('feed-scope-chgroup');
+    if (chEl) fd.append('feed_channel', chEl.value || '');
+    if (cgEl) fd.append('feed_chgroup', cgEl.value || '');
     submitBtn.disabled = true;
     fetch(url, {
       method: 'POST',
@@ -473,6 +527,9 @@
             card.style.transition = 'opacity .2s ease';
             card.style.opacity = '0';
             setTimeout(function () { card.remove(); }, 220);
+          }
+          if (res.data.feed_counts && window.updateFeedQuickLinksBar) {
+            window.updateFeedQuickLinksBar(res.data.feed_counts);
           }
           pendingPostId = null;
           return;

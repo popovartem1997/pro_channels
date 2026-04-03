@@ -708,7 +708,18 @@ def post_delete(request, pk):
     if request.method == 'POST':
         post.delete()
         if _is_feed_delete_ajax(request):
-            return JsonResponse({'ok': True})
+            from core.views import compute_feed_quick_link_counts
+
+            fc = (request.POST.get('feed_channel') or '').strip()
+            fg = (request.POST.get('feed_chgroup') or '').strip()
+            cid_scope = int(fc) if fc.isdigit() else None
+            cg_scope = int(fg) if fg.isdigit() else None
+            feed_counts = compute_feed_quick_link_counts(
+                request.user,
+                channel_id=cid_scope,
+                chgroup_id=cg_scope,
+            )
+            return JsonResponse({'ok': True, 'feed_counts': feed_counts})
         messages.success(request, 'Пост удалён.')
         next_url = (request.POST.get('next') or request.GET.get('next') or '').strip()
         if next_url.startswith('/') and not next_url.startswith('//'):
