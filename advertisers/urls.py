@@ -18,6 +18,7 @@ urlpatterns = [
     path('campaign/<int:pk>/slots/', cv.campaign_slots, name='campaign_slots'),
     path('campaign/<int:pk>/content/', cv.campaign_content, name='campaign_content'),
     path('campaign/<int:pk>/ord/', cv.campaign_ord, name='campaign_ord'),
+    path('campaign/<int:pk>/ord/prepare/', cv.campaign_ord_prepare, name='campaign_ord_prepare'),
     path('campaign/<int:pk>/review/', cv.campaign_review, name='campaign_review'),
     path('campaign/<int:pk>/contract/', cv.campaign_contract, name='campaign_contract'),
     path('campaign/<int:pk>/submit-owner/', cv.campaign_submit_to_owner, name='campaign_submit_to_owner'),

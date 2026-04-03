@@ -17,6 +17,10 @@ DEFAULT_CONTRACT_SUBJECT = (
     'Оказание услуг по размещению интернет-рекламы (сервис ProChannels)'
 )
 
+# PUT /v1/contract — обязателен type и др. поля (см. документацию ОРД).
+CONTRACT_TYPE_SERVICE = 'service'
+CONTRACT_SUBJECT_TYPE_ORG_DISTRIBUTION = 'org_distribution'
+
 
 def person_external_id_for_advertiser(adv: Advertiser) -> str:
     cur = (adv.ord_person_external_id or '').strip()
@@ -118,18 +122,26 @@ def ensure_advertiser_ord_profile(adv: Advertiser, *, use_sandbox: bool) -> dict
 
     cid = contract_external_id_for_advertiser(adv)
     today = timezone.now().date().isoformat()
+    serial = f'PC-{adv.pk}'[:120]
     cbody: dict = {
+        'type': CONTRACT_TYPE_SERVICE,
         'client_external_id': pid,
         'contractor_external_id': operator_pid,
-        'subject': DEFAULT_CONTRACT_SUBJECT[:2000],
         'date': today,
+        'serial': serial,
+        'subject_type': CONTRACT_SUBJECT_TYPE_ORG_DISTRIBUTION,
+        'flags': ['vat_included', 'contractor_is_creatives_reporter'],
+        'amount': '0',
     }
     try:
         vk_ord_client.put_contract_v1(bearer, cid, cbody, use_sandbox=use_sandbox)
-    except vk_ord_client.OrdVkApiError as e:
-        out['contract_error'] = str(e)
-        logger.warning('ORD put contract failed adv=%s: %s', adv.pk, e)
-        return out
+    except vk_ord_client.OrdVkApiError as e1:
+        try:
+            vk_ord_client.put_contract_v1(bearer, cid, {'contract': cbody}, use_sandbox=use_sandbox)
+        except vk_ord_client.OrdVkApiError as e2:
+            out['contract_error'] = str(e2)
+            logger.warning('ORD put contract failed adv=%s: %s (retry: %s)', adv.pk, e2, e1)
+            return out
     except Exception as e:
         out['contract_error'] = str(e)[:2000]
         logger.exception('ORD put contract adv=%s', adv.pk)
@@ -157,11 +169,11 @@ def ensure_advertiser_ord_profile(adv: Advertiser, *, use_sandbox: bool) -> dict
         OrdContract.objects.update_or_create(
             external_id=str(cid).strip(),
             defaults={
-                'type': '',
+                'type': CONTRACT_TYPE_SERVICE,
                 'client_external_id': pid,
                 'contractor_external_id': operator_pid,
                 'date': today,
-                'serial': '',
+                'serial': serial,
                 'raw': cbody,
                 'advertiser': adv,
             },

@@ -8,6 +8,7 @@ import logging
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Max
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -317,21 +318,115 @@ def campaign_content(request, pk: int):
     return render(request, 'advertisers/campaign_content.html', {'app': app, 'post': post})
 
 
-def _auto_provision_ord_for_advertiser(request, adv, *, notify: bool = True) -> None:
-    """Создаёт/обновляет person (и договор при настройке) в ОРД; при notify показывает предупреждения."""
+def _run_campaign_ord_prepare(app: AdApplication, *, sync_catalog: bool, use_sandbox: bool) -> dict:
+    """
+    Синхронизация каталога (опционально), ensure person/contract в ОРД, prefill полей заявки,
+    отметка шага мастера. Возвращает словарь для JSON-ответа UI.
+    """
+    from core.models import get_global_api_keys
+
     from advertisers.ord_provision import ensure_advertiser_ord_profile
+    from advertisers.services import sync_advertisers_and_contracts_from_ord
+
+    out: dict = {
+        'ok': False,
+        'person_ok': False,
+        'contract_id': '',
+        'contract_skipped': False,
+        'person_error': '',
+        'contract_error': '',
+        'sync': None,
+    }
+
+    if sync_catalog:
+        sr = sync_advertisers_and_contracts_from_ord(use_sandbox=use_sandbox)
+        out['sync'] = {
+            'ok': bool(sr.get('ok')),
+            'created': sr.get('created', 0),
+            'updated': sr.get('updated', 0),
+            'contracts': sr.get('contracts', 0),
+            'error': (sr.get('error') or '').strip(),
+        }
+        app.refresh_from_db()
+        app.advertiser.refresh_from_db()
+        app.channel.refresh_from_db()
+
+    prov = ensure_advertiser_ord_profile(app.advertiser, use_sandbox=use_sandbox)
+    app.advertiser.refresh_from_db()
+
+    if not prov.get('ok'):
+        out['person_error'] = (prov.get('error') or 'Не удалось создать контрагента в ОРД.').strip()
+        return out
+
+    out['person_ok'] = True
+    out['contract_id'] = (prov.get('contract_id') or '').strip()
+    out['contract_error'] = (prov.get('contract_error') or '').strip()
+    keys = get_global_api_keys()
+    operator_set = bool((getattr(keys, 'vk_ord_operator_person_external_id', None) or '').strip())
+    out['contract_skipped'] = operator_set is False
+
+    prefill_ad_application_ord_fields(app)
+    app.refresh_from_db()
+
+    now = timezone.now()
+    app.ord_sync_error = ''
+    if app.ord_contract_external_id or app.ord_person_external_id or app.ord_pad_external_id:
+        app.ord_synced_at = now
+    app.ord_wizard_saved_at = now
+    app.save(
+        update_fields=[
+            'ord_contract_external_id',
+            'ord_person_external_id',
+            'ord_pad_external_id',
+            'ord_synced_at',
+            'ord_sync_error',
+            'ord_wizard_saved_at',
+            'updated_at',
+        ]
+    )
+
+    out['ok'] = True
+    return out
+
+
+@login_required
+@require_POST
+def campaign_ord_prepare(request, pk: int):
+    """AJAX: подготовка ОРД (person/contract + prefill). mode=provision|sync"""
+    app = _app_adv(request, pk)
+    if app.status != AdApplication.STATUS_DRAFT:
+        return JsonResponse({'ok': False, 'error': 'Заявка не в черновике.'}, status=400)
+
     from core.models import get_global_api_keys
 
     keys = get_global_api_keys()
     sandbox = bool(getattr(keys, 'vk_ord_use_sandbox', False))
-    res = ensure_advertiser_ord_profile(adv, use_sandbox=sandbox)
-    adv.refresh_from_db()
-    if not notify:
-        return
-    if res.get('contract_error'):
-        messages.warning(request, f'Автосоздание договора в ОРД: {res["contract_error"][:400]}')
-    if not res.get('ok') and res.get('error'):
-        messages.warning(request, f'Автоотправка контрагента в ОРД: {res["error"][:400]}')
+    mode = (request.POST.get('mode') or 'provision').strip()
+    sync_catalog = mode == 'sync'
+
+    try:
+        result = _run_campaign_ord_prepare(app, sync_catalog=sync_catalog, use_sandbox=sandbox)
+    except Exception as e:
+        logger.exception('campaign_ord_prepare app=%s', pk)
+        return JsonResponse({'ok': False, 'error': str(e)[:2000]}, status=500)
+
+    if not result.get('ok'):
+        err = result.get('person_error') or 'Ошибка подготовки ОРД.'
+        return JsonResponse({**result, 'error': err}, status=200)
+
+    warnings = []
+    if result.get('sync') and not result['sync'].get('ok') and result['sync'].get('error'):
+        warnings.append(f'Каталог ОРД: {result["sync"]["error"][:400]}')
+    if result.get('contract_error'):
+        warnings.append(f'Договор в ОРД: {result["contract_error"][:400]}')
+
+    return JsonResponse(
+        {
+            **result,
+            'warnings': warnings,
+            'error': '',
+        }
+    )
 
 
 @login_required
@@ -341,56 +436,21 @@ def campaign_ord(request, pk: int):
         return redirect('advertisers:campaign_list')
 
     if request.method == 'POST':
-        action = (request.POST.get('action') or '').strip()
-        if action == 'sync_ord':
-            from advertisers.services import sync_advertisers_and_contracts_from_ord
-            from core.models import get_global_api_keys
-
-            keys = get_global_api_keys()
-            sandbox = bool(getattr(keys, 'vk_ord_use_sandbox', False))
-            res = sync_advertisers_and_contracts_from_ord(use_sandbox=sandbox)
-            app.refresh_from_db()
-            app.advertiser.refresh_from_db()
-            app.channel.refresh_from_db()
-            _auto_provision_ord_for_advertiser(request, app.advertiser, notify=True)
-            prefill_ad_application_ord_fields(app)
-            app.refresh_from_db()
-            if res.get('ok'):
-                messages.success(
-                    request,
-                    'Каталог ОРД обновлён: контрагенты и договоры подтянуты в систему. '
-                    f'Создано {res.get("created", 0)}, обновлено {res.get("updated", 0)}, договоров: {res.get("contracts", 0)}.',
-                )
-            else:
-                messages.warning(request, res.get('error') or 'Не удалось синхронизировать ОРД.')
+        action = (request.POST.get('action') or 'next').strip()
+        if action != 'next':
             return redirect('advertisers:campaign_ord', pk=app.pk)
-
-        _auto_provision_ord_for_advertiser(request, app.advertiser, notify=True)
-        prefill_ad_application_ord_fields(app)
         app.refresh_from_db()
-        app.ord_sync_error = ''
-        if app.ord_contract_external_id or app.ord_person_external_id or app.ord_pad_external_id:
-            app.ord_synced_at = timezone.now()
-        app.ord_wizard_saved_at = timezone.now()
-        app.save(
-            update_fields=[
-                'ord_contract_external_id',
-                'ord_person_external_id',
-                'ord_pad_external_id',
-                'ord_synced_at',
-                'ord_sync_error',
-                'ord_wizard_saved_at',
-                'updated_at',
-            ]
-        )
-        messages.success(request, 'Данные для ОРД сохранены (подставлены из профиля и канала).')
+        if not app.ord_wizard_saved_at:
+            messages.error(
+                request,
+                'Сначала дождитесь окончания подготовки данных ВК ОРД на этой странице.',
+            )
+            return redirect('advertisers:campaign_ord', pk=app.pk)
+        messages.success(request, 'Шаг ВК ОРД пройден. Далее — сводка заявки.')
         return redirect('advertisers:campaign_review', pk=app.pk)
 
     app.advertiser.refresh_from_db()
     app.channel.refresh_from_db()
-    _auto_provision_ord_for_advertiser(request, app.advertiser, notify=False)
-    prefill_ad_application_ord_fields(app)
-    app.refresh_from_db()
     return render(request, 'advertisers/campaign_ord.html', {'app': app})
 
 

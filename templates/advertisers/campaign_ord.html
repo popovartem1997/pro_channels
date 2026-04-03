@@ -4,38 +4,193 @@
 <div class="page-header">
   <h1>ВК ОРД</h1>
   <p class="text-muted small mb-0">
-    Контрагент (person) рекламодателя и при настройке — договор с исполнителем создаются в ОРД автоматически по данным профиля и сохраняются у нас.
-    Идентификаторы для заявки подставляются из профиля, канала (pad) и синхронизации с
-    <a href="https://ord.vk.com" target="_blank" rel="noopener">ord.vk.com</a>.
-    Вручную ничего вводить не нужно.
+    Мы автоматически создаём в кабинете <a href="https://ord.vk.com" target="_blank" rel="noopener">ВК ОРД</a> контрагента по вашему профилю
+    и при настройке сервиса — договор с исполнителем. Идентификаторы подставляются в заявку без ручного ввода.
   </p>
 </div>
 {% include 'advertisers/_campaign_steps.html' with step=4 app=app %}
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-body small">
-    <div class="fw-semibold mb-2">Текущие значения для этой заявки</div>
-    <dl class="row mb-0">
-      <dt class="col-sm-4 text-muted">Договор (contract)</dt>
-      <dd class="col-sm-8 font-monospace text-break">{{ app.ord_contract_external_id|default:"—" }}</dd>
-      <dt class="col-sm-4 text-muted">Контрагент (person)</dt>
-      <dd class="col-sm-8 font-monospace text-break">{{ app.ord_person_external_id|default:"—" }}</dd>
-      <dt class="col-sm-4 text-muted">Площадка (pad)</dt>
-      <dd class="col-sm-8 font-monospace text-break">{{ app.ord_pad_external_id|default:"—" }}</dd>
-    </dl>
-    <p class="text-muted small mt-3 mb-0">
-      Если поля пустые: проверьте токен ОРД в настройках сервиса, у канала должен быть pad;
-      договор подтягивается после автосоздания (если задан person исполнителя в «Ключи API») или после «Обновить из ОРД».
-    </p>
-  </div>
-</div>
-<form method="post" class="card border-0 shadow-sm">
+
+<div
+  id="ord-wizard-root"
+  class="card border-0 shadow-sm mb-3"
+  data-prepare-url="{% url 'advertisers:campaign_ord_prepare' app.pk %}"
+  data-skip-auto="{% if app.ord_wizard_saved_at %}1{% else %}0{% endif %}"
+>
   {% csrf_token %}
-  <div class="card-body d-flex flex-wrap gap-2">
-    <button type="submit" name="action" value="sync_ord" class="btn btn-outline-primary">
-      Обновить из ОРД
-    </button>
-    <button type="submit" class="btn btn-brand">Далее</button>
+
+  <div id="ord-panel-wait" class="card-body p-4 p-md-5 text-center {% if app.ord_wizard_saved_at %}d-none{% endif %}">
+    <div class="spinner-border text-primary mb-3" role="status" style="width:2.5rem;height:2.5rem;" aria-hidden="true"></div>
+    <p class="fw-semibold mb-1" id="ord-wait-title">Подготавливаем данные для ОРД</p>
+    <p class="text-muted small mb-2" id="ord-wait-status">Создаём или обновляем контрагента в ОРД…</p>
+    <p class="text-muted small mb-0" id="ord-wait-eta">Ориентировочное время ожидания: 20–60 секунд.</p>
+  </div>
+
+  <div id="ord-panel-ready" class="card-body p-4 {% if not app.ord_wizard_saved_at %}d-none{% endif %}">
+    <div class="d-flex align-items-start gap-2 mb-3">
+      <i class="bi bi-check-circle-fill text-success fs-4 flex-shrink-0"></i>
+      <div>
+        <p class="fw-semibold mb-1">Готово</p>
+        <p class="text-muted small mb-0" id="ord-ready-summary">
+          Данные для маркировки подключены к заявке. Можно продолжить или вернуться к редактированию материалов.
+        </p>
+        <ul class="small text-warning mb-0 mt-2 d-none" id="ord-ready-warnings"></ul>
+      </div>
+    </div>
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      <form method="post" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" name="action" value="next" class="btn btn-brand">Далее</button>
+      </form>
+      <a href="{% url 'advertisers:campaign_content' app.pk %}" class="btn btn-outline-secondary">Назад</a>
+      <button type="button" class="btn btn-outline-primary" id="ord-btn-sync">Обновить из ОРД</button>
+    </div>
+  </div>
+
+  <div id="ord-panel-error" class="card-body p-4 d-none">
+    <div class="alert alert-danger mb-3">
+      <div class="fw-semibold mb-1">Не удалось подготовить ОРД</div>
+      <p class="small mb-0" id="ord-error-text"></p>
+    </div>
+    <button type="button" class="btn btn-brand" id="ord-btn-retry">Повторить</button>
     <a href="{% url 'advertisers:campaign_content' app.pk %}" class="btn btn-outline-secondary">Назад</a>
   </div>
-</form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var root = document.getElementById('ord-wizard-root');
+  if (!root) return;
+  var url = root.getAttribute('data-prepare-url');
+  var skipAuto = root.getAttribute('data-skip-auto') === '1';
+
+  var panelWait = document.getElementById('ord-panel-wait');
+  var panelReady = document.getElementById('ord-panel-ready');
+  var panelError = document.getElementById('ord-panel-error');
+  var waitStatus = document.getElementById('ord-wait-status');
+  var waitEta = document.getElementById('ord-wait-eta');
+  var errorText = document.getElementById('ord-error-text');
+  var warningsEl = document.getElementById('ord-ready-warnings');
+  var lastMode = 'provision';
+
+  function getCsrf() {
+    var inp = root.querySelector('[name=csrfmiddlewaretoken]');
+    return inp ? inp.value : '';
+  }
+
+  function showWait(mode) {
+    panelError.classList.add('d-none');
+    panelReady.classList.add('d-none');
+    panelWait.classList.remove('d-none');
+    if (mode === 'sync') {
+      if (waitEta) waitEta.textContent = 'При большом каталоге контрагентов в ОРД это может занять до 2–3 минут.';
+      if (waitStatus) waitStatus.textContent = 'Синхронизируем каталог из ОРД и обновляем контрагента…';
+    } else {
+      if (waitEta) waitEta.textContent = 'Ориентировочное время ожидания: 20–60 секунд.';
+      if (waitStatus) waitStatus.textContent = 'Создаём или обновляем контрагента в ОРД…';
+    }
+  }
+
+  function showReady(data) {
+    panelWait.classList.add('d-none');
+    panelError.classList.add('d-none');
+    panelReady.classList.remove('d-none');
+    warningsEl.classList.add('d-none');
+    warningsEl.innerHTML = '';
+    var w = data.warnings || [];
+    if (w.length) {
+      warningsEl.classList.remove('d-none');
+      w.forEach(function (t) {
+        var li = document.createElement('li');
+        li.textContent = t;
+        warningsEl.appendChild(li);
+      });
+    }
+    var sum = document.getElementById('ord-ready-summary');
+    if (sum) {
+      var parts = ['Данные для маркировки подключены к заявке.'];
+      if (data.contract_skipped) {
+        parts.push('Автодоговор в ОРД не создавался (не задан исполнитель в настройках сервиса) — при необходимости уточните у администратора.');
+      }
+      sum.textContent = parts.join(' ');
+    }
+  }
+
+  function showError(msg) {
+    panelWait.classList.add('d-none');
+    panelReady.classList.add('d-none');
+    panelError.classList.remove('d-none');
+    errorText.textContent = msg || 'Произошла ошибка.';
+  }
+
+  var rotateTimer = null;
+  function startStatusRotation(mode) {
+    stopStatusRotation();
+    var steps = ['Создаём или обновляем контрагента в ОРД…'];
+    if (mode !== 'sync') {
+      steps.push('Создаём или обновляем договор в ОРД…');
+    } else {
+      steps.push('Подтягиваем контрагентов и договоры из кабинета…');
+    }
+    steps.push('Подключаем данные к заявке…');
+    var i = 0;
+    if (waitStatus) waitStatus.textContent = steps[0];
+    rotateTimer = setInterval(function () {
+      i = Math.min(i + 1, steps.length - 1);
+      if (waitStatus) waitStatus.textContent = steps[i];
+    }, 9000);
+  }
+
+  function stopStatusRotation() {
+    if (rotateTimer) {
+      clearInterval(rotateTimer);
+      rotateTimer = null;
+    }
+  }
+
+  function runPrepare(mode) {
+    lastMode = mode || 'provision';
+    showWait(lastMode);
+    startStatusRotation(lastMode);
+    var fd = new FormData();
+    fd.append('csrfmiddlewaretoken', getCsrf());
+    fd.append('mode', lastMode === 'sync' ? 'sync' : 'provision');
+    return fetch(url, {
+      method: 'POST',
+      body: fd,
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'same-origin',
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (_ref) {
+        stopStatusRotation();
+        var j = _ref.j;
+        if (!j || !j.ok) {
+          showError((j && j.error) || 'Не удалось выполнить запрос к ОРД.');
+          return;
+        }
+        showReady(j);
+      })
+      .catch(function () {
+        stopStatusRotation();
+        showError('Сеть или сервер недоступны. Попробуйте ещё раз.');
+      });
+  }
+
+  document.getElementById('ord-btn-retry') && document.getElementById('ord-btn-retry').addEventListener('click', function () {
+    runPrepare(lastMode);
+  });
+  document.getElementById('ord-btn-sync') && document.getElementById('ord-btn-sync').addEventListener('click', function () {
+    runPrepare('sync');
+  });
+
+  if (skipAuto) {
+    panelWait.classList.add('d-none');
+    panelReady.classList.remove('d-none');
+  } else {
+    runPrepare('provision');
+  }
+})();
+</script>
 {% endblock %}
