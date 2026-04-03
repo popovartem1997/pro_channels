@@ -184,10 +184,10 @@ class AdApplication(models.Model):
     ]
 
     PAY_TRANSFER = 'transfer'
-    PAY_TBANK = 'tbank'
+    PAY_PAYMENT_LINK = 'payment_link'
     PAYMENT_METHOD_CHOICES = [
         (PAY_TRANSFER, 'Перевод по реквизитам'),
-        (PAY_TBANK, 'Онлайн (TBank)'),
+        (PAY_PAYMENT_LINK, 'Оплата по ссылке'),
     ]
 
     advertiser = models.ForeignKey(
@@ -255,6 +255,11 @@ class AdApplication(models.Model):
         'Перевод: получатель (имя и первая буква фамилии)',
         max_length=120,
         blank=True,
+    )
+    owner_payment_url = models.TextField(
+        'Ссылка на оплату (владелец вставляет вручную)',
+        blank=True,
+        help_text='Например ссылка из личного кабинета T-Bank; API эквайринга не вызывается.',
     )
     transfer_screenshot = models.ImageField(
         'Скриншот перевода (рекламодатель)',

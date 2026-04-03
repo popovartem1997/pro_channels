@@ -30,8 +30,8 @@
 
 {% if user.is_staff or user.is_superuser or user.role == 'owner' %}
 <div class="d-flex flex-wrap gap-2 mb-3">
-  <a class="btn btn-sm btn-outline-secondary" href="{% url 'advertisers:owner_orders' %}">
-    <i class="bi bi-clipboard-check me-1"></i> Заявки (owner)
+  <a class="btn btn-sm btn-outline-secondary" href="{% url 'advertisers:owner_campaigns' %}">
+    <i class="bi bi-ui-checks me-1"></i> Заявки на рекламу
   </a>
   <a class="btn btn-sm btn-outline-secondary" href="{% url 'advertisers:catalog' %}">
     <i class="bi bi-megaphone me-1"></i> Каталог рекламы

@@ -186,34 +186,15 @@ def order_detail(request, pk):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Панель владельца: управление всеми рекламными заявками
+# Панель владельца: старые заказы AdvertisingOrder — только карточка / moderate по прямой ссылке;
+# список /manage/ редиректит на заявки кампаний (см. urls).
 # ──────────────────────────────────────────────────────────────────────────────
-
-@login_required
-def owner_orders(request):
-    """Список всех рекламных заявок (только для owner/staff)."""
-    if not (request.user.is_staff or request.user.role == request.user.ROLE_OWNER):
-        messages.error(request, 'Нет доступа.')
-        return redirect('dashboard')
-    status_filter = request.GET.get('status', '')
-    orders = (
-        AdvertisingOrder.objects.select_related('advertiser', 'invoice', 'moderator')
-        .prefetch_related('channels')
-        .order_by('-created_at')
-    )
-    if status_filter:
-        orders = orders.filter(status=status_filter)
-    return render(request, 'advertisers/owner_orders.html', {
-        'orders': orders,
-        'status_filter': status_filter,
-        'statuses': AdvertisingOrder.STATUS_CHOICES,
-    })
 
 
 def _owner_order_moderate_redirect(request, order):
     if request.method == 'POST' and request.POST.get('return_to') == 'order_detail':
         return redirect('advertisers:owner_order_detail', pk=order.pk)
-    return redirect('advertisers:owner_orders')
+    return redirect('advertisers:owner_campaigns')
 
 
 @login_required
@@ -352,7 +333,7 @@ def create_act(request, order_pk):
         from billing.pdf import generate_act_pdf
         generate_act_pdf(act)
         messages.success(request, f'Акт {act.number} создан.')
-        return redirect('advertisers:owner_orders')
+        return redirect('advertisers:owner_campaigns')
 
     return render(request, 'advertisers/create_act.html', {'order': order})
 

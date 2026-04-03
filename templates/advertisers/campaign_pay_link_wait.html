@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block title %}Оплата по ссылке · заявка #{{ app.pk }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Оплата по ссылке</h1>
+  <p class="text-muted small mb-0">Заявка #{{ app.pk }}{% if app.invoice %} · счёт {{ app.invoice.number }}{% endif %}</p>
+</div>
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <p class="mb-3"><strong>Сумма:</strong> {{ app.total_amount }} ₽</p>
+    {% if app.owner_payment_url %}
+    <a href="{{ app.owner_payment_url }}" class="btn btn-brand btn-lg mb-3" target="_blank" rel="noopener noreferrer">
+      Перейти к оплате
+    </a>
+    <p class="small text-muted mb-0">Ссылку сформировал владелец канала. После оплаты по желанию приложите скриншот ниже — владелец подтвердит поступление средств.</p>
+    {% else %}
+    <p class="text-warning small">Ссылка не задана. Обратитесь к владельцу канала.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <h6 class="fw-semibold mb-2">Скриншот оплаты (необязательно)</h6>
+    {% if app.transfer_screenshot %}
+    <p class="small text-success mb-2">Файл загружен.</p>
+    <a href="{{ app.transfer_screenshot.url }}" target="_blank" rel="noopener noreferrer" class="btn btn-outline-secondary btn-sm mb-3">Открыть изображение</a>
+    {% endif %}
+    <form method="post" enctype="multipart/form-data" class="d-flex flex-wrap gap-2 align-items-end">
+      {% csrf_token %}
+      <div>
+        <input type="file" name="transfer_screenshot" class="form-control form-control-sm" accept="image/jpeg,image/png,image/webp,image/gif">
+      </div>
+      <button type="submit" class="btn btn-brand btn-sm">{% if app.transfer_screenshot %}Заменить{% else %}Загрузить{% endif %}</button>
+    </form>
+  </div>
+</div>
+
+<a href="{% url 'advertisers:campaign_list' %}" class="btn btn-outline-secondary">Мои заявки</a>
+{% endblock %}

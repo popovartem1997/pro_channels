@@ -30,8 +30,13 @@ urlpatterns = [
     path('campaign/<int:pk>/contacts/', cv.campaign_contacts, name='campaign_contacts'),
     path('campaign/<int:pk>/checkout/', cv.campaign_checkout, name='campaign_checkout'),
     path('campaign/<int:pk>/wait-transfer/', cv.campaign_transfer_wait, name='campaign_transfer_wait'),
+    path('campaign/<int:pk>/pay-link/', cv.campaign_pay_link_wait, name='campaign_pay_link_wait'),
     # Панель владельца
-    path('manage/', views.owner_orders, name='owner_orders'),
+    path(
+        'manage/',
+        RedirectView.as_view(pattern_name='advertisers:owner_campaigns', permanent=False),
+        name='owner_orders',
+    ),
     path('manage/order/<int:pk>/', views.owner_order_detail, name='owner_order_detail'),
     path('manage/campaigns/', views.owner_ad_applications, name='owner_campaigns'),
     path('manage/campaigns/<int:pk>/', cv.owner_campaign_detail, name='owner_campaign_detail'),

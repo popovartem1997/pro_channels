@@ -35,6 +35,8 @@
                 {% if a.invoice.is_paid %}<span class="text-success">Оплачено</span>{% else %}Счёт выставлен{% endif %}
               {% elif a.payment_method == 'transfer' %}
                 Перевод{% if a.transfer_marked_received %} ✓{% endif %}
+              {% elif a.payment_method == 'payment_link' %}
+                По ссылке{% if a.transfer_marked_received %} ✓{% endif %}
               {% else %}—{% endif %}
             </dd>
             <dt class="col-4 text-muted">Публикации</dt>
@@ -62,6 +64,8 @@
             <a href="{% url 'advertisers:campaign_checkout' a.pk %}" class="btn btn-sm btn-brand">Оплатить</a>
             {% elif a.status == 'awaiting_payment' and a.payment_method == 'transfer' %}
             <a href="{% url 'advertisers:campaign_transfer_wait' a.pk %}" class="btn btn-sm btn-outline-primary">Реквизиты</a>
+            {% elif a.status == 'awaiting_payment' and a.payment_method == 'payment_link' %}
+            <a href="{% url 'advertisers:campaign_pay_link_wait' a.pk %}" class="btn btn-sm btn-outline-primary">Оплата</a>
             {% endif %}
           </div>
         </div>
@@ -96,6 +100,8 @@
                 {% if a.invoice.is_paid %}<span class="text-success">Оплачено</span>{% else %}Счёт выставлен{% endif %}
               {% elif a.payment_method == 'transfer' %}
                 Перевод{% if a.transfer_marked_received %} ✓{% endif %}
+              {% elif a.payment_method == 'payment_link' %}
+                По ссылке{% if a.transfer_marked_received %} ✓{% endif %}
               {% else %}—{% endif %}
             </td>
             <td class="small">
@@ -124,6 +130,8 @@
                 <a href="{% url 'advertisers:campaign_checkout' a.pk %}" class="btn btn-sm btn-brand">Оплатить</a>
                 {% elif a.status == 'awaiting_payment' and a.payment_method == 'transfer' %}
                 <a href="{% url 'advertisers:campaign_transfer_wait' a.pk %}" class="btn btn-sm btn-outline-primary">Реквизиты</a>
+                {% elif a.status == 'awaiting_payment' and a.payment_method == 'payment_link' %}
+                <a href="{% url 'advertisers:campaign_pay_link_wait' a.pk %}" class="btn btn-sm btn-outline-primary">Оплата</a>
                 {% endif %}
               </div>
             </td>

@@ -215,10 +215,6 @@
           <i class="bi bi-ui-checks"></i> Заявки на рекламу
           {% if adv_campaign_pending_count %}<span class="ms-auto badge rounded-pill bg-warning text-dark">{{ adv_campaign_pending_count }}</span>{% endif %}
         </a></li>
-        <li><a class="nav-link {% if '/advertisers/manage/' in request.path and 'campaigns' not in request.path %}active{% endif %}" href="{% url 'advertisers:owner_orders' %}">
-          <i class="bi bi-archive"></i> Старые заказы (legacy)
-          {% if adv_pending_count %}<span class="ms-auto badge rounded-pill bg-secondary">{{ adv_pending_count }}</span>{% endif %}
-        </a></li>
         {% endif %}
         <li><a class="nav-link {% if '/ord/' in request.path %}active{% endif %}" href="{% url 'ord_marking:dashboard' %}">
           <i class="bi bi-shield-check"></i> ВК ОРД

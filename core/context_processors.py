@@ -68,12 +68,9 @@ def site_context(request):
 
         ctx['global_pending_count'] = int(pending_count or 0) + int(parsed_new or 0)
         if request.user.is_staff or getattr(request.user, 'role', '') == 'owner':
-            from advertisers.models import AdApplication, AdvertisingOrder
+            from advertisers.models import AdApplication
 
-            ctx['adv_pending_count'] = AdvertisingOrder.objects.filter(
-                status='submitted'
-            ).count()
-            # Новый поток: на согласовании у владельца канала (модалка «Одобрить и указать оплату»).
+            # На согласовании у владельца канала (модалка «Одобрить и указать оплату»).
             ctx['adv_campaign_pending_count'] = AdApplication.objects.filter(
                 status=AdApplication.STATUS_PENDING_OWNER,
                 channel__owner=request.user,

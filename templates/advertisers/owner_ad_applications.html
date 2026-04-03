@@ -1,13 +1,12 @@
 {% extends 'base.html' %}
-{% block title %}Заявки (новый поток){% endblock %}
+{% block title %}Заявки на рекламу{% endblock %}
 
 {% block content %}
-<div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+<div class="page-header d-flex align-items-start justify-content-between flex-wrap gap-2">
   <div>
     <h1><i class="bi bi-ui-checks me-2" style="color:var(--brand)"></i>Заявки на рекламу</h1>
     <p class="text-muted small mb-0">Согласование и кнопка «Одобрить и указать оплату» — в карточке заявки (статус «На согласовании у владельца»).</p>
   </div>
-  <a href="{% url 'advertisers:owner_orders' %}" class="btn btn-outline-secondary btn-sm">Старые заказы</a>
 </div>
 
 <div class="row g-3 mb-4">
@@ -49,32 +48,27 @@
 <div class="card">
   <div class="card-body p-0">
     {% if applications %}
-    <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
-        <thead class="table-light">
-          <tr>
-            <th class="ps-4">#</th>
-            <th>Рекламодатель</th>
-            <th>Канал</th>
-            <th>Статус</th>
-            <th>Сумма</th>
-            <th>Договор</th>
-            <th>ОРД (посты)</th>
-            <th>Контроль</th>
-            <th class="pe-4">Обновлено</th>
-            <th class="pe-4"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for a in applications %}
-          <tr>
-            <td class="ps-4 font-monospace">{{ a.pk }}</td>
-            <td>{{ a.advertiser.company_name }} <span class="text-muted small">ИНН {{ a.advertiser.inn }}</span></td>
-            <td>{{ a.channel.name }}</td>
-            <td><span class="badge bg-secondary">{{ a.get_status_display }}</span></td>
-            <td>{{ a.total_amount }} ₽</td>
-            <td class="small">{% if a.contract_signed_at %}<span class="text-success">Подписан</span>{% else %}<span class="text-warning">нет</span>{% endif %}</td>
-            <td class="small">
+
+    <div class="d-md-none px-2 py-3">
+      {% for a in applications %}
+      <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body py-3 px-3">
+          <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+            <div class="min-w-0 flex-grow-1">
+              <span class="font-monospace text-muted small">#{{ a.pk }}</span>
+              <div class="fw-semibold text-break">{{ a.advertiser.company_name }}</div>
+              <div class="small text-muted text-break">ИНН {{ a.advertiser.inn }}</div>
+              <div class="small text-break mt-1">{{ a.channel.name }}</div>
+            </div>
+            <span class="badge bg-secondary flex-shrink-0">{{ a.get_status_display }}</span>
+          </div>
+          <dl class="row small mb-3 gx-0 gy-1">
+            <dt class="col-5 text-muted">Сумма</dt>
+            <dd class="col-7 mb-0">{{ a.total_amount }} ₽</dd>
+            <dt class="col-5 text-muted">Договор</dt>
+            <dd class="col-7 mb-0">{% if a.contract_signed_at %}<span class="text-success">Подписан</span>{% else %}<span class="text-warning">нет</span>{% endif %}</dd>
+            <dt class="col-5 text-muted">ОРД</dt>
+            <dd class="col-7 mb-0">
               {% for p in a.campaign_posts.all %}
                 {% if p.ord_registrations.all %}
                   <span class="text-success" title="Пост #{{ p.pk }}">✓</span>
@@ -84,8 +78,9 @@
               {% empty %}
               <span class="text-muted">—</span>
               {% endfor %}
-            </td>
-            <td class="small">
+            </dd>
+            <dt class="col-5 text-muted">Контроль</dt>
+            <dd class="col-7 mb-0">
               {% for key, labels in app_issues.items %}
                 {% if key == a.pk %}
                   {% if labels %}
@@ -95,20 +90,90 @@
                   {% endif %}
                 {% endif %}
               {% endfor %}
-            </td>
-            <td class="small text-muted">{{ a.updated_at|date:"d.m.Y H:i" }}</td>
-            <td class="pe-4 small text-nowrap">
-              {% if a.status == 'pending_owner' %}
-              <a href="{% url 'advertisers:owner_campaign_detail' a.pk %}" class="btn btn-sm btn-success">Одобрить и указать оплату</a>
-              {% else %}
-              <a href="{% url 'advertisers:owner_campaign_detail' a.pk %}" class="btn btn-sm btn-outline-primary">Карточка</a>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+            </dd>
+            <dt class="col-5 text-muted">Обновлено</dt>
+            <dd class="col-7 mb-0 text-muted">{{ a.updated_at|date:"d.m.Y H:i" }}</dd>
+          </dl>
+          <div class="d-grid gap-2">
+            {% if a.status == 'pending_owner' %}
+            <a href="{% url 'advertisers:owner_campaign_detail' a.pk %}" class="btn btn-sm btn-success">Одобрить и указать оплату</a>
+            {% else %}
+            <a href="{% url 'advertisers:owner_campaign_detail' a.pk %}" class="btn btn-sm btn-outline-primary">Карточка</a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
     </div>
+
+    <div class="d-none d-md-block">
+      <div class="table-responsive" style="max-width:100%;">
+        <table class="table table-sm table-hover align-middle mb-0 w-100" style="table-layout:fixed;">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3" style="width:4.5rem;">#</th>
+              <th style="width:18%;">Рекламодатель</th>
+              <th style="width:14%;">Канал</th>
+              <th style="width:11%;">Статус</th>
+              <th style="width:6.5rem;">Сумма</th>
+              <th style="width:7rem;">Договор</th>
+              <th style="width:6rem;">ОРД</th>
+              <th style="width:16%;">Контроль</th>
+              <th style="width:8.5rem;">Обновлено</th>
+              <th class="pe-3 text-end" style="width:11rem;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in applications %}
+            <tr>
+              <td class="ps-3 font-monospace text-muted">{{ a.pk }}</td>
+              <td class="text-break" style="min-width:0;word-break:break-word;">
+                <div class="fw-medium">{{ a.advertiser.company_name }}</div>
+                <div class="small text-muted">ИНН {{ a.advertiser.inn }}</div>
+              </td>
+              <td class="text-break" style="min-width:0;word-break:break-word;">{{ a.channel.name }}</td>
+              <td style="min-width:0;"><span class="badge bg-secondary text-wrap text-start">{{ a.get_status_display }}</span></td>
+              <td class="text-nowrap">{{ a.total_amount }} ₽</td>
+              <td class="small">{% if a.contract_signed_at %}<span class="text-success">Да</span>{% else %}<span class="text-warning">Нет</span>{% endif %}</td>
+              <td class="small text-center">
+                {% for p in a.campaign_posts.all %}
+                  {% if p.ord_registrations.all %}
+                    <span class="text-success" title="Пост #{{ p.pk }}">✓</span>
+                  {% else %}
+                    <span class="text-warning" title="Пост #{{ p.pk }}">—</span>
+                  {% endif %}
+                {% empty %}
+                <span class="text-muted">—</span>
+                {% endfor %}
+              </td>
+              <td class="small" style="min-width:0;">
+                <div class="d-flex flex-wrap gap-1">
+                  {% for key, labels in app_issues.items %}
+                    {% if key == a.pk %}
+                      {% if labels %}
+                        {% for t in labels %}<span class="badge bg-warning text-dark">{{ t }}</span>{% endfor %}
+                      {% else %}
+                        <span class="text-muted">—</span>
+                      {% endif %}
+                    {% endif %}
+                  {% endfor %}
+                </div>
+              </td>
+              <td class="small text-muted text-nowrap">{{ a.updated_at|date:"d.m.Y H:i" }}</td>
+              <td class="pe-3 text-end" style="min-width:0;">
+                {% if a.status == 'pending_owner' %}
+                <a href="{% url 'advertisers:owner_campaign_detail' a.pk %}" class="btn btn-sm btn-success">Одобрить</a>
+                {% else %}
+                <a href="{% url 'advertisers:owner_campaign_detail' a.pk %}" class="btn btn-sm btn-outline-primary">Карточка</a>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     {% else %}
     <p class="text-muted p-4 mb-0">Заявок пока нет.</p>
     {% endif %}

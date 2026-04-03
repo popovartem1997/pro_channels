@@ -44,7 +44,7 @@
 <div class="card border-primary mb-4">
   <div class="card-header bg-transparent fw-semibold">Согласование заявки</div>
   <div class="card-body">
-    <p class="small text-muted mb-3">Счёт ещё не выставлен. При одобрении укажите, как рекламодатель будет платить: перевод на карту (реквизиты) или онлайн через T-Bank.</p>
+    <p class="small text-muted mb-3">Счёт ещё не выставлен. Укажите либо реквизиты для перевода, либо вставьте готовую ссылку на оплату (например из кабинета T-Bank) — без вызова API из сайта.</p>
     <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#approvePaymentModal">Одобрить и указать оплату</button>
     <hr class="my-3">
     <form method="post" action="{% url 'advertisers:owner_campaign_decision' app.pk %}" class="small">
@@ -68,16 +68,16 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
         </div>
         <div class="modal-body pt-2">
-          <p class="small text-muted">Рекламодатель увидит только выбранный вариант. Для T-Bank должны быть заданы ключи терминала в «Ключи API»; чек в «Чеки Т-Бизнес» настраивается в кабинете T-Bank и передаётся через API при оплате.</p>
+          <p class="small text-muted">Рекламодатель увидит только выбранный вариант. Ссылку на оплату вы формируете сами в T-Bank (или другом сервисе) и вставляете сюда.</p>
           <div class="mb-3">
             <label class="form-label fw-semibold">Способ оплаты для рекламодателя</label>
             <div class="form-check">
               <input class="form-check-input" type="radio" name="owner_payment_method" value="transfer" id="own_pm_tr" required>
-              <label class="form-check-label" for="own_pm_tr">Перевод на карту / СБП (укажите реквизиты)</label>
+              <label class="form-check-label" for="own_pm_tr">Перевод на карту / СБП (реквизиты)</label>
             </div>
             <div class="form-check">
-              <input class="form-check-input" type="radio" name="owner_payment_method" value="tbank" id="own_pm_tb">
-              <label class="form-check-label" for="own_pm_tb">Оплата картой через T-Bank</label>
+              <input class="form-check-input" type="radio" name="owner_payment_method" value="payment_link" id="own_pm_pl">
+              <label class="form-check-label" for="own_pm_pl">Ссылка на оплату (вставить URL)</label>
             </div>
           </div>
           <div id="transferFieldsApprove" class="border rounded p-3 bg-light small" style="display:none;">
@@ -94,6 +94,10 @@
               <input type="text" name="transfer_recipient_hint" id="id_transfer_recipient_hint" class="form-control form-control-sm" maxlength="120" placeholder="Например Иван И.">
             </div>
           </div>
+          <div id="paymentLinkFieldsApprove" class="border rounded p-3 bg-light small" style="display:none;">
+            <label class="form-label fw-semibold mb-0" for="id_owner_payment_url">Ссылка на оплату (https://…)</label>
+            <textarea name="owner_payment_url" id="id_owner_payment_url" class="form-control form-control-sm mt-1" rows="2" placeholder="Вставьте полную ссылку из T-Bank или другого эквайринга"></textarea>
+          </div>
         </div>
         <div class="modal-footer border-0 pt-0">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
@@ -109,9 +113,11 @@
   if (!modal) return;
   function sync() {
     var tr = modal.querySelector('#own_pm_tr');
-    var box = modal.querySelector('#transferFieldsApprove');
-    if (tr && tr.checked && box) box.style.display = 'block';
-    else if (box) box.style.display = 'none';
+    var pl = modal.querySelector('#own_pm_pl');
+    var tbox = modal.querySelector('#transferFieldsApprove');
+    var lbox = modal.querySelector('#paymentLinkFieldsApprove');
+    if (tbox) tbox.style.display = (tr && tr.checked) ? 'block' : 'none';
+    if (lbox) lbox.style.display = (pl && pl.checked) ? 'block' : 'none';
   }
   modal.addEventListener('change', function (e) {
     if (e.target && e.target.name === 'owner_payment_method') sync();
@@ -137,12 +143,16 @@
 </div>
 {% endif %}
 
-{% if app.payment_method == 'transfer' and app.invoice and app.invoice.status != 'paid' and app.status == 'awaiting_payment' %}
+{% if app.payment_method == 'transfer' or app.payment_method == 'payment_link' %}
+{% if app.invoice and app.invoice.status != 'paid' and app.status == 'awaiting_payment' %}
 <div class="card border-warning mb-4">
-  <div class="card-header bg-transparent fw-semibold">Подтверждение перевода</div>
+  <div class="card-header bg-transparent fw-semibold">Подтверждение оплаты</div>
   <div class="card-body small">
-    {% if app.transfer_dest_card_number %}
+    {% if app.payment_method == 'transfer' and app.transfer_dest_card_number %}
     <p class="mb-1"><span class="text-muted">Вы указывали рекламодателю:</span> {{ app.transfer_dest_card_number }}, {{ app.transfer_dest_bank_name }}, {{ app.transfer_dest_recipient_hint }}</p>
+    {% endif %}
+    {% if app.payment_method == 'payment_link' and app.owner_payment_url %}
+    <p class="mb-1 text-break"><span class="text-muted">Ссылка:</span> <a href="{{ app.owner_payment_url }}" target="_blank" rel="noopener noreferrer">{{ app.owner_payment_url }}</a></p>
     {% endif %}
     {% if app.transfer_screenshot %}
     <p class="mb-2">Скриншот от рекламодателя:</p>
@@ -159,6 +169,7 @@
     </form>
   </div>
 </div>
+{% endif %}
 {% endif %}
 
 <h6 class="fw-bold">Посты кампании</h6>
