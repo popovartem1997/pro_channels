@@ -25,9 +25,8 @@ class ChannelAdVolumeDiscountInline(admin.TabularInline):
 
 class ChannelAdAddonInline(admin.TabularInline):
     """
-    Включение/цена доп. услуг по каналу (staff-админ).
-    Пример «топ 1 ч»: тип «Топ-блок», часов блока = 1, цена.
-    Пример «закреп на сутки»: тип «Закреп почасовой», цена за час, макс. часов ≥ 24.
+    Расширенное редактирование (staff). Владелец настраивает стандартные опции
+    top_1h / pin_24h в интерфейсе «Редактировать канал».
     """
 
     model = ChannelAdAddon

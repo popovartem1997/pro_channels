@@ -29,16 +29,23 @@ logger = logging.getLogger(__name__)
 
 
 def _iter_active_addons(channel: Channel):
-    addons_all = list(
-        ChannelAdAddon.objects.filter(channel=channel, is_active=True).order_by('title')
+    """
+    Только две фиксированные опции из настроек канала: top_1h и pin_24h.
+    """
+    from django.db.models import Q
+
+    rows = list(
+        ChannelAdAddon.objects.filter(
+            channel=channel,
+            is_active=True,
+        ).filter(Q(code__iexact='top_1h') | Q(code__iexact='pin_24h'))
     )
-    pin_addon = next(
-        (a for a in addons_all if a.addon_kind == ChannelAdAddon.ADDON_KIND_PIN_HOURLY),
-        None,
-    )
-    top_addons = [a for a in addons_all if a.addon_kind == ChannelAdAddon.ADDON_KIND_TOP_BLOCK]
-    custom_addons = [a for a in addons_all if a.addon_kind == ChannelAdAddon.ADDON_KIND_CUSTOM]
-    return pin_addon, top_addons, custom_addons
+    by_lower = {(r.code or '').lower(): r for r in rows}
+    top_addons = [by_lower['top_1h']] if 'top_1h' in by_lower else []
+    pin_24_addons = [by_lower['pin_24h']] if 'pin_24h' in by_lower else []
+    pin_addon = None
+    custom_addons = []
+    return pin_addon, top_addons, custom_addons, pin_24_addons
 
 
 def _pin_hours_default(pin_addon: ChannelAdAddon | None) -> int:
@@ -176,7 +183,7 @@ def campaign_slots(request, pk: int):
     ensure_ad_slots_for_channel(app.channel)
     from advertisers.models import AdvertisingSlot
 
-    pin_addon, top_addons, custom_addons = _iter_active_addons(app.channel)
+    pin_addon, top_addons, custom_addons, pin_24_addons = _iter_active_addons(app.channel)
     pin_hours_default = _pin_hours_default(pin_addon)
 
     if request.method == 'POST':
@@ -218,6 +225,7 @@ def campaign_slots(request, pk: int):
             'pin_addon': pin_addon,
             'top_addons': top_addons,
             'custom_addons': custom_addons,
+            'pin_24_addons': pin_24_addons,
             'pin_hours_default': pin_hours_default,
         },
     )

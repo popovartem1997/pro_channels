@@ -225,12 +225,12 @@ def want_pin_for_fulfillment(app) -> bool:
             if row.addon_kind == ChannelAdAddon.ADDON_KIND_PIN_HOURLY:
                 if (app.ad_pin_hours or 0) > 0:
                     return True
-            elif (
-                row.addon_kind == ChannelAdAddon.ADDON_KIND_CUSTOM
-                and code_s.lower() == ChannelAdAddon.CODE_PIN
+            elif row.addon_kind == ChannelAdAddon.ADDON_KIND_CUSTOM and code_s.lower() in (
+                ChannelAdAddon.CODE_PIN,
+                ChannelAdAddon.CODE_PIN_24H,
             ):
                 return True
-        elif code_s.lower() == ChannelAdAddon.CODE_PIN:
+        elif code_s.lower() in (ChannelAdAddon.CODE_PIN, ChannelAdAddon.CODE_PIN_24H):
             return True
     return False
 

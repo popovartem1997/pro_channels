@@ -169,76 +169,40 @@
               <div class="form-text">После публикации — период для закрытия кампании и акта.</div>
             </div>
 
-            {% if ad_addon_formset %}
+            {% if ad_fixed_addons %}
             <div class="col-12">
               <h6 class="fw-bold mt-2 mb-2 text-muted">
                 <i class="bi bi-stars me-1"></i> Доп. платные опции для рекламы
               </h6>
               <p class="small text-muted mb-3">
-                Рекламодатель выберет их в заявке на шаге «Слоты и услуги».
-                <strong>Топ-блок</strong> — задайте «часов блока» (например 1) и цену за услугу целиком.
-                <strong>Закреп почасовой</strong> — цена за один час; «макс. часов» ≥ 24, если нужен закреп на сутки.
+                Рекламодатель сможет отметить услуги галочкой в заявке (шаг «Слоты и услуги»). Укажите цену за каждую включённую опцию.
               </p>
-              {% localize off %}
-              {{ ad_addon_formset.management_form }}
-              {% if ad_addon_formset.non_form_errors %}
-              <div class="alert alert-danger small">{{ ad_addon_formset.non_form_errors }}</div>
-              {% endif %}
-              {% for form in ad_addon_formset %}
               <div class="border rounded-3 p-3 mb-3 bg-body-secondary bg-opacity-25">
-                {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
-                {% if form.instance.pk %}
-                <div class="form-check mb-2">
-                  {{ form.DELETE }}
-                  <label class="form-check-label small text-danger" for="{{ form.DELETE.id_for_label }}">Удалить опцию</label>
+                <div class="form-check form-switch mb-2">
+                  <input class="form-check-input" type="checkbox" role="switch" id="id_ad_fixed_top_1h" name="ad_fixed_top_1h"
+                         {% if ad_fixed_addons.top_enabled %}checked{% endif %}>
+                  <label class="form-check-label fw-semibold" for="id_ad_fixed_top_1h">Топ публикации 1 час</label>
                 </div>
-                {% endif %}
-                <div class="row g-2 align-items-end">
-                  <div class="col-6 col-md-2">
-                    <label class="form-label small mb-0" for="{{ form.code.id_for_label }}">Код</label>
-                    {{ form.code }}
-                    {% if form.code.errors %}<div class="text-danger small">{{ form.code.errors }}</div>{% endif %}
-                  </div>
-                  <div class="col-12 col-md-3">
-                    <label class="form-label small mb-0" for="{{ form.title.id_for_label }}">Название</label>
-                    {{ form.title }}
-                    {% if form.title.errors %}<div class="text-danger small">{{ form.title.errors }}</div>{% endif %}
-                  </div>
-                  <div class="col-12 col-md-3">
-                    <label class="form-label small mb-0" for="{{ form.addon_kind.id_for_label }}">Тип</label>
-                    {{ form.addon_kind }}
-                    {% if form.addon_kind.errors %}<div class="text-danger small">{{ form.addon_kind.errors }}</div>{% endif %}
-                  </div>
-                  <div class="col-6 col-md-2">
-                    <label class="form-label small mb-0" for="{{ form.price.id_for_label }}">Цена (₽)</label>
-                    {{ form.price }}
-                    {% if form.price.errors %}<div class="text-danger small">{{ form.price.errors }}</div>{% endif %}
-                  </div>
-                  <div class="col-6 col-md-2">
-                    <label class="form-label small mb-0" for="{{ form.block_hours.id_for_label }}">Часов топа</label>
-                    {{ form.block_hours }}
-                    <div class="form-text" style="font-size:.7rem;">Только топ-блок</div>
-                    {% if form.block_hours.errors %}<div class="text-danger small">{{ form.block_hours.errors }}</div>{% endif %}
-                  </div>
-                  <div class="col-6 col-md-2">
-                    <label class="form-label small mb-0" for="{{ form.max_pin_hours.id_for_label }}">Макс. ч. закрепа</label>
-                    {{ form.max_pin_hours }}
-                    {% if form.max_pin_hours.errors %}<div class="text-danger small">{{ form.max_pin_hours.errors }}</div>{% endif %}
-                  </div>
-                  <div class="col-6 col-md-2 d-flex align-items-center pt-3">
-                    <div class="form-check">
-                      {{ form.is_active }}
-                      <label class="form-check-label small" for="{{ form.is_active.id_for_label }}">Вкл.</label>
-                    </div>
-                    {% if form.is_active.errors %}<div class="text-danger small">{{ form.is_active.errors }}</div>{% endif %}
-                  </div>
-                </div>
-                {% if form.non_field_errors %}
-                <div class="text-danger small mt-2">{{ form.non_field_errors }}</div>
-                {% endif %}
+                <p class="small text-muted mb-2">Час без других постов в канале после выхода рекламы.</p>
+                <label class="form-label small" for="id_ad_fixed_top_1h_price">Цена (₽)</label>
+                {% localize off %}
+                <input type="text" class="form-control font-monospace" style="max-width:12rem" inputmode="decimal"
+                       id="id_ad_fixed_top_1h_price" name="ad_fixed_top_1h_price" value="{{ ad_fixed_addons.top_price }}">
+                {% endlocalize %}
               </div>
-              {% endfor %}
-              {% endlocalize %}
+              <div class="border rounded-3 p-3 mb-0 bg-body-secondary bg-opacity-25">
+                <div class="form-check form-switch mb-2">
+                  <input class="form-check-input" type="checkbox" role="switch" id="id_ad_fixed_pin_24h" name="ad_fixed_pin_24h"
+                         {% if ad_fixed_addons.pin_enabled %}checked{% endif %}>
+                  <label class="form-check-label fw-semibold" for="id_ad_fixed_pin_24h">Закрепление поста на 24 часа</label>
+                </div>
+                <p class="small text-muted mb-2">Фиксированная оплата за закреп рекламного поста (на площадке — стандартный закреп).</p>
+                <label class="form-label small" for="id_ad_fixed_pin_24h_price">Цена (₽)</label>
+                {% localize off %}
+                <input type="text" class="form-control font-monospace" style="max-width:12rem" inputmode="decimal"
+                       id="id_ad_fixed_pin_24h_price" name="ad_fixed_pin_24h_price" value="{{ ad_fixed_addons.pin_price }}">
+                {% endlocalize %}
+              </div>
             </div>
             {% endif %}
           </div>

@@ -248,6 +248,7 @@ class ChannelAdAddon(models.Model):
     CODE_PIN = 'pin'
     CODE_TOP_1H = 'top_1h'
     CODE_TOP_2H = 'top_2h'
+    CODE_PIN_24H = 'pin_24h'
 
     ADDON_KIND_CUSTOM = 'custom'
     ADDON_KIND_TOP_BLOCK = 'top_block'
