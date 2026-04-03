@@ -527,8 +527,27 @@ def _parse_telegram(source, keywords, keyword_objects):
                     logger.warning('TG parse: disconnect: %s', ex)
 
     # asyncio.run: корректное завершение цикла (ручной loop.close() рвал фоновые задачи Telethon).
+    # Один lock на файл сессии с импортом TG→MAX: пока этот блок выполняется, import_tg_history_to_max_task
+    # на шаге 4 ждёт в Redis (см. лог «lock acquired» ниже и «history_import» в channels.tasks).
+    logger.info(
+        'TG parse: ожидание Redis-lock сессии Telethon owner_id=%s source_id=%s (импорт истории ждёт тот же lock)',
+        source.owner_id,
+        source.pk,
+    )
     with _telethon_session_lock(source.owner_id):
-        return asyncio.run(_fetch())
+        logger.info(
+            'TG parse: lock получен, старт Telethon owner_id=%s source_id=%s',
+            source.owner_id,
+            source.pk,
+        )
+        try:
+            return asyncio.run(_fetch())
+        finally:
+            logger.info(
+                'TG parse: завершён проход Telethon, lock будет снят owner_id=%s source_id=%s',
+                source.owner_id,
+                source.pk,
+            )
 
 
 # ─── VK (через vk_api) ──────────────────────────────────────────────────────
