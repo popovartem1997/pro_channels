@@ -20,6 +20,14 @@ POST_CREATE_SESSION_PREFILL = 'post_create_prefill_v1'
 POST_LIST_PAGE_SIZE = 30
 
 
+def _is_feed_delete_ajax(request) -> bool:
+    """Удаление поста из ленты через fetch (без перезагрузки страницы)."""
+    return request.method == 'POST' and (
+        request.POST.get('ajax') == '1'
+        or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    )
+
+
 def _manager_content_channel_ids(user):
     """
     Каналы, где менеджер может работать с постами из предложки / черновиками:
@@ -685,15 +693,22 @@ def post_delete(request, pk):
             pk=pk,
         )
         if post.status in (Post.STATUS_PUBLISHED, Post.STATUS_PUBLISHING):
-            messages.error(request, 'Опубликованные посты удалять нельзя.')
+            msg = 'Опубликованные посты удалять нельзя.'
+            if _is_feed_delete_ajax(request):
+                return JsonResponse({'ok': False, 'error': msg}, status=400)
+            messages.error(request, msg)
             return redirect('content:detail', pk=pk)
         # Менеджер/помощник может удалять только свои посты (не посты владельца/админа).
         if getattr(post, 'author_id', None) != request.user.id:
+            if _is_feed_delete_ajax(request):
+                return JsonResponse({'ok': False, 'error': 'Нет доступа'}, status=403)
             return HttpResponse(status=403)
     else:
         post = get_object_or_404(Post, pk=pk, author=request.user)
     if request.method == 'POST':
         post.delete()
+        if _is_feed_delete_ajax(request):
+            return JsonResponse({'ok': True})
         messages.success(request, 'Пост удалён.')
         next_url = (request.POST.get('next') or request.GET.get('next') or '').strip()
         if next_url.startswith('/') and not next_url.startswith('//'):
