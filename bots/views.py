@@ -221,12 +221,25 @@ def telegram_webhook(request, bot_id: int):
     except json.JSONDecodeError:
         return HttpResponse(status=400)
 
-    # Быстро отвечаем 200, обработка уходит в Celery
-    try:
-        from .tasks import process_telegram_update_task
-        process_telegram_update_task.delay(int(bot_config.id), update_data)
-    except Exception as e:
-        logger.exception('[TG Webhook] Не удалось поставить задачу в очередь: %s', e)
+    # По умолчанию обрабатываем здесь — иначе без Celery-воркера бот «молчит» (200 уже отдан, update в очереди).
+    from django.conf import settings
+
+    from .tasks import process_telegram_update_core, process_telegram_update_task
+
+    if getattr(settings, 'TELEGRAM_WEBHOOK_USE_CELERY', False):
+        try:
+            process_telegram_update_task.delay(int(bot_config.id), update_data)
+        except Exception as e:
+            logger.exception('[TG Webhook] Не удалось поставить задачу в очередь, обрабатываем синхронно: %s', e)
+            try:
+                process_telegram_update_core(int(bot_config.id), update_data)
+            except Exception as e2:
+                logger.exception('[TG Webhook] Синхронная обработка не удалась: %s', e2)
+    else:
+        try:
+            process_telegram_update_core(int(bot_config.id), update_data)
+        except Exception as e:
+            logger.exception('[TG Webhook] Обработка update не удалась: %s', e)
     return HttpResponse(status=200)
 
 

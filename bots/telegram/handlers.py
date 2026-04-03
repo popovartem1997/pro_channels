@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 # Альбомы копятся в Django cache + flush через Celery: в webhook-режиме JobQueue PTB не обрабатывает run_once.
 TELEGRAM_ALBUM_CACHE_PREFIX = 'tg_album:'
-# В process_telegram_update_task (Celery) выставляется 'inline' — сборка альбома в том же хендлере.
+# В bots.tasks.process_telegram_update_core выставляется 'inline' — сборка альбома в том же хендлере.
 ALBUM_FLUSH_INLINE = 'inline'
 
 
@@ -481,6 +481,13 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         chat_type = getattr(getattr(update, "effective_chat", None), "type", "") or ""
         is_private = (chat_type == "private")
+        # Редко type приходит пустым; в личке с ботом chat.id совпадает с user.id
+        if not chat_type and update.effective_chat and update.effective_user:
+            try:
+                if int(update.effective_chat.id) == int(update.effective_user.id):
+                    is_private = True
+            except Exception:
+                pass
         is_channel = (chat_type == "channel")
 
         # Никогда не обрабатываем посты в каналах как "предложку":

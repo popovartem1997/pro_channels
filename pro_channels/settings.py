@@ -188,6 +188,9 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = config('CELERY_WORKER_PREFETCH_MULTIPLIER', 
 # True = задачи выполняются в процессе web, воркер и Redis-очередь не используются (только отладка).
 CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=False, cast=bool)
 CELERY_TASK_EAGER_PROPAGATES = True
+# True — вебхук Telegram только ставит process_telegram_update_task в очередь (нужен воркер, иначе бот не отвечает).
+# False (по умолчанию) — обработка в веб-процессе сразу после POST.
+TELEGRAM_WEBHOOK_USE_CELERY = config('TELEGRAM_WEBHOOK_USE_CELERY', default=False, cast=bool)
 
 # Пост в «Публикуется» без завершения Celery (рестарт воркера): снова поставить publish_post_task через N минут
 STUCK_PUBLISHING_RECOVER_MINUTES = config('STUCK_PUBLISHING_RECOVER_MINUTES', default=15, cast=int)
