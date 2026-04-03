@@ -10,6 +10,11 @@ from django.utils import timezone
 from django.core.paginator import Paginator
 
 
+def health_live(request):
+    """Проверка живости приложения (без БД). Для мониторинга с корректным Host в ALLOWED_HOSTS."""
+    return HttpResponse('ok', content_type='text/plain')
+
+
 def home(request):
     # Если пользователь уже вошёл — показываем кабинет, а не лендинг
     if getattr(request, "user", None) and request.user.is_authenticated:

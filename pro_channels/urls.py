@@ -9,6 +9,8 @@ from core.sitemaps import StaticViewSitemap
 urlpatterns = [
     path('admin/', admin.site.urls),
 
+    path('health/live/', core_views.health_live),
+
     path('sitemap.xml', sitemap, {'sitemaps': {'static': StaticViewSitemap}}, name='sitemap'),
 
     # Приложения проекта

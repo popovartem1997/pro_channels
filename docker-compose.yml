@@ -37,6 +37,19 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    # Порт открыт = Gunicorn слушает (TCP: без HTTP, иначе 400 DisallowedHost при узком ALLOWED_HOSTS).
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import socket; s=socket.socket(); s.settimeout(3); s.connect(('127.0.0.1',8000)); s.close()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 120s
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
@@ -78,7 +91,7 @@ services:
     profiles: ["docker-nginx"]
     depends_on:
       web:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
