@@ -28,13 +28,56 @@
   <a href="{% url 'advertisers:campaign_contacts' app.pk %}">Контакты по заявке #{{ app.pk }}</a>
 </p>
 {% else %}
-<form method="post" class="d-inline">
+<form method="post" id="sign-contract-form" class="d-inline">
   {% csrf_token %}
   <input type="hidden" name="action" value="sign">
-  <button type="submit" class="btn btn-brand" onclick="return confirm('Подписать договор от имени {{ app.advertiser.company_name }}?');">Подписать договор</button>
+  <button type="button" class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#signContractModal" aria-haspopup="dialog">
+    Подписать договор
+  </button>
 </form>
 {% endif %}
 <div class="mt-3">
   <a href="{% url 'advertisers:campaign_review' app.pk %}" class="btn btn-link">Назад</a>
 </div>
+
+{% if not app.contract_signed_at %}
+<div class="modal fade" id="signContractModal" tabindex="-1" aria-labelledby="signContractModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-semibold" id="signContractModalLabel">Подписать договор?</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body pt-2">
+        <p class="text-muted small mb-0">
+          Вы подтверждаете электронную подпись договора от имени <strong>{{ app.advertiser.company_name }}</strong>.
+          После подписи заявку можно будет отправить владельцу канала на согласование; счёт выставляется только после одобрения.
+        </p>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+        <button type="button" class="btn btn-brand" id="sign-contract-confirm">Подписать</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if not app.contract_signed_at %}
+<script>
+(function () {
+  var btn = document.getElementById('sign-contract-confirm');
+  var form = document.getElementById('sign-contract-form');
+  var modalEl = document.getElementById('signContractModal');
+  if (!btn || !form || !modalEl) return;
+  btn.addEventListener('click', function () {
+    var inst = bootstrap.Modal.getInstance(modalEl);
+    if (inst) inst.hide();
+    form.submit();
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}
