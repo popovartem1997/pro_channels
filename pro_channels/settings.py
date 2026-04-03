@@ -181,6 +181,10 @@ CELERY_TASK_ROUTES = {
     'content.tasks.publish_post_task': {'queue': 'prio'},
     # Отдельная очередь: иначе импорт TG→MAX висит в «Ожидание воркера» за сотнями publish_post_task в prio.
     'channels.tasks.import_tg_history_to_max_task': {'queue': 'import_history'},
+    # Парсинг ленты (ParseTask): отдельная очередь «parse» — последняя в списке воркера (см. docker-compose),
+    # чтобы после перезапуска и при фоне импорта в MAX воркер сначала разбирал import_history → prio → celery.
+    'parsing.tasks.execute_parse_task': {'queue': 'parse'},
+    'parsing.tasks.check_parse_tasks': {'queue': 'parse'},
 }
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 # Долгие задачи (парсинг, импорт истории): не отбирать несколько сообщений в один процесс.

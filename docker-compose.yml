@@ -67,9 +67,9 @@ services:
       DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
       TELETHON_SESSION_LOCK_BACKEND: file
       CELERY_TASK_ALWAYS_EAGER: "false"
-    # Порядок очередей важен (Redis BRPOP): import_history первой — импорт не ждёт хвоста publish в prio.
-    # import_history — только TG→MAX (см. CELERY_TASK_ROUTES); prio — публикация/тик планировщика; celery — парсинг.
-    command: celery -A pro_channels worker -l INFO -Q import_history,prio,celery -c 4
+    # Порядок очередей важен (Redis BRPOP слева направо): import_history → prio → celery → parse.
+    # import_history — TG→MAX; prio — публикация; celery — digest/факты и прочее; parse — parsing.tasks.* (лента).
+    command: celery -A pro_channels worker -l INFO -Q import_history,prio,celery,parse -c 4
     depends_on:
       redis:
         condition: service_started

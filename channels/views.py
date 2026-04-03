@@ -923,7 +923,7 @@ def import_history_diagnostics(request):
     ):
         hints.append(
             f'В Redis в очереди «celery» сейчас ~{redis_celery_len} сообщ. Если воркер живой, но active пустой — '
-            'перезапустите celery (command с -Q import_history,prio,celery) или проверьте зависшие процессы.',
+            'перезапустите celery (command с -Q import_history,prio,celery,parse) или проверьте зависшие процессы.',
         )
     redis_import_len = redis_qlens.get('import_history') if isinstance(redis_qlens, dict) else None
     if redis_import_len is not None and redis_import_len > 0:
