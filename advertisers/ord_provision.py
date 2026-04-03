@@ -18,8 +18,10 @@ DEFAULT_CONTRACT_SUBJECT = (
 )
 
 # PUT /v1/contract — обязателен type и др. поля (см. документацию ОРД).
+# subject_type: distribution — распространение рекламы (площадка/исполнитель размещает рекламу заказчика).
+# org_distribution — «организация распространения» (договор РС ↔ агентство), нам не подходит.
 CONTRACT_TYPE_SERVICE = 'service'
-CONTRACT_SUBJECT_TYPE_ORG_DISTRIBUTION = 'org_distribution'
+CONTRACT_SUBJECT_TYPE_AD_DISTRIBUTION = 'distribution'
 
 
 def person_external_id_for_advertiser(adv: Advertiser) -> str:
@@ -129,7 +131,7 @@ def ensure_advertiser_ord_profile(adv: Advertiser, *, use_sandbox: bool) -> dict
         'contractor_external_id': operator_pid,
         'date': today,
         'serial': serial,
-        'subject_type': CONTRACT_SUBJECT_TYPE_ORG_DISTRIBUTION,
+        'subject_type': CONTRACT_SUBJECT_TYPE_AD_DISTRIBUTION,
         'flags': ['vat_included', 'contractor_is_creatives_reporter'],
         'amount': '0',
     }
