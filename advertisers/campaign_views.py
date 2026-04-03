@@ -10,6 +10,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Max
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 
 from billing.models import Invoice
 from channels.models import Channel, ChannelAdAddon
@@ -117,6 +118,21 @@ def _advertiser(request):
 def _app_adv(request, pk: int) -> AdApplication:
     adv = _advertiser(request)
     return get_object_or_404(AdApplication, pk=pk, advertiser=adv)
+
+
+@login_required
+@require_POST
+def campaign_delete(request, pk: int):
+    """Удаление черновика заявки рекламодателем."""
+    app = _app_adv(request, pk)
+    if app.status != AdApplication.STATUS_DRAFT:
+        messages.error(request, 'Удалить можно только заявку в статусе «Черновик».')
+        return redirect('advertisers:campaign_list')
+    channel_name = app.channel.name
+    num = app.pk
+    app.delete()
+    messages.success(request, f'Заявка №{num} («{channel_name}») удалена.')
+    return redirect('advertisers:campaign_list')
 
 
 def _owner_allowed_channels_queryset(request):

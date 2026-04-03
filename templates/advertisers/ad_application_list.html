@@ -25,7 +25,7 @@
             <th>Публикации</th>
             <th>Владелец канала</th>
             <th>Создана</th>
-            <th class="pe-4"></th>
+            <th class="pe-4 text-end">Действия</th>
           </tr>
         </thead>
         <tbody>
@@ -68,10 +68,11 @@
               {% endwith %}
             </td>
             <td class="small text-muted">{{ a.created_at|date:"d.m.Y H:i" }}</td>
-            <td class="pe-4 small">
+            <td class="pe-4 small text-end text-nowrap">
               <a href="{% url 'advertisers:campaign_contacts' a.pk %}">Контакты</a>
               {% if a.status == 'draft' %}
               · <a href="{% url 'advertisers:campaign_resume' a.pk %}">Продолжить</a>
+              · <button type="button" class="btn btn-link text-danger p-0 align-baseline text-decoration-none border-0" title="Удалить заявку" aria-label="Удалить заявку" data-bs-toggle="modal" data-bs-target="#deleteCampaignModal" data-delete-url="{% url 'advertisers:campaign_delete' a.pk %}" data-app-pk="{{ a.pk }}" data-channel-name="{{ a.channel.name }}"><i class="bi bi-trash"></i></button>
               {% elif a.status == 'pending_owner' %}
               · <a href="{% url 'advertisers:campaign_pending_owner' a.pk %}">Согласование</a>
               {% elif a.status == 'approved_for_payment' %}
@@ -92,4 +93,48 @@
 </div>
 
 <a href="{% url 'advertisers:catalog' %}" class="btn btn-link">← Каталог каналов</a>
+
+<div class="modal fade" id="deleteCampaignModal" tabindex="-1" aria-labelledby="deleteCampaignModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-semibold" id="deleteCampaignModalLabel">Удалить заявку?</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body pt-2">
+        <p class="mb-0 text-muted" id="deleteCampaignModalBody">Вы уверены, что хотите удалить эту заявку? Действие нельзя отменить.</p>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+        <form id="deleteCampaignForm" method="post" class="d-inline">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-danger">Да, удалить</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var modal = document.getElementById('deleteCampaignModal');
+  if (!modal) return;
+  modal.addEventListener('show.bs.modal', function (ev) {
+    var t = ev.relatedTarget;
+    if (!t || !t.getAttribute) return;
+    var url = t.getAttribute('data-delete-url');
+    var pk = t.getAttribute('data-app-pk') || '';
+    var ch = t.getAttribute('data-channel-name') || '';
+    var form = document.getElementById('deleteCampaignForm');
+    if (form && url) form.setAttribute('action', url);
+    var body = document.getElementById('deleteCampaignModalBody');
+    if (body) {
+      var part = ch ? ' «' + ch + '»' : '';
+      body.textContent = 'Вы действительно хотите удалить заявку №' + pk + part + '? Это действие нельзя отменить.';
+    }
+  });
+})();
+</script>
 {% endblock %}
