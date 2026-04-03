@@ -25,6 +25,10 @@ services:
   web:
     build: .
     env_file: .env
+    # Перекрываем .env: внутри контейнера 127.0.0.1 — это не сервис redis, задачи и кэш «теряются».
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
     ports:
       # Временно открываем web наружу по IP:8001 (пока домен/HTTPS в процессе настройки)
       - "8001:8000"
@@ -41,11 +45,12 @@ services:
   celery:
     build: .
     env_file: .env
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
     # Явно слушаем очередь celery (как CELERY_TASK_DEFAULT_QUEUE в settings).
     command: celery -A pro_channels worker -l INFO -Q celery
     depends_on:
-      web:
-        condition: service_started
       redis:
         condition: service_started
       db:
@@ -57,10 +62,11 @@ services:
   celery-beat:
     build: .
     env_file: .env
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
     command: celery -A pro_channels beat -l INFO
     depends_on:
-      web:
-        condition: service_started
       redis:
         condition: service_started
       db:
