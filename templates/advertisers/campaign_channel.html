@@ -16,7 +16,7 @@
     <select name="channel_id" class="form-select" required>
       <option value="">— Выберите —</option>
       {% for ch in channels %}
-      <option value="{{ ch.pk }}">{{ ch.name }} — {{ ch.get_platform_display }} ({{ ch.ad_price }} ₽ / размещение)</option>
+      <option value="{{ ch.pk }}" {% if preselect_channel_id == ch.pk %}selected{% endif %}>{{ ch.name }} — {{ ch.get_platform_display }} ({{ ch.ad_price }} ₽ / размещение)</option>
       {% endfor %}
     </select>
     <div class="mt-3">

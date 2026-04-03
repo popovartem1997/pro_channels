@@ -14,11 +14,27 @@ from .services import ensure_ad_post_for_order
 
 def catalog(request):
     """Публичный каталог каналов для рекламы."""
-    from channels.models import Channel
+    from urllib.parse import urlencode
+
+    from django.db.models import Prefetch
+    from django.urls import reverse
+
+    from channels.models import Channel, ChannelAdAddon
     from django.contrib.auth import get_user_model
+
     User = get_user_model()
     owner_ids = list(User.objects.filter(role=User.ROLE_OWNER).values_list('id', flat=True))
-    channels = Channel.objects.filter(is_active=True, ad_enabled=True, owner_id__in=owner_ids).order_by('-subscribers_count')
+    addon_qs = ChannelAdAddon.objects.filter(is_active=True).order_by('title', 'pk')
+    channels = list(
+        Channel.objects.filter(is_active=True, ad_enabled=True, owner_id__in=owner_ids)
+        .prefetch_related(Prefetch('ad_addons', queryset=addon_qs))
+        .order_by('-subscribers_count')
+    )
+    new_path = reverse('advertisers:campaign_new')
+    login_base = reverse('login')
+    for ch in channels:
+        next_path = f'{new_path}?channel={ch.pk}'
+        ch.advertiser_login_url = f'{login_base}?{urlencode({"next": next_path})}'
     return render(request, 'advertisers/catalog.html', {'channels': channels})
 
 
@@ -55,7 +71,7 @@ def advertiser_register(request):
         next_redirect = (request.POST.get('next') or '').strip()
         next_url = next_redirect
         # Если пользователь не залогинен — создаём аккаунт рекламодателя сразу здесь,
-        # чтобы путь /advertisers/order/new/ не упирался в 404.
+        # чтобы после регистрации next вёл в мастер заявки, а не в 404.
         if not request.user.is_authenticated:
             from django.contrib.auth import get_user_model, login
             User = get_user_model()
@@ -150,84 +166,6 @@ def advertiser_register(request):
 def advertiser_dashboard(request):
     """Старый URL /advertisers/ — ведёт на список заявок (новый поток)."""
     return redirect('advertisers:campaign_list')
-
-
-@login_required
-def order_create(request):
-    try:
-        adv = Advertiser.objects.get(user=request.user)
-    except Advertiser.DoesNotExist:
-        messages.info(request, 'Сначала заполните профиль рекламодателя (ИНН и название компании).')
-        return redirect(f"/advertisers/register/?next={request.path}")
-    from channels.models import Channel
-    from django.contrib.auth import get_user_model
-    User = get_user_model()
-    from datetime import date
-    from django.utils.dateparse import parse_date
-
-    if request.method == 'POST':
-        title = request.POST.get('title', '').strip()
-        description = request.POST.get('description', '').strip()
-        start_date_raw = request.POST.get('start_date', '')
-        end_date_raw = request.POST.get('end_date', '')
-        repeat_interval_days = int(request.POST.get('repeat_interval_days', '0') or 0)
-        channel_ids = request.POST.getlist('channels')
-
-        start_date = parse_date(start_date_raw) if start_date_raw else None
-        end_date = parse_date(end_date_raw) if end_date_raw else None
-
-        if not all([title, description, start_date, end_date]):
-            messages.error(request, 'Заполните все обязательные поля (включая даты).')
-        else:
-            # Разрешаем выбирать только каналы владельца сервиса
-            owner_ids = list(User.objects.filter(role=User.ROLE_OWNER).values_list('id', flat=True))
-            allowed_channels = Channel.objects.filter(
-                is_active=True, owner_id__in=owner_ids, ad_enabled=True
-            )
-            if channel_ids:
-                channel_ids = list(allowed_channels.filter(pk__in=channel_ids).values_list('pk', flat=True))
-
-            if not channel_ids:
-                messages.error(request, 'Выберите хотя бы один канал для размещения.')
-                available_channels = allowed_channels
-                return render(request, 'advertisers/order_create.html', {'channels': available_channels})
-
-            if end_date < start_date:
-                messages.error(request, 'Дата окончания не может быть раньше даты начала.')
-                available_channels = allowed_channels
-                return render(request, 'advertisers/order_create.html', {'channels': available_channels})
-
-            # Количество размещений
-            days = (end_date - start_date).days
-            if repeat_interval_days <= 0:
-                placements = 1
-            else:
-                placements = (days // repeat_interval_days) + 1
-
-            # Бюджет = сумма цен каналов * количество размещений
-            channels = list(allowed_channels.filter(pk__in=channel_ids))
-            per_placement = sum((c.ad_price or 0) for c in channels)
-            budget = per_placement * placements
-
-            order = AdvertisingOrder.objects.create(
-                advertiser=adv,
-                title=title,
-                description=description,
-                budget=budget,
-                start_date=start_date,
-                end_date=end_date,
-                repeat_interval_days=repeat_interval_days,
-                status=AdvertisingOrder.STATUS_SUBMITTED,
-            )
-            if channel_ids:
-                order.channels.set(channel_ids)
-            messages.success(request, 'Заявка на рекламу отправлена на рассмотрение.')
-            return redirect('advertisers:campaign_list')
-
-    # Показываем только активные каналы для размещения
-    owner_ids = list(User.objects.filter(role=User.ROLE_OWNER).values_list('id', flat=True))
-    available_channels = Channel.objects.filter(is_active=True, owner_id__in=owner_ids, ad_enabled=True)
-    return render(request, 'advertisers/order_create.html', {'channels': available_channels})
 
 
 @login_required

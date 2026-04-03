@@ -1,4 +1,5 @@
 from django.urls import path
+from django.views.generic import RedirectView
 from . import views
 from . import campaign_views as cv
 
@@ -8,7 +9,10 @@ urlpatterns = [
     path('catalog/', views.catalog, name='catalog'),
     path('register/', views.advertiser_register, name='register'),
     path('', views.advertiser_dashboard, name='dashboard'),
-    path('order/new/', views.order_create, name='order_create'),
+    path(
+        'order/new/',
+        RedirectView.as_view(pattern_name='advertisers:campaign_new', permanent=True),
+    ),
     path('order/<int:pk>/', views.order_detail, name='order_detail'),
     path('campaign/', views.ad_application_list, name='campaign_list'),
     path('campaign/new/', cv.campaign_new, name='campaign_new'),

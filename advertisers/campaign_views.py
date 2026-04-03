@@ -167,18 +167,39 @@ def campaign_resume(request, pk: int):
 
 @login_required
 def campaign_new(request):
+    from urllib.parse import urlencode
+
+    from django.urls import reverse
+
     try:
         adv = Advertiser.objects.get(user=request.user)
     except Advertiser.DoesNotExist:
         messages.info(request, 'Сначала заполните профиль рекламодателя.')
-        return redirect('advertisers:register')
+        next_path = request.get_full_path()
+        if not (next_path or '').startswith('/'):
+            next_path = reverse('advertisers:campaign_new')
+        return redirect(f'{reverse("advertisers:register")}?{urlencode({"next": next_path})}')
 
     channels = _owner_allowed_channels_queryset(request).order_by('name')
+    preselect_channel_id = None
+    raw_get = (request.GET.get('channel') or request.GET.get('channel_id') or '').strip()
+    if raw_get.isdigit() and channels.filter(pk=int(raw_get)).exists():
+        preselect_channel_id = int(raw_get)
+
     if request.method == 'POST':
         raw = (request.POST.get('channel_id') or '').strip()
+        form_preselect = (
+            int(raw)
+            if raw.isdigit() and channels.filter(pk=int(raw)).exists()
+            else preselect_channel_id
+        )
         if not raw.isdigit():
             messages.error(request, 'Выберите канал.')
-            return render(request, 'advertisers/campaign_channel.html', {'channels': channels})
+            return render(
+                request,
+                'advertisers/campaign_channel.html',
+                {'channels': channels, 'preselect_channel_id': form_preselect},
+            )
         ch = get_object_or_404(channels, pk=int(raw))
         app = AdApplication.objects.create(
             advertiser=adv,
@@ -187,7 +208,11 @@ def campaign_new(request):
         )
         return redirect('advertisers:campaign_slots', pk=app.pk)
 
-    return render(request, 'advertisers/campaign_channel.html', {'channels': channels})
+    return render(
+        request,
+        'advertisers/campaign_channel.html',
+        {'channels': channels, 'preselect_channel_id': preselect_channel_id},
+    )
 
 
 @login_required

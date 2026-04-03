@@ -4,14 +4,14 @@
 {% block meta_description %}Каталог каналов и пабликов: цены за размещение рекламы, аудитория и площадки. Оставьте заявку на рекламу онлайн.{% endblock %}
 
 {% block content %}
-<div class="page-header d-flex align-items-center justify-content-between">
+<div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
   <div>
     <h1><i class="bi bi-shop me-2" style="color:var(--brand)"></i>Каталог каналов</h1>
-    <p class="text-muted small mb-0">Выберите площадки и оставьте заявку на рекламу</p>
+    <p class="text-muted small mb-0">Выберите площадку и оставьте заявку в мастере размещения</p>
   </div>
   {% if user.is_authenticated %}
-    <a href="{% url 'advertisers:order_create' %}" class="btn btn-brand">
-      <i class="bi bi-plus-lg me-1"></i> Создать заказ
+    <a href="{% url 'advertisers:campaign_new' %}" class="btn btn-brand">
+      <i class="bi bi-plus-lg me-1"></i> Новая заявка
     </a>
   {% else %}
     <a href="{% url 'login' %}?next={% url 'advertisers:catalog' %}" class="btn btn-brand">Войти</a>
@@ -22,7 +22,7 @@
   {% for ch in channels %}
   <div class="col-12 col-md-6 col-xl-4">
     <div class="card h-100">
-      <div class="card-body p-4">
+      <div class="card-body p-4 d-flex flex-column">
         <div class="d-flex align-items-start justify-content-between mb-2">
           <div class="d-flex align-items-center gap-2">
             {% platform_badge ch.platform %}
@@ -37,10 +37,43 @@
         {% if ch.description %}
         <div class="text-muted small mt-2">{{ ch.description|truncatechars:140 }}</div>
         {% endif %}
-        <div class="d-flex gap-2 mt-3">
-          <a href="{% url 'advertisers:order_create' %}" class="btn btn-outline-primary btn-sm flex-grow-1">
+        <div class="small mt-2 mb-1 text-muted">Размещение</div>
+        <div class="fw-semibold small" style="color:var(--brand)">{{ ch.ad_price }} ₽ / размещение</div>
+        {% with addons=ch.ad_addons.all %}
+        {% if addons %}
+        <div class="mt-3 pt-2 border-top flex-grow-1">
+          <div class="text-muted small mb-1">Доп. услуги</div>
+          <ul class="list-unstyled small mb-0">
+            {% for a in addons %}
+            <li class="d-flex justify-content-between gap-2 py-1 border-bottom border-light">
+              <span class="text-break">{{ a.title }}</span>
+              <span class="text-nowrap flex-shrink-0">
+                {% if a.addon_kind == 'pin_hourly' %}
+                  от {{ a.price }} ₽ / ч
+                  {% if a.max_pin_hours %}<span class="text-muted">(до {{ a.max_pin_hours }} ч)</span>{% endif %}
+                {% elif a.addon_kind == 'top_block' %}
+                  {{ a.price }} ₽
+                  {% if a.block_hours %}<span class="text-muted">· топ {{ a.block_hours }} ч</span>{% endif %}
+                {% else %}
+                  {{ a.price }} ₽
+                {% endif %}
+              </span>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+        {% endwith %}
+        <div class="d-flex gap-2 mt-3 pt-2">
+          {% if user.is_authenticated %}
+          <a href="{% url 'advertisers:campaign_new' %}?channel={{ ch.pk }}" class="btn btn-outline-primary btn-sm flex-grow-1">
             Оставить заявку
           </a>
+          {% else %}
+          <a href="{{ ch.advertiser_login_url }}" class="btn btn-outline-primary btn-sm flex-grow-1">
+            Оставить заявку
+          </a>
+          {% endif %}
         </div>
       </div>
     </div>
@@ -57,4 +90,3 @@
   {% endfor %}
 </div>
 {% endblock %}
-
