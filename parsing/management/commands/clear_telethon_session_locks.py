@@ -8,12 +8,16 @@
 
 Безопасно запускать, когда нет активного парсинга Telegram / импорта истории для этого же аккаунта.
 
+То же действие доступно в админке: Задачи парсинга → действие «Снять зависшие блокировки Telethon».
+
 Пример (Docker):
   docker compose exec web python manage.py clear_telethon_session_locks
   docker compose exec web python manage.py clear_telethon_session_locks --dry-run
 """
 
 from django.core.management.base import BaseCommand, CommandError
+
+from parsing.telethon_locks import clear_telethon_redis_locks
 
 
 class Command(BaseCommand):
@@ -27,36 +31,15 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        from django.conf import settings
+        result = clear_telethon_redis_locks(dry_run=options['dry_run'])
+        if result.get('error') == 'no_redis_url':
+            raise CommandError(result['message'])
 
-        url = getattr(settings, 'DJANGO_CACHE_REDIS_URL', None) or ''
-        if not url:
-            raise CommandError('DJANGO_CACHE_REDIS_URL пуст — блокировки через Redis не используются.')
+        for k in result.get('keys') or []:
+            self.stdout.write(k)
 
-        try:
-            import redis
-        except ImportError as e:
-            raise CommandError('Пакет redis не установлен') from e
-
-        r = redis.from_url(url)
-        pattern = 'pch:telethon:sess:*'
-        keys = list(r.scan_iter(match=pattern, count=100))
-        if not keys:
-            self.stdout.write(self.style.SUCCESS('Ключей %s не найдено.' % pattern))
-            return
-
-        for k in keys:
-            self.stdout.write(str(k))
-
-        if options['dry_run']:
-            self.stdout.write(self.style.WARNING('dry-run: удаление пропущено (%d ключей).' % len(keys)))
-            return
-
-        deleted = 0
-        for k in keys:
-            try:
-                deleted += int(r.delete(k))
-            except Exception as ex:
-                self.stderr.write('Не удалось удалить %s: %s' % (k, ex))
-
-        self.stdout.write(self.style.SUCCESS('Удалено ключей: %d' % deleted))
+        msg = result.get('message') or ''
+        if result.get('ok'):
+            self.stdout.write(self.style.SUCCESS(msg))
+        else:
+            raise CommandError(msg or result.get('error') or 'Ошибка')

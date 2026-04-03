@@ -142,6 +142,9 @@ class ParseTask(models.Model):
     class Meta:
         verbose_name = 'Задача парсинга'
         verbose_name_plural = 'Задачи парсинга'
+        permissions = [
+            ('can_clear_telethon_locks', 'Может снимать Redis-блокировки Telethon'),
+        ]
 
     def __str__(self):
         return self.name
