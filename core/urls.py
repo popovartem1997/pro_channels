@@ -11,4 +11,6 @@ urlpatterns = [
     path('feed/', views.feed, name='feed'),
     path('settings/api-keys/', views.api_keys, name='api_keys'),
     path('settings/audit/', views.audit_log, name='audit_log'),
+    path('settings/celery/', views.celery_monitor, name='celery_monitor'),
+    path('settings/celery/snapshot/', views.celery_monitor_snapshot, name='celery_monitor_snapshot'),
 ]

@@ -1,0 +1,387 @@
+{% extends 'base.html' %}
+{% block title %}Фоновые задачи Celery{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex flex-wrap align-items-start justify-content-between gap-3">
+  <div>
+    <h1>Фоновые задачи (Celery)</h1>
+    <p class="text-muted small mb-0">
+      Очереди Redis, что сейчас выполняет воркер, импорт истории TG→MAX, задачи парсинга, запланированные посты.
+      {% if not show_full_internals %}
+      <span class="d-block mt-1">Часть данных ограничена вашими объектами; полный inspect — у администратора сайта.</span>
+      {% endif %}
+    </p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <button type="button" class="btn btn-outline-secondary btn-sm" id="pcSnapRefresh">
+      <i class="bi bi-arrow-clockwise"></i> Обновить «Сейчас»
+    </button>
+    <a class="btn btn-outline-primary btn-sm" href="{% url 'core:celery_monitor' %}">Сбросить фильтры</a>
+  </div>
+</div>
+
+<div class="accordion mb-4" id="pcHelpAccordion">
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#pcHelpLogs">
+        Какие логи прислать в поддержку
+      </button>
+    </h2>
+    <div id="pcHelpLogs" class="accordion-collapse collapse" data-bs-parent="#pcHelpAccordion">
+      <div class="accordion-body small">
+        <p class="mb-2">{{ support_hint }}</p>
+        <ul class="list-unstyled mb-0">
+          {% for item in support_commands %}
+          <li class="mb-3">
+            <div class="fw-semibold">{{ item.title }}</div>
+            <pre class="bg-light border rounded p-2 mb-0 mt-1" style="font-size:.75rem;white-space:pre-wrap;">{{ item.cmd }}</pre>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<form method="get" class="card mb-4" id="pcFilters">
+  <div class="card-body">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-md-3">
+        <label class="form-label small text-muted mb-0">Тип задач (воркер)</label>
+        <select name="cat" class="form-select form-select-sm">
+          <option value="all" {% if filter_cat == 'all' %}selected{% endif %}>Все</option>
+          <option value="publish" {% if filter_cat == 'publish' %}selected{% endif %}>Публикация / планировщик</option>
+          <option value="parse" {% if filter_cat == 'parse' %}selected{% endif %}>Парсинг</option>
+          <option value="import" {% if filter_cat == 'import' %}selected{% endif %}>Импорт истории</option>
+          <option value="other" {% if filter_cat == 'other' %}selected{% endif %}>Прочее</option>
+        </select>
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label small text-muted mb-0">Имя задачи содержит</label>
+        <input type="text" name="task_q" class="form-control form-control-sm" value="{{ filter_task_q }}" placeholder="например publish_post">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small text-muted mb-0">Импорт: статус</label>
+        <select name="hist_status" class="form-select form-select-sm">
+          <option value="all" {% if filter_hist_status == 'all' %}selected{% endif %}>Все</option>
+          <option value="pending" {% if filter_hist_status == 'pending' %}selected{% endif %}>В очереди</option>
+          <option value="running" {% if filter_hist_status == 'running' %}selected{% endif %}>В работе</option>
+          <option value="done" {% if filter_hist_status == 'done' %}selected{% endif %}>Готово</option>
+          <option value="error" {% if filter_hist_status == 'error' %}selected{% endif %}>Ошибка</option>
+          <option value="cancelled" {% if filter_hist_status == 'cancelled' %}selected{% endif %}>Остановлено</option>
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small text-muted mb-0">Парсинг: активность</label>
+        <select name="parse_filter" class="form-select form-select-sm">
+          <option value="all" {% if filter_parse == 'all' %}selected{% endif %}>Все</option>
+          <option value="active" {% if filter_parse == 'active' %}selected{% endif %}>Только активные</option>
+          <option value="inactive" {% if filter_parse == 'inactive' %}selected{% endif %}>Только выкл.</option>
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small text-muted mb-0">Посты сайта</label>
+        <select name="post_status" class="form-select form-select-sm">
+          <option value="scheduled" {% if filter_post_status == 'scheduled' %}selected{% endif %}>Запланированы</option>
+          <option value="publishing" {% if filter_post_status == 'publishing' %}selected{% endif %}>Публикуются</option>
+          <option value="all" {% if filter_post_status == 'all' %}selected{% endif %}>Запланир. + публик.</option>
+        </select>
+      </div>
+      {% if show_full_internals %}
+      <div class="col-6 col-md-3">
+        <label class="form-label small text-muted mb-0">Celery result: статус</label>
+        <select name="tr_status" class="form-select form-select-sm">
+          <option value="" {% if not filter_tr_status %}selected{% endif %}>Любой</option>
+          <option value="SUCCESS" {% if filter_tr_status == 'SUCCESS' %}selected{% endif %}>SUCCESS</option>
+          <option value="FAILURE" {% if filter_tr_status == 'FAILURE' %}selected{% endif %}>FAILURE</option>
+          <option value="PENDING" {% if filter_tr_status == 'PENDING' %}selected{% endif %}>PENDING</option>
+          <option value="STARTED" {% if filter_tr_status == 'STARTED' %}selected{% endif %}>STARTED</option>
+        </select>
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label small text-muted mb-0">Celery result: имя</label>
+        <input type="text" name="tr_q" class="form-control form-control-sm" value="{{ filter_tr_q }}" placeholder="фрагмент task_name">
+      </div>
+      {% endif %}
+      <div class="col-12 col-md-auto">
+        <button type="submit" class="btn btn-brand btn-sm">Применить фильтры</button>
+      </div>
+    </div>
+  </div>
+</form>
+
+<div class="row g-3 mb-4">
+  <div class="col-12 col-lg-5">
+    <div class="card h-100">
+      <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">Настройки (ожидание воркера)</span>
+        <span class="badge bg-secondary-subtle text-secondary" id="pcSnapTs">—</span>
+      </div>
+      <div class="card-body small">
+        <dl class="row mb-0">
+          <dt class="col-5">Брокер (хвост URL)</dt>
+          <dd class="col-7"><code>{{ settings_celery.CELERY_BROKER_URL_tail }}</code></dd>
+          <dt class="col-5">EAGER</dt>
+          <dd class="col-7">
+            {% if settings_celery.CELERY_TASK_ALWAYS_EAGER %}
+            <span class="text-danger fw-semibold">Вкл. — очередь не используется!</span>
+            {% else %}
+            <span class="text-success">Выкл.</span>
+            {% endif %}
+          </dd>
+          <dt class="col-5">Очереди воркера</dt>
+          <dd class="col-7 text-muted">{{ settings_celery.expected_worker_queues }}</dd>
+        </dl>
+        <div class="mt-2" id="pcQueues">
+          {% if queues_error %}<div class="text-danger">{{ queues_error }}</div>{% endif %}
+          {% for q, n in queues.items %}
+          <div class="d-flex justify-content-between border-bottom py-1"><span><code>{{ q }}</code></span><span class="fw-semibold">{% if n is not None %}{{ n }}{% else %}?{% endif %}</span></div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-7">
+    <div class="card h-100">
+      <div class="card-header py-2 fw-semibold">Сейчас на воркерах (active / reserved)</div>
+      <div class="card-body small" id="pcLiveBlock">
+        {% if inspect_error %}<div class="alert alert-warning py-2 mb-2">{{ inspect_error }}</div>{% endif %}
+        {% if not workers_ping %}
+        <p class="text-danger mb-2">Нет ответа на ping — проверьте контейнер <code>celery</code> и <code>CELERY_BROKER_URL</code>.</p>
+        {% else %}
+        <p class="text-muted mb-2">Воркеры: {% for w in workers_ping.keys %}<code class="me-1">{{ w }}</code>{% endfor %}</p>
+        {% endif %}
+        <div class="fw-semibold mb-1">Active</div>
+        {% if not active_tasks %}
+        <p class="text-muted mb-3">Нет активных задач (или фильтр ничего не показал).</p>
+        {% else %}
+        {% for wname, tasks in active_tasks.items %}
+        <div class="mb-2"><span class="text-muted">{{ wname }}</span>
+          <ul class="mb-0 ps-3">
+            {% for t in tasks %}
+            <li><code>{{ t.name }}</code> · id {{ t.id|default:"—" }}{% if show_full_internals and t.args %} · args {{ t.args|truncatechars:120 }}{% endif %}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endfor %}
+        {% endif %}
+        <div class="fw-semibold mb-1">Reserved (зарезервировано воркером)</div>
+        {% if not reserved_tasks %}
+        <p class="text-muted mb-0">—</p>
+        {% else %}
+        {% for wname, tasks in reserved_tasks.items %}
+        <div class="mb-1"><span class="text-muted">{{ wname }}</span>
+          <ul class="mb-0 ps-3">
+            {% for t in tasks %}
+            <li><code>{{ t.name }}</code></li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endfor %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header py-2 fw-semibold">Периодические задачи (Celery Beat, из БД)</div>
+  <div class="card-body p-0 table-responsive">
+    {% if beat_error %}<div class="p-3 text-danger">{{ beat_error }}</div>{% endif %}
+    <table class="table table-sm table-hover mb-0 small">
+      <thead class="table-light"><tr><th>Имя</th><th>task</th><th>last_run_at</th></tr></thead>
+      <tbody>
+        {% for b in beat_tasks %}
+        <tr>
+          <td>{{ b.name }}</td>
+          <td><code>{{ b.task }}</code></td>
+          <td>{{ b.last_run_at|default:"—" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="3" class="text-muted p-3">Нет включённых задач или django-celery-beat недоступен.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header py-2 fw-semibold">Импорт истории канала (TG → MAX)</div>
+  <div class="card-body p-0 table-responsive">
+    <table class="table table-sm table-hover mb-0 small">
+      <thead class="table-light">
+        <tr><th>#</th><th>Статус</th><th>Источник → Цель</th><th>Создан</th><th>Celery id</th></tr>
+      </thead>
+      <tbody>
+        {% for r in history_runs %}
+        <tr>
+          <td>{{ r.pk }}</td>
+          <td>{{ r.get_status_display }}</td>
+          <td>{{ r.source_channel.name }} → {{ r.target_channel.name }}</td>
+          <td>{{ r.created_at|date:"d.m.Y H:i" }}</td>
+          <td><code class="small">{{ r.celery_task_id|default:"—"|truncatechars:36 }}</code></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="text-muted p-3">Нет записей по фильтру.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header py-2 fw-semibold">Задачи парсинга (модель ParseTask)</div>
+  <div class="card-body p-0 table-responsive">
+    <table class="table table-sm table-hover mb-0 small">
+      <thead class="table-light">
+        <tr><th>#</th><th>Название</th><th>Активна</th><th>Последний запуск</th></tr>
+      </thead>
+      <tbody>
+        {% for t in parse_tasks %}
+        <tr>
+          <td>{{ t.pk }}</td>
+          <td><a href="{% url 'parsing:parse_tasks' %}">#{{ t.pk }} {{ t.name }}</a></td>
+          <td>{% if t.is_active %}да{% else %}нет{% endif %}</td>
+          <td>{% if t.last_run_at %}{{ t.last_run_at|date:"d.m.Y H:i" }}{% else %}—{% endif %}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="text-muted p-3">Нет задач по фильтру.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header py-2 fw-semibold">Посты: запланированы / публикуются</div>
+  <div class="card-body p-0 table-responsive">
+    <table class="table table-sm table-hover mb-0 small">
+      <thead class="table-light">
+        <tr><th>#</th><th>Статус</th><th>Запланировано</th><th>Автор</th><th>Текст</th></tr>
+      </thead>
+      <tbody>
+        {% for p in scheduled_posts %}
+        <tr>
+          <td><a href="{% url 'content:detail' p.pk %}">{{ p.pk }}</a></td>
+          <td>{{ p.get_status_display }}</td>
+          <td>{% if p.scheduled_at %}{{ p.scheduled_at|date:"d.m.Y H:i" }}{% else %}—{% endif %}</td>
+          <td>{{ p.author }}</td>
+          <td>{{ p.text|truncatechars:50 }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="text-muted p-3">Нет постов по фильтру.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if show_full_internals %}
+<div class="card mb-4">
+  <div class="card-header py-2 fw-semibold">Последние результаты Celery (django_celery_results)</div>
+  <div class="card-body p-0 table-responsive">
+    {% if task_results_error %}<div class="p-3 text-warning">{{ task_results_error }}</div>{% endif %}
+    <table class="table table-sm table-hover mb-0 small">
+      <thead class="table-light">
+        <tr><th>Завершено</th><th>Статус</th><th>Задача</th><th>task_id</th></tr>
+      </thead>
+      <tbody>
+        {% for tr in task_results %}
+        <tr>
+          <td>{{ tr.date_done|default:"—" }}</td>
+          <td>{{ tr.status }}</td>
+          <td><code>{{ tr.task_name|truncatechars:80 }}</code></td>
+          <td><code class="small">{{ tr.task_id|truncatechars:32 }}</code></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="text-muted p-3">Нет записей (или фильтр / отключённый backend).</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<script>
+(function() {
+  const snapUrl = '{% url "core:celery_monitor_snapshot" %}';
+  const params = new URLSearchParams(window.location.search);
+  const cat = params.get('cat') || 'all';
+  const taskQ = params.get('task_q') || '';
+
+  function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  function renderSnapshot(d) {
+    const ts = document.getElementById('pcSnapTs');
+    const qEl = document.getElementById('pcQueues');
+    const live = document.getElementById('pcLiveBlock');
+    if (ts && d.ts) ts.textContent = d.ts;
+    if (qEl && d.queues) {
+      let h = '';
+      if (d.queues_error) h += '<div class="text-danger">' + esc(d.queues_error) + '</div>';
+      for (const [k, v] of Object.entries(d.queues)) {
+        h += '<div class="d-flex justify-content-between border-bottom py-1"><span><code>' + esc(k) + '</code></span>';
+        h += '<span class="fw-semibold">' + (v != null ? esc(v) : '?') + '</span></div>';
+      }
+      qEl.innerHTML = h;
+    }
+    if (live && d.ok) {
+      let h = '';
+      if (d.inspect_error) h += '<div class="alert alert-warning py-2 mb-2">' + esc(d.inspect_error) + '</div>';
+      if (!d.workers || !d.workers.length) {
+        h += '<p class="text-danger mb-2">Нет ответа на ping воркеров.</p>';
+      } else {
+        h += '<p class="text-muted mb-2">Воркеры: ';
+        d.workers.forEach(function(w) { h += '<code class="me-1">' + esc(w) + '</code>'; });
+        h += '</p>';
+      }
+      h += '<div class="fw-semibold mb-1">Active</div>';
+      let anyA = false;
+      if (d.active) {
+        for (const [wname, tasks] of Object.entries(d.active)) {
+          if (!tasks || !tasks.length) continue;
+          anyA = true;
+          h += '<div class="mb-2"><span class="text-muted">' + esc(wname) + '</span><ul class="mb-0 ps-3">';
+          tasks.forEach(function(t) {
+            h += '<li><code>' + esc(t.name) + '</code> · id ' + esc(t.id || '—') + '</li>';
+          });
+          h += '</ul></div>';
+        }
+      }
+      if (!anyA) h += '<p class="text-muted mb-3">Нет активных задач.</p>';
+      h += '<div class="fw-semibold mb-1">Reserved</div>';
+      let anyR = false;
+      if (d.reserved) {
+        for (const [wname, tasks] of Object.entries(d.reserved)) {
+          if (!tasks || !tasks.length) continue;
+          anyR = true;
+          h += '<div class="mb-1"><span class="text-muted">' + esc(wname) + '</span><ul class="mb-0 ps-3">';
+          tasks.forEach(function(t) { h += '<li><code>' + esc(t.name) + '</code></li>'; });
+          h += '</ul></div>';
+        }
+      }
+      if (!anyR) h += '<p class="text-muted mb-0">—</p>';
+      live.innerHTML = h;
+    }
+  }
+
+  function fetchSnap() {
+    const u = new URL(snapUrl, window.location.origin);
+    u.searchParams.set('cat', cat);
+    if (taskQ) u.searchParams.set('task_q', taskQ);
+    fetch(u.toString(), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function(r) { return r.json(); })
+      .then(renderSnapshot)
+      .catch(function() {});
+  }
+
+  document.getElementById('pcSnapRefresh')?.addEventListener('click', fetchSnap);
+  setInterval(fetchSnap, 12000);
+  fetchSnap();
+})();
+</script>
+{% endblock %}

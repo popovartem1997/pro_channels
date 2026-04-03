@@ -167,6 +167,11 @@
         <i class="bi bi-journal-text"></i> Журнал действий
       </a></li>
       {% endif %}
+      {% if user.is_staff or user.is_superuser or user.role == 'owner' or user.role == 'manager' or user.role == 'assistant_admin' %}
+      <li><a class="nav-link {% if '/settings/celery/' in request.path %}active{% endif %}" href="{% url 'core:celery_monitor' %}">
+        <i class="bi bi-cpu"></i> Фоновые задачи
+      </a></li>
+      {% endif %}
     </ul>
 
     <span class="nav-section">Разделы</span>

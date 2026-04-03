@@ -119,19 +119,31 @@ def _update_progress(run_id: int, *, sent=None, errors=None, last_tg_message_id=
         pass
 
 
-def _append_import_journal(run_id: int, message: str) -> None:
-    """Короткий журнал в progress_json.journal — виден в UI и в админке без отдельной таблицы."""
+def _append_import_journal(
+    run_id: int,
+    message: str,
+    *,
+    step: int | None = None,
+    step_total: int | None = None,
+) -> None:
+    """
+    Журнал шагов импорта в progress_json.journal.
+    step / step_total — для понятного UI (например «Шаг 3 из 7»).
+    """
     try:
         with transaction.atomic():
             run = HistoryImportRun.objects.select_for_update().get(pk=run_id)
             p = dict(run.progress_json or {})
             log = list(p.get('journal') or [])
-            log.append(
-                {
-                    't': timezone.now().isoformat(timespec='seconds'),
-                    'msg': (message or '')[:500],
-                }
-            )
+            entry = {
+                't': timezone.now().isoformat(timespec='seconds'),
+                'msg': (message or '')[:500],
+            }
+            if step is not None:
+                entry['step'] = int(step)
+            if step_total is not None:
+                entry['step_total'] = int(step_total)
+            log.append(entry)
             p['journal'] = log[-50:]
             run.progress_json = p
             run.save(update_fields=['progress_json', 'updated_at'])
@@ -161,7 +173,7 @@ def import_tg_history_to_max_task(self, run_id: int):
         return
 
     if run.cancel_requested:
-        _append_import_journal(run_id, 'Отмена: запись помечена до старта воркера.')
+        _append_import_journal(run_id, 'Отмена: вы запросили остановку до начала работы воркера.', step=0, step_total=7)
         run.status = HistoryImportRun.STATUS_CANCELLED
         run.finished_at = timezone.now()
         run.save(update_fields=['status', 'finished_at'])
@@ -169,14 +181,23 @@ def import_tg_history_to_max_task(self, run_id: int):
 
     _append_import_journal(
         run_id,
-        f'Воркер Celery принял задачу{f" (id: {celery_tid})" if celery_tid else ""}. Проверка каналов и ключей…',
+        f'Воркер снял задачу из очереди и начал выполнение'
+        f'{f" (идентификатор Celery: {celery_tid})" if celery_tid else ""}. '
+        'Дальше: проверка пар каналов и ключей API.',
+        step=1,
+        step_total=7,
     )
 
     # Validate channels
     source = run.source_channel
     target = run.target_channel
     if source.platform != Channel.PLATFORM_TELEGRAM or target.platform != Channel.PLATFORM_MAX:
-        _append_import_journal(run_id, 'Ошибка: нужна пара каналов Telegram → MAX.')
+        _append_import_journal(
+            run_id,
+            'Ошибка: для импорта нужны два канала — источник Telegram и цель MAX.',
+            step=2,
+            step_total=7,
+        )
         run.status = HistoryImportRun.STATUS_ERROR
         run.error_message = 'Некорректные каналы для импорта (нужен Telegram → MAX).'
         run.finished_at = timezone.now()
@@ -187,7 +208,12 @@ def import_tg_history_to_max_task(self, run_id: int):
     api_id = (keys.telegram_api_id or '').strip()
     api_hash = (keys.get_telegram_api_hash() or '').strip()
     if not api_id or not api_hash:
-        _append_import_journal(run_id, 'Ошибка: не заданы TELEGRAM_API_ID / TELEGRAM_API_HASH (Ключи API).')
+        _append_import_journal(
+            run_id,
+            'Ошибка: в разделе «Ключи API» не заполнены TELEGRAM_API_ID и TELEGRAM_API_HASH (нужны для Telethon).',
+            step=2,
+            step_total=7,
+        )
         run.status = HistoryImportRun.STATUS_ERROR
         run.error_message = 'TELEGRAM_API_ID / TELEGRAM_API_HASH не заданы (Ключи API → Парсинг Telegram).'
         run.finished_at = timezone.now()
@@ -210,7 +236,9 @@ def import_tg_history_to_max_task(self, run_id: int):
         if competing:
             _append_import_journal(
                 run_id,
-                f'Ошибка: пара каналов занята активным импортом #{competing.pk}.',
+                f'Ошибка: для этой пары каналов уже выполняется импорт #{competing.pk}. Дождитесь его окончания или остановите.',
+                step=2,
+                step_total=7,
             )
             run.status = HistoryImportRun.STATUS_ERROR
             run.error_message = f'Уже выполняется импорт #{competing.pk} для этой пары каналов.'
@@ -224,7 +252,9 @@ def import_tg_history_to_max_task(self, run_id: int):
 
     _append_import_journal(
         run_id,
-        'Статус «В работе». Далее — блокировка сессии Telethon и перебор сообщений.',
+        'Проверки пройдены. Статус запуска: «В работе». Следующий шаг — занять общую сессию Telegram (как у парсинга) и читать сообщения.',
+        step=3,
+        step_total=7,
     )
 
     sent = int((run.progress_json or {}).get('sent') or 0)
@@ -505,12 +535,19 @@ def import_tg_history_to_max_task(self, run_id: int):
             if lock_attempt == 0:
                 _append_import_journal(
                     run_id,
-                    'Жду блокировку Telethon (Redis). Кто держит: в «Диагностике» — '
-                    'telethon_lock_by_owner.held_in_redis и celery.active_parse_tasks.',
+                    'Шаг 4: ожидаю доступ к файлу сессии Telegram (тот же замок, что и у парсинга). '
+                    'Если долго — на странице «Фоновые задачи» или диагностике импорта смотрите active_parse_tasks и telethon_lock.',
+                    step=4,
+                    step_total=7,
                 )
             try:
                 with _telethon_session_lock(source.owner_id):
-                    _append_import_journal(run_id, 'Сессия захвачена, загрузка истории сообщений из Telegram…')
+                    _append_import_journal(
+                        run_id,
+                        'Сессия свободна: подключаюсь к Telegram и перебираю сообщения канала-источника (это может занять много времени).',
+                        step=5,
+                        step_total=7,
+                    )
                     asyncio.run(_do_import())
                 lock_last_err = None
                 break
@@ -524,7 +561,9 @@ def import_tg_history_to_max_task(self, run_id: int):
                     )
                     _append_import_journal(
                         run_id,
-                        f'Сессия занята, пауза 45 с (попытка {lock_attempt + 1}/12).',
+                        f'Сессия занята другой задачей (парсинг или импорт). Пауза 45 с, попытка {lock_attempt + 1} из 12.',
+                        step=4,
+                        step_total=7,
                     )
                     time.sleep(45)
                     continue
@@ -537,7 +576,12 @@ def import_tg_history_to_max_task(self, run_id: int):
         final_progress = {'sent': sent, 'errors': errors, 'last_tg_message_id': last_tg_message_id}
         now = timezone.now()
         if fresh.cancel_requested or fresh.status == HistoryImportRun.STATUS_CANCELLED:
-            _append_import_journal(run_id, 'Импорт остановлен пользователем.')
+            _append_import_journal(
+                run_id,
+                'Импорт остановлен по вашей команде.',
+                step=7,
+                step_total=7,
+            )
             fresh = HistoryImportRun.objects.get(pk=run_id)
             pj = dict(fresh.progress_json or {})
             log = list(pj.get('journal') or [])
@@ -549,7 +593,12 @@ def import_tg_history_to_max_task(self, run_id: int):
             fresh.updated_at = now
             fresh.save(update_fields=['status', 'finished_at', 'progress_json', 'updated_at'])
         else:
-            _append_import_journal(run_id, 'Импорт завершён успешно.')
+            _append_import_journal(
+                run_id,
+                'Импорт завершён: сообщения обработаны, статус «Готово».',
+                step=7,
+                step_total=7,
+            )
             fresh = HistoryImportRun.objects.get(pk=run_id)
             pj = dict(fresh.progress_json or {})
             log = list(pj.get('journal') or [])
@@ -561,7 +610,12 @@ def import_tg_history_to_max_task(self, run_id: int):
             fresh.updated_at = now
             fresh.save(update_fields=['status', 'finished_at', 'progress_json', 'updated_at'])
     except asyncio.CancelledError:
-        _append_import_journal(run_id, 'Импорт отменён (cancel / остановка).')
+        _append_import_journal(
+            run_id,
+            'Импорт прерван (отмена или остановка).',
+            step=7,
+            step_total=7,
+        )
         run = HistoryImportRun.objects.get(pk=run_id)
         pj = dict(run.progress_json or {})
         log = list(pj.get('journal') or [])
@@ -572,7 +626,12 @@ def import_tg_history_to_max_task(self, run_id: int):
         run.progress_json = pj
         run.save(update_fields=['status', 'finished_at', 'progress_json'])
     except Exception as exc:
-        _append_import_journal(run_id, f'Ошибка: {str(exc)[:400]}')
+        _append_import_journal(
+            run_id,
+            f'Ошибка выполнения: {str(exc)[:400]}',
+            step=6,
+            step_total=7,
+        )
         run = HistoryImportRun.objects.get(pk=run_id)
         pj = dict(run.progress_json or {})
         log = list(pj.get('journal') or [])

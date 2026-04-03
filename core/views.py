@@ -1,7 +1,8 @@
 from urllib.parse import urlencode
 
 from django.shortcuts import render, redirect
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Q, Prefetch
@@ -669,3 +670,203 @@ def feed(request):
         'feed_ai_can_edit_moods': feed_ai_can_edit_moods,
         'feed_ai_moods_editor_data': feed_ai_moods_editor_data,
     })
+
+
+def _user_can_celery_monitor(user) -> bool:
+    if not user.is_authenticated:
+        return False
+    if user.is_staff or user.is_superuser:
+        return True
+    role = getattr(user, 'role', '') or ''
+    return role in ('owner', 'manager', 'assistant_admin')
+
+
+@login_required
+def celery_monitor(request):
+    """
+    Очереди Redis, активные задачи воркера, импорты истории, парсинг, запланированные посты.
+    """
+    if not _user_can_celery_monitor(request.user):
+        return HttpResponse(status=403)
+
+    from channels.models import HistoryImportRun
+    from content.models import Post
+    from parsing.models import ParseTask
+
+    from .celery_monitor_service import (
+        beat_periodic_preview,
+        celery_inspect_bundle,
+        filter_tasks_by_category,
+        filter_tasks_by_name,
+        recent_task_results,
+        redis_queue_lengths,
+        settings_celery_summary,
+        support_log_commands,
+        parse_support_bundle_from_logs_hint,
+        task_category,
+    )
+
+    cat = (request.GET.get('cat') or 'all').strip().lower()
+    if cat not in ('all', 'publish', 'parse', 'import', 'other'):
+        cat = 'all'
+
+    name_sub = (request.GET.get('task_q') or '').strip()
+
+    hist_st = (request.GET.get('hist_status') or 'all').strip().lower()
+    if hist_st not in ('all', 'pending', 'running', 'done', 'error', 'cancelled'):
+        hist_st = 'all'
+
+    parse_f = (request.GET.get('parse_filter') or 'all').strip().lower()
+    if parse_f not in ('all', 'active', 'inactive'):
+        parse_f = 'all'
+
+    post_st = (request.GET.get('post_status') or 'scheduled').strip().lower()
+    if post_st not in ('scheduled', 'publishing', 'all'):
+        post_st = 'scheduled'
+
+    tr_status = (request.GET.get('tr_status') or '').strip().upper()
+    if tr_status not in ('', 'SUCCESS', 'FAILURE', 'PENDING', 'STARTED', 'RETRY'):
+        tr_status = ''
+
+    broker = (getattr(settings, 'CELERY_BROKER_URL', None) or '').strip()
+    queues, q_err = redis_queue_lengths(broker)
+    insp = celery_inspect_bundle()
+    active_raw = dict(insp.get('active') or {})
+    reserved_raw = dict(insp.get('reserved') or {})
+
+    active_f = filter_tasks_by_name(filter_tasks_by_category(active_raw, cat), name_sub)
+    reserved_f = filter_tasks_by_name(filter_tasks_by_category(reserved_raw, cat), name_sub)
+
+    staff = request.user.is_staff or request.user.is_superuser
+
+    hist_qs = HistoryImportRun.objects.select_related(
+        'source_channel', 'target_channel', 'created_by'
+    ).order_by('-created_at')
+    if not staff:
+        hist_qs = hist_qs.filter(created_by=request.user)
+    if hist_st != 'all':
+        hist_qs = hist_qs.filter(status=hist_st)
+    history_runs = list(hist_qs[:80])
+
+    parse_qs = ParseTask.objects.all().order_by('-last_run_at', '-pk')
+    if not staff:
+        parse_qs = parse_qs.filter(owner=request.user)
+    if parse_f == 'active':
+        parse_qs = parse_qs.filter(is_active=True)
+    elif parse_f == 'inactive':
+        parse_qs = parse_qs.filter(is_active=False)
+    parse_tasks = list(parse_qs[:80])
+
+    post_qs = Post.objects.select_related('author').prefetch_related('channels').order_by(
+        'scheduled_at', '-updated_at'
+    )
+    if not staff:
+        post_qs = post_qs.filter(author=request.user)
+    if post_st == 'scheduled':
+        post_qs = post_qs.filter(status=Post.STATUS_SCHEDULED)
+    elif post_st == 'publishing':
+        post_qs = post_qs.filter(status=Post.STATUS_PUBLISHING)
+    else:
+        post_qs = post_qs.filter(
+            status__in=(Post.STATUS_SCHEDULED, Post.STATUS_PUBLISHING)
+        )
+    scheduled_posts = list(post_qs[:80])
+
+    beat_rows, beat_err = beat_periodic_preview(50)
+    tr_sub = (request.GET.get('tr_q') or '').strip()
+    task_results, tr_err = recent_task_results(
+        limit=60, task_name_contains=tr_sub, status=tr_status
+    )
+    if not staff:
+        task_results = [r for r in task_results if r.get('category') in ('parse', 'import')]
+
+    ctx = {
+        'filter_cat': cat,
+        'filter_task_q': name_sub,
+        'filter_hist_status': hist_st,
+        'filter_parse': parse_f,
+        'filter_post_status': post_st,
+        'filter_tr_status': tr_status,
+        'filter_tr_q': tr_sub,
+        'queues': queues,
+        'queues_error': q_err,
+        'inspect_error': insp.get('error'),
+        'workers_ping': insp.get('ping') or {},
+        'active_tasks': active_f,
+        'reserved_tasks': reserved_f,
+        'scheduled_worker_tasks': insp.get('scheduled') or {},
+        'worker_stats': insp.get('stats') or {},
+        'settings_celery': settings_celery_summary(),
+        'beat_tasks': beat_rows,
+        'beat_error': beat_err,
+        'history_runs': history_runs,
+        'parse_tasks': parse_tasks,
+        'scheduled_posts': scheduled_posts,
+        'task_results': task_results,
+        'task_results_error': tr_err,
+        'support_commands': support_log_commands(),
+        'support_hint': parse_support_bundle_from_logs_hint(),
+        'show_full_internals': staff,
+        'task_category': task_category,
+    }
+    return render(request, 'core/celery_monitor.html', ctx)
+
+
+@login_required
+def celery_monitor_snapshot(request):
+    """Лёгкий JSON для автообновления блока «Сейчас воркер»."""
+    if not _user_can_celery_monitor(request.user):
+        return JsonResponse({'ok': False, 'error': 'forbidden'}, status=403)
+
+    from .celery_monitor_service import (
+        celery_inspect_bundle,
+        filter_tasks_by_category,
+        filter_tasks_by_name,
+        redis_queue_lengths,
+        task_category,
+    )
+
+    cat = (request.GET.get('cat') or 'all').strip().lower()
+    if cat not in ('all', 'publish', 'parse', 'import', 'other'):
+        cat = 'all'
+    name_sub = (request.GET.get('task_q') or '').strip()
+
+    broker = (getattr(settings, 'CELERY_BROKER_URL', None) or '').strip()
+    queues, q_err = redis_queue_lengths(broker)
+    insp = celery_inspect_bundle(timeout=2.0)
+    active = filter_tasks_by_name(
+        filter_tasks_by_category(dict(insp.get('active') or {}), cat),
+        name_sub,
+    )
+    reserved = filter_tasks_by_name(
+        filter_tasks_by_category(dict(insp.get('reserved') or {}), cat),
+        name_sub,
+    )
+
+    def _strip_task(t: dict) -> dict:
+        return {
+            'id': t.get('id'),
+            'name': t.get('name'),
+            'category': task_category(str(t.get('name') or '')),
+        }
+
+    out_active = {
+        w: [_strip_task(t) for t in (lst or [])]
+        for w, lst in active.items()
+    }
+    out_reserved = {
+        w: [_strip_task(t) for t in (lst or [])]
+        for w, lst in reserved.items()
+    }
+
+    payload = {
+        'ok': True,
+        'ts': timezone.now().isoformat(timespec='seconds'),
+        'queues': queues,
+        'queues_error': q_err,
+        'inspect_error': insp.get('error'),
+        'workers': list((insp.get('ping') or {}).keys()),
+        'active': out_active,
+        'reserved': out_reserved,
+    }
+    return JsonResponse(payload)

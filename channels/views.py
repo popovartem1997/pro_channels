@@ -712,10 +712,12 @@ def import_history_start(request):
         log.append(
             {
                 't': timezone.now().isoformat(timespec='seconds'),
+                'step': 0,
+                'step_total': 7,
                 'msg': (
-                    f'Задача в очереди Celery «import_history» (id: {async_result.id}). '
-                    'Если статус не меняется долго — воркер должен слушать -Q import_history,... '
-                    '(см. docker-compose) и диагностику ниже.'
+                    f'Задача записана в Redis-очередь «import_history» (id Celery: {async_result.id}). '
+                    'Шаг 0 из 7: ждём, пока воркер заберёт задачу. Если так висит долго — откройте '
+                    '«Настройки → Фоновые задачи» и проверьте длину очереди и список active.'
                 ),
             }
         )
