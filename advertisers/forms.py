@@ -23,9 +23,20 @@ class AdvertiserRequisitesForm(forms.ModelForm):
             'bank_bik',
             'bank_corr_account',
         ]
+        labels = {
+            'company_name': 'Название компании, ИП или физлица',
+        }
+        help_texts = {
+            'company_name': 'Юрлицо — полное наименование с ОПФ. ИП или физлицо — ФИО как в договоре.',
+        }
         widgets = {
             'ord_model_scheme': forms.Select(attrs={'class': 'form-select'}),
-            'company_name': forms.TextInput(attrs={'class': 'form-control'}),
+            'company_name': forms.TextInput(
+                attrs={
+                    'class': 'form-control',
+                    'placeholder': 'ООО «…», ИП Иванов И.И. или ФИО физлица',
+                }
+            ),
             'inn': forms.TextInput(attrs={'class': 'form-control', 'maxlength': '12', 'inputmode': 'numeric'}),
             'kpp': forms.TextInput(attrs={'class': 'form-control', 'maxlength': '9'}),
             'ogrn': forms.TextInput(attrs={'class': 'form-control', 'maxlength': '15'}),

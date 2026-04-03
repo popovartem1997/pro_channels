@@ -20,7 +20,12 @@ class RegisterForm(UserCreationForm):
     )
     company = forms.CharField(
         max_length=255, required=True,
-        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Название компании или ИП'})
+        widget=forms.TextInput(
+            attrs={
+                'class': 'form-control',
+                'placeholder': 'Компания, ИП или физлицо (ФИО)',
+            }
+        )
     )
 
     class Meta:

@@ -11,7 +11,11 @@ class Advertiser(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
         related_name='advertiser_profile', verbose_name='Пользователь'
     )
-    company_name = models.CharField('Название компании / ИП', max_length=255)
+    company_name = models.CharField(
+        'Название компании, ИП или физлица',
+        max_length=255,
+        help_text='Юрлицо с ОПФ, ИП — ФИО, физлицо — ФИО полностью.',
+    )
     inn = models.CharField('ИНН', max_length=12)
     kpp = models.CharField('КПП', max_length=9, blank=True)
     ogrn = models.CharField('ОГРН / ОГРНИП', max_length=15, blank=True)

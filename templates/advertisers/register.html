@@ -63,10 +63,10 @@
 
             <h6 class="text-muted text-uppercase small fw-bold mb-3">Организация</h6>
             <div class="mb-3">
-              <label class="form-label fw-semibold" for="id_company_name">Название компании / ИП <span class="text-danger">*</span></label>
+              <label class="form-label fw-semibold" for="id_company_name">Название компании, ИП или физлица <span class="text-danger">*</span></label>
               <input class="form-control" id="id_company_name" name="company_name" required
-                     value="{{ prefill.company_name|default:'' }}">
-              <div class="form-text">Для ИП — ФИО. Для ООО/юрлица — название + организационно‑правовая форма.</div>
+                     value="{{ prefill.company_name|default:'' }}" placeholder="ООО «…», ИП Иванов И.И. или ФИО физлица">
+              <div class="form-text">Юрлицо — полное наименование с ОПФ. ИП — ФИО. Физлицо — ФИО полностью (как в договоре).</div>
             </div>
             <div class="mb-3">
               <label class="form-label fw-semibold" for="id_inn">ИНН <span class="text-danger">*</span></label>
