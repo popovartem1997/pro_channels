@@ -220,6 +220,13 @@ def import_tg_history_to_max_task(self, run_id: int):
         run.save(update_fields=['status', 'error_message', 'finished_at'])
         return
 
+    _append_import_journal(
+        run_id,
+        'Проверка каналов и ключей пройдена: источник — Telegram, цель — MAX, API Telethon заданы.',
+        step=2,
+        step_total=7,
+    )
+
     # Prepare run + guard against double-start (best-effort at worker side too)
     with transaction.atomic():
         run = HistoryImportRun.objects.select_for_update().select_related('source_channel', 'target_channel').get(pk=run_id)
