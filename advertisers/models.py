@@ -238,6 +238,29 @@ class AdApplication(models.Model):
     )
 
     payment_method = models.CharField('Способ оплаты', max_length=20, choices=PAYMENT_METHOD_CHOICES, blank=True)
+    owner_offered_payment_method = models.CharField(
+        'Способ оплаты (предложен владельцем при одобрении)',
+        max_length=20,
+        choices=PAYMENT_METHOD_CHOICES,
+        blank=True,
+        help_text='После одобрения рекламодатель видит только этот вариант.',
+    )
+    transfer_dest_card_number = models.CharField(
+        'Перевод: номер карты / телефона',
+        max_length=64,
+        blank=True,
+    )
+    transfer_dest_bank_name = models.CharField('Перевод: банк', max_length=255, blank=True)
+    transfer_dest_recipient_hint = models.CharField(
+        'Перевод: получатель (имя и первая буква фамилии)',
+        max_length=120,
+        blank=True,
+    )
+    transfer_screenshot = models.ImageField(
+        'Скриншот перевода (рекламодатель)',
+        upload_to='ad_transfer_proofs/%Y/%m/',
+        blank=True,
+    )
     invoice = models.ForeignKey(
         'billing.Invoice',
         on_delete=models.SET_NULL,

@@ -23,7 +23,13 @@
     <div class="card h-100"><div class="card-body small">
       <div class="text-muted">Оплата</div>
       <div>{% if app.invoice %}{{ app.invoice.get_status_display }}{% else %}—{% endif %}</div>
-      <div class="text-muted mt-1">Способ: {{ app.get_payment_method_display|default:"—" }}</div>
+      {% if app.owner_offered_payment_method %}
+      <div class="text-muted mt-1">Способ для рекламодателя: {{ app.get_owner_offered_payment_method_display }}</div>
+      {% elif app.payment_method %}
+      <div class="text-muted mt-1">Способ: {{ app.get_payment_method_display }}</div>
+      {% else %}
+      <div class="text-muted mt-1">Способ: —</div>
+      {% endif %}
     </div></div>
   </div>
   <div class="col-md-4">
@@ -38,12 +44,8 @@
 <div class="card border-primary mb-4">
   <div class="card-header bg-transparent fw-semibold">Согласование заявки</div>
   <div class="card-body">
-    <p class="small text-muted mb-3">Счёт ещё не выставлен. Одобрите материалы или верните заявку на доработку.</p>
-    <form method="post" action="{% url 'advertisers:owner_campaign_decision' app.pk %}" class="d-inline me-2">
-      {% csrf_token %}
-      <input type="hidden" name="action" value="approve">
-      <button type="submit" class="btn btn-success btn-sm" onclick="return confirm('Одобрить заявку? Рекламодатель сможет оплатить размещение.');">Одобрить</button>
-    </form>
+    <p class="small text-muted mb-3">Счёт ещё не выставлен. При одобрении укажите, как рекламодатель будет платить: перевод на карту (реквизиты) или онлайн через T-Bank.</p>
+    <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#approvePaymentModal">Одобрить и указать оплату</button>
     <hr class="my-3">
     <form method="post" action="{% url 'advertisers:owner_campaign_decision' app.pk %}" class="small">
       {% csrf_token %}
@@ -54,6 +56,69 @@
     </form>
   </div>
 </div>
+
+<div class="modal fade" id="approvePaymentModal" tabindex="-1" aria-labelledby="approvePaymentModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content border-0 shadow">
+      <form method="post" action="{% url 'advertisers:owner_campaign_decision' app.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="approve">
+        <div class="modal-header border-0 pb-0">
+          <h5 class="modal-title fw-semibold" id="approvePaymentModalLabel">Одобрить заявку и способ оплаты</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+        </div>
+        <div class="modal-body pt-2">
+          <p class="small text-muted">Рекламодатель увидит только выбранный вариант. Для T-Bank должны быть заданы ключи терминала в «Ключи API»; чек в «Чеки Т-Бизнес» настраивается в кабинете T-Bank и передаётся через API при оплате.</p>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Способ оплаты для рекламодателя</label>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="owner_payment_method" value="transfer" id="own_pm_tr" required>
+              <label class="form-check-label" for="own_pm_tr">Перевод на карту / СБП (укажите реквизиты)</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="owner_payment_method" value="tbank" id="own_pm_tb">
+              <label class="form-check-label" for="own_pm_tb">Оплата картой через T-Bank</label>
+            </div>
+          </div>
+          <div id="transferFieldsApprove" class="border rounded p-3 bg-light small" style="display:none;">
+            <div class="mb-2">
+              <label class="form-label fw-semibold mb-0" for="id_transfer_card_number">Номер карты или телефона для перевода</label>
+              <input type="text" name="transfer_card_number" id="id_transfer_card_number" class="form-control form-control-sm" maxlength="64" placeholder="Например 2200 … или +7…">
+            </div>
+            <div class="mb-2">
+              <label class="form-label fw-semibold mb-0" for="id_transfer_bank_name">Банк</label>
+              <input type="text" name="transfer_bank_name" id="id_transfer_bank_name" class="form-control form-control-sm" maxlength="255" placeholder="Название банка получателя">
+            </div>
+            <div class="mb-0">
+              <label class="form-label fw-semibold mb-0" for="id_transfer_recipient_hint">Получатель: имя и первая буква фамилии</label>
+              <input type="text" name="transfer_recipient_hint" id="id_transfer_recipient_hint" class="form-control form-control-sm" maxlength="120" placeholder="Например Иван И.">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-success">Одобрить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var modal = document.getElementById('approvePaymentModal');
+  if (!modal) return;
+  function sync() {
+    var tr = modal.querySelector('#own_pm_tr');
+    var box = modal.querySelector('#transferFieldsApprove');
+    if (tr && tr.checked && box) box.style.display = 'block';
+    else if (box) box.style.display = 'none';
+  }
+  modal.addEventListener('change', function (e) {
+    if (e.target && e.target.name === 'owner_payment_method') sync();
+  });
+  modal.addEventListener('shown.bs.modal', sync);
+})();
+</script>
 {% endif %}
 
 {% if app.post %}
@@ -73,14 +138,27 @@
 {% endif %}
 
 {% if app.payment_method == 'transfer' and app.invoice and app.invoice.status != 'paid' and app.status == 'awaiting_payment' %}
-<form method="post" action="{% url 'advertisers:owner_campaign_confirm_payment' app.pk %}" class="card border-warning mb-4"
-      onsubmit="return confirm('Подтвердить поступление оплаты и запустить публикации?');">
-  {% csrf_token %}
-  <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-2">
-    <span>Перевод: подтвердите оплату после зачисления средств.</span>
-    <button type="submit" class="btn btn-warning">Подтвердить оплату</button>
+<div class="card border-warning mb-4">
+  <div class="card-header bg-transparent fw-semibold">Подтверждение перевода</div>
+  <div class="card-body small">
+    {% if app.transfer_dest_card_number %}
+    <p class="mb-1"><span class="text-muted">Вы указывали рекламодателю:</span> {{ app.transfer_dest_card_number }}, {{ app.transfer_dest_bank_name }}, {{ app.transfer_dest_recipient_hint }}</p>
+    {% endif %}
+    {% if app.transfer_screenshot %}
+    <p class="mb-2">Скриншот от рекламодателя:</p>
+    <a href="{{ app.transfer_screenshot.url }}" target="_blank" rel="noopener noreferrer" class="d-inline-block mb-3">
+      <img src="{{ app.transfer_screenshot.url }}" alt="Скриншот перевода" class="img-fluid rounded border" style="max-height:220px;">
+    </a>
+    {% else %}
+    <p class="text-muted mb-3">Рекламодатель ещё не приложил скриншот — при необходимости дождитесь или уточните у него.</p>
+    {% endif %}
+    <form method="post" action="{% url 'advertisers:owner_campaign_confirm_payment' app.pk %}"
+          onsubmit="return confirm('Подтвердить поступление оплаты и запустить публикации?');">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-warning">Подтвердить оплату</button>
+    </form>
   </div>
-</form>
+</div>
 {% endif %}
 
 <h6 class="fw-bold">Посты кампании</h6>

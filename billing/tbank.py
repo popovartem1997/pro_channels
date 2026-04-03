@@ -1,6 +1,7 @@
 """
 Клиент TBank Acquiring API.
-Документация: https://www.tbank.ru/kassa/develop/api/payments/
+Документация: https://developer.tbank.ru/eacq/intro/developer/
+Фискализация: объект Receipt в Init (настройка кассы / Чеки Т-Бизнес в кабинете T-Bank).
 """
 import hashlib
 import requests
@@ -40,19 +41,46 @@ class TBankClient:
             logger.error(f'TBank API error ({method}): {e}')
             return {'Success': False, 'Message': str(e)}
 
-    def init_payment(self, order_id: str, amount: int, description: str,
-                     customer_email: str = '') -> dict:
+    def init_payment(
+        self,
+        order_id: str,
+        amount: int,
+        description: str,
+        customer_email: str = '',
+        *,
+        send_fiscal_receipt: bool | None = None,
+    ) -> dict:
         """Инициализация платежа. Возвращает PaymentURL для редиректа."""
+        if send_fiscal_receipt is None:
+            send_fiscal_receipt = bool(getattr(settings, 'TBANK_SEND_FISCAL_RECEIPT', True))
         params = {
             'OrderId': order_id,
             'Amount': amount,
-            'Description': description,
+            'Description': description[:250],
             'NotificationURL': f'{settings.SITE_URL}/billing/webhook/tbank/',
             'SuccessURL': f'{settings.SITE_URL}/billing/success/',
             'FailURL': f'{settings.SITE_URL}/billing/fail/',
         }
         if customer_email:
             params['DATA'] = {'Email': customer_email}
+        if send_fiscal_receipt and customer_email and amount > 0:
+            taxation = (getattr(settings, 'TBANK_RECEIPT_TAXATION', None) or 'usn_income').strip()
+            item_name = (description or 'Услуга')[:128]
+            params['Receipt'] = {
+                'Email': customer_email,
+                'Taxation': taxation,
+                'Items': [
+                    {
+                        'Name': item_name,
+                        'Price': amount,
+                        'Quantity': 1.0,
+                        'Amount': amount,
+                        'Tax': 'none',
+                        'PaymentMethod': 'full_payment',
+                        'PaymentObject': 'service',
+                    }
+                ],
+            }
         return self._post('Init', params)
 
     def get_state(self, payment_id: str) -> dict:

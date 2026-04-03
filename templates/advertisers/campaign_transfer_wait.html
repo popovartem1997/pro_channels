@@ -3,22 +3,53 @@
 {% block content %}
 <div class="page-header">
   <h1>Перевод</h1>
-  <p class="text-muted small mb-0">Заявка #{{ app.pk }} · счёт {% if app.invoice %}{{ app.invoice.number }}{% endif %}</p>
+  <p class="text-muted small mb-0">Заявка #{{ app.pk }}{% if app.invoice %} · счёт {{ app.invoice.number }}{% endif %}</p>
 </div>
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body">
-    <p class="mb-2"><strong>Сумма:</strong> {{ app.total_amount }} ₽</p>
+    <p class="mb-3"><strong>Сумма:</strong> {{ app.total_amount }} ₽</p>
+    {% if app.transfer_dest_card_number %}
+    <h6 class="fw-semibold small text-uppercase text-muted mb-2">Реквизиты от владельца канала</h6>
+    <ul class="mb-3">
+      <li><span class="text-muted">Карта / телефон:</span> <strong>{{ app.transfer_dest_card_number }}</strong></li>
+      <li><span class="text-muted">Банк:</span> {{ app.transfer_dest_bank_name }}</li>
+      <li><span class="text-muted">Получатель:</span> {{ app.transfer_dest_recipient_hint }}</li>
+    </ul>
+    {% endif %}
+    {% if pay_phone or pay_instr %}
+    <h6 class="fw-semibold small text-uppercase text-muted mb-2">Дополнительно от владельца (профиль)</h6>
     {% if pay_phone %}
-    <p class="mb-1"><strong>Телефон для перевода:</strong> {{ pay_phone }}</p>
+    <p class="mb-1 small"><strong>Телефон:</strong> {{ pay_phone }}</p>
     {% endif %}
     {% if pay_instr %}
     <div class="small text-muted mt-2" style="white-space:pre-wrap;">{{ pay_instr }}</div>
     {% endif %}
-    {% if not pay_phone and not pay_instr %}
-    <p class="text-warning small">Владелец ещё не указал реквизиты в профиле. Напишите ему через контакты канала.</p>
     {% endif %}
-    <p class="small mt-3 mb-0">После перевода владелец подтвердит поступление — посты появятся в расписании.</p>
+    {% if not app.transfer_dest_card_number and not pay_phone and not pay_instr %}
+    <p class="text-warning small">Реквизиты не указаны. Свяжитесь с владельцем канала.</p>
+    {% endif %}
+    <p class="small mt-3 mb-0 text-muted">После перевода приложите скриншот — владелец проверит и подтвердит оплату.</p>
   </div>
 </div>
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <h6 class="fw-semibold mb-2">Скриншот перевода</h6>
+    {% if app.transfer_screenshot %}
+    <p class="small text-success mb-2">Файл загружен.</p>
+    <a href="{{ app.transfer_screenshot.url }}" target="_blank" rel="noopener noreferrer" class="btn btn-outline-secondary btn-sm mb-3">Открыть изображение</a>
+    {% else %}
+    <p class="small text-muted mb-2">Загрузите чек или скрин из банка (JPEG, PNG, WebP, GIF, до 6 МБ).</p>
+    {% endif %}
+    <form method="post" enctype="multipart/form-data" class="d-flex flex-wrap gap-2 align-items-end">
+      {% csrf_token %}
+      <div>
+        <input type="file" name="transfer_screenshot" class="form-control form-control-sm" accept="image/jpeg,image/png,image/webp,image/gif" {% if not app.transfer_screenshot %}required{% endif %}>
+      </div>
+      <button type="submit" class="btn btn-brand btn-sm">{% if app.transfer_screenshot %}Заменить файл{% else %}Загрузить{% endif %}</button>
+    </form>
+  </div>
+</div>
+
 <a href="{% url 'advertisers:campaign_list' %}" class="btn btn-outline-secondary">Мои заявки</a>
 {% endblock %}

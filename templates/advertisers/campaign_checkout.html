@@ -6,7 +6,7 @@
   <p class="text-muted small mb-0">К оплате: <strong>{{ app.total_amount }} ₽</strong></p>
 </div>
 {% include 'advertisers/_campaign_steps.html' with step=7 app=app %}
-<div class="alert alert-success small mb-3">Владелец канала одобрил заявку. Выберите способ оплаты — после этого будет выставлен счёт.</div>
+<div class="alert alert-success small mb-3">Владелец канала одобрил заявку. Ниже — способ оплаты, который он для вас выбрал.</div>
 {% if not app.contract_signed_at %}
 <div class="alert alert-warning">Сначала подпишите договор.</div>
 <a href="{% url 'advertisers:campaign_contract' app.pk %}" class="btn btn-outline-primary">К договору</a>
@@ -14,18 +14,42 @@
 <form method="post" class="card border-0 shadow-sm">
   {% csrf_token %}
   <div class="card-body">
+    {% if offered_payment_method == 'transfer' %}
+    <div class="mb-3">
+      <h6 class="fw-semibold mb-2">Перевод на карту</h6>
+      <p class="small text-muted mb-2">Владелец указал реквизиты для перевода. После нажатия кнопки будет выставлен счёт, вы перейдёте к странице с полными данными и сможете приложить скриншот перевода.</p>
+      {% if app.transfer_dest_card_number %}
+      <ul class="small mb-0">
+        <li><span class="text-muted">Карта / телефон:</span> {{ app.transfer_dest_card_number }}</li>
+        <li><span class="text-muted">Банк:</span> {{ app.transfer_dest_bank_name }}</li>
+        <li><span class="text-muted">Получатель:</span> {{ app.transfer_dest_recipient_hint }}</li>
+      </ul>
+      {% else %}
+      <p class="text-warning small mb-0">Реквизиты не заполнены — обратитесь к владельцу канала.</p>
+      {% endif %}
+    </div>
+    <button type="submit" class="btn btn-brand">Перейти к переводу и счёту</button>
+    {% elif offered_payment_method == 'tbank' %}
+    <div class="mb-3">
+      <h6 class="fw-semibold mb-2">Оплата картой (T-Bank)</h6>
+      <p class="small text-muted mb-0">После нажатия кнопки откроется защищённая страница оплаты. При настроенной онлайн-кассе и <a href="https://developer.tbank.ru/eacq/intro/developer/" target="_blank" rel="noopener noreferrer">подключении по документации T-Bank</a> чек уйдёт в сервис «Чеки Т-Бизнес» (если включено для вашего терминала).</p>
+    </div>
+    <button type="submit" class="btn btn-brand">Оплатить картой</button>
+    {% else %}
+    <p class="small text-muted mb-3">Заявка одобрена ранее — выберите способ оплаты. Для новых заявок владелец канала задаёт способ при одобрении.</p>
     <div class="form-check mb-2">
       <input class="form-check-input" type="radio" name="payment_method" value="transfer" id="pm_tr" required>
-      <label class="form-check-label" for="pm_tr">Перевод по номеру телефона / реквизитам</label>
+      <label class="form-check-label" for="pm_tr">Перевод по номеру телефона / реквизитам владельца</label>
     </div>
     {% if pay_phone or pay_instr %}
-    <div class="small text-muted mb-3 ms-4">После выбора вы увидите реквизиты владельца канала.</div>
+    <div class="small text-muted mb-3 ms-4">Реквизиты из профиля владельца покажем на следующем шаге.</div>
     {% endif %}
     <div class="form-check mb-3">
       <input class="form-check-input" type="radio" name="payment_method" value="tbank" id="pm_tb">
       <label class="form-check-label" for="pm_tb">Онлайн (TBank / карта)</label>
     </div>
     <button type="submit" class="btn btn-brand">Перейти к оплате</button>
+    {% endif %}
     <a href="{% url 'advertisers:campaign_list' %}" class="btn btn-link">Мои заявки</a>
   </div>
 </form>

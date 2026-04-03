@@ -609,15 +609,48 @@ def campaign_checkout(request, pk: int):
     owner = app.channel.owner
     pay_phone = (getattr(owner, 'ad_payment_phone', None) or '').strip()
     pay_instr = (getattr(owner, 'ad_payment_instructions', None) or '').strip()
+    offered = (app.owner_offered_payment_method or '').strip()
 
     if request.method == 'POST':
-        method = (request.POST.get('payment_method') or '').strip()
+        if offered in (AdApplication.PAY_TRANSFER, AdApplication.PAY_TBANK):
+            method = offered
+        else:
+            method = (request.POST.get('payment_method') or '').strip()
         if method not in (AdApplication.PAY_TRANSFER, AdApplication.PAY_TBANK):
             messages.error(request, 'Выберите способ оплаты.')
             return render(
                 request,
                 'advertisers/campaign_checkout.html',
-                {'app': app, 'pay_phone': pay_phone, 'pay_instr': pay_instr},
+                {
+                    'app': app,
+                    'pay_phone': pay_phone,
+                    'pay_instr': pay_instr,
+                    'offered_payment_method': offered,
+                },
+            )
+
+        if (
+            method == AdApplication.PAY_TRANSFER
+            and offered == AdApplication.PAY_TRANSFER
+            and not (
+                (app.transfer_dest_card_number or '').strip()
+                and (app.transfer_dest_bank_name or '').strip()
+                and (app.transfer_dest_recipient_hint or '').strip()
+            )
+        ):
+            messages.error(
+                request,
+                'Реквизиты перевода не заполнены владельцем канала. Напишите ему — после обновления заявки оплата откроется.',
+            )
+            return render(
+                request,
+                'advertisers/campaign_checkout.html',
+                {
+                    'app': app,
+                    'pay_phone': pay_phone,
+                    'pay_instr': pay_instr,
+                    'offered_payment_method': offered,
+                },
             )
 
         if not app.invoice_id:
@@ -664,7 +697,12 @@ def campaign_checkout(request, pk: int):
     return render(
         request,
         'advertisers/campaign_checkout.html',
-        {'app': app, 'pay_phone': pay_phone, 'pay_instr': pay_instr},
+        {
+            'app': app,
+            'pay_phone': pay_phone,
+            'pay_instr': pay_instr,
+            'offered_payment_method': offered,
+        },
     )
 
 
@@ -673,6 +711,23 @@ def campaign_transfer_wait(request, pk: int):
     app = _app_adv(request, pk)
     if app.status != AdApplication.STATUS_AWAITING_PAYMENT or app.payment_method != AdApplication.PAY_TRANSFER:
         return redirect('advertisers:campaign_list')
+
+    if request.method == 'POST' and request.FILES.get('transfer_screenshot'):
+        f = request.FILES['transfer_screenshot']
+        if f.size > 6 * 1024 * 1024:
+            messages.error(request, 'Файл слишком большой (максимум 6 МБ).')
+        else:
+            ct = (getattr(f, 'content_type', '') or '').lower()
+            if ct not in ('image/jpeg', 'image/png', 'image/webp', 'image/gif'):
+                messages.error(request, 'Допустимы изображения: JPEG, PNG, WebP или GIF.')
+            else:
+                if app.transfer_screenshot:
+                    app.transfer_screenshot.delete(save=False)
+                app.transfer_screenshot = f
+                app.save(update_fields=['transfer_screenshot', 'updated_at'])
+                messages.success(request, 'Скриншот сохранён. Владелец канала увидит его при подтверждении оплаты.')
+        return redirect('advertisers:campaign_transfer_wait', pk=pk)
+
     owner = app.channel.owner
     return render(
         request,
@@ -729,25 +784,81 @@ def owner_campaign_decision(request, pk: int):
 
     action = (request.POST.get('action') or '').strip()
     if action == 'approve':
+        offer = (request.POST.get('owner_payment_method') or '').strip()
+        if offer not in (AdApplication.PAY_TRANSFER, AdApplication.PAY_TBANK):
+            messages.error(request, 'Выберите способ оплаты: перевод на карту или оплата картой через T-Bank.')
+            return redirect('advertisers:owner_campaign_detail', pk=pk)
+        if offer == AdApplication.PAY_TBANK:
+            from core.models import get_global_api_keys
+
+            keys = get_global_api_keys()
+            if not (keys.get_tbank_terminal_key() or '').strip() or not (keys.get_tbank_secret_key() or '').strip():
+                messages.error(
+                    request,
+                    'Для приёма оплаты картой задайте ключи T-Bank в «Ключи API» или выберите перевод на карту.',
+                )
+                return redirect('advertisers:owner_campaign_detail', pk=pk)
+            card = ''
+            bank = ''
+            hint = ''
+        else:
+            card = (request.POST.get('transfer_card_number') or '').strip()
+            bank = (request.POST.get('transfer_bank_name') or '').strip()
+            hint = (request.POST.get('transfer_recipient_hint') or '').strip()
+            if not card or not bank or not hint:
+                messages.error(
+                    request,
+                    'Для перевода укажите номер карты или телефона, банк и получателя (имя и первая буква фамилии).',
+                )
+                return redirect('advertisers:owner_campaign_detail', pk=pk)
         app.status = AdApplication.STATUS_APPROVED_FOR_PAYMENT
         app.owner_approved_at = timezone.now()
-        app.save(update_fields=['status', 'owner_approved_at', 'updated_at'])
-        messages.success(request, 'Заявка одобрена. Рекламодатель может оплатить размещение (счёт ещё не выставлен).')
+        app.owner_offered_payment_method = offer
+        app.transfer_dest_card_number = card[:64] if offer == AdApplication.PAY_TRANSFER else ''
+        app.transfer_dest_bank_name = bank[:255] if offer == AdApplication.PAY_TRANSFER else ''
+        app.transfer_dest_recipient_hint = hint[:120] if offer == AdApplication.PAY_TRANSFER else ''
+        app.save(
+            update_fields=[
+                'status',
+                'owner_approved_at',
+                'owner_offered_payment_method',
+                'transfer_dest_card_number',
+                'transfer_dest_bank_name',
+                'transfer_dest_recipient_hint',
+                'updated_at',
+            ]
+        )
+        messages.success(
+            request,
+            'Заявка одобрена. Рекламодатель получит выбранный способ оплаты в кабинете.',
+        )
     elif action == 'reject':
         reason = (request.POST.get('reason') or '').strip()
         if len(reason) < 3:
             messages.error(request, 'Укажите причину отказа (не меньше 3 символов).')
             return redirect('advertisers:owner_campaign_detail', pk=pk)
+        if app.transfer_screenshot:
+            app.transfer_screenshot.delete(save=False)
+        app.transfer_screenshot = None
         app.status = AdApplication.STATUS_DRAFT
         app.owner_last_rejection_reason = reason[:4000]
         app.submitted_to_owner_at = None
         app.owner_approved_at = None
+        app.owner_offered_payment_method = ''
+        app.transfer_dest_card_number = ''
+        app.transfer_dest_bank_name = ''
+        app.transfer_dest_recipient_hint = ''
         app.save(
             update_fields=[
+                'transfer_screenshot',
                 'status',
                 'owner_last_rejection_reason',
                 'submitted_to_owner_at',
                 'owner_approved_at',
+                'owner_offered_payment_method',
+                'transfer_dest_card_number',
+                'transfer_dest_bank_name',
+                'transfer_dest_recipient_hint',
                 'updated_at',
             ]
         )

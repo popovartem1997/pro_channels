@@ -231,6 +231,9 @@ AI_REWRITE_ENABLED = config('AI_REWRITE_ENABLED', default=False, cast=bool)
 TBANK_TERMINAL_KEY = config('TBANK_TERMINAL_KEY', default='')
 TBANK_SECRET_KEY = config('TBANK_SECRET_KEY', default='')
 TBANK_API_URL = config('TBANK_API_URL', default='https://securepay.tinkoff.ru/v2/')
+# Фискальный чек в Init (Чеки Т-Бизнес / онлайн-касса в личном кабинете T-Bank). См. https://developer.tbank.ru/eacq/intro/developer/
+TBANK_SEND_FISCAL_RECEIPT = config('TBANK_SEND_FISCAL_RECEIPT', default=True, cast=bool)
+TBANK_RECEIPT_TAXATION = config('TBANK_RECEIPT_TAXATION', default='usn_income')
 
 # ─── ВК ОРД ──────────────────────────────────────────────────────────────────
 VK_ORD_ACCESS_TOKEN = config('VK_ORD_ACCESS_TOKEN', default='')
