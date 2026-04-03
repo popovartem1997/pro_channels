@@ -27,6 +27,12 @@ from .models import SuggestionBot
 
 logger = logging.getLogger(__name__)
 
+_MODERATION_CHECKBOXES_NONE_SAVED = (
+    'Отмечены получатели модерации, но ни один не сохранился. '
+    'Проверьте в «Команда → доступы», что у менеджера включено «Может модерировать предложки», '
+    'что менеджер привязан к тому же владельцу, что и бот, затем снова отметьте галочки и сохраните.'
+)
+
 
 def _suggestion_bot_channel_id_set(bot: SuggestionBot) -> set:
     return set(bot.target_channel_ids())
@@ -494,6 +500,18 @@ def bot_create(request):
 
         admin_chat_post = (request.POST.get('admin_chat_id') or '').strip()
         moderation_qs, mod_users = _moderation_qs_and_users_for_post(request, request.user, existing_bot=None)
+        if platform in (SuggestionBot.PLATFORM_TELEGRAM, SuggestionBot.PLATFORM_MAX) and request.POST.getlist(
+            'moderators'
+        ):
+            if not mod_users:
+                messages.error(request, _MODERATION_CHECKBOXES_NONE_SAVED)
+                return render(request, 'bots/create.html', {
+                    'platforms': SuggestionBot.PLATFORM_CHOICES,
+                    'team_members': team_members,
+                    'selected_moderators': selected_moderators,
+                    'owner_groups': owner_groups,
+                    'selected_channel_group_ids': selected_channel_group_ids,
+                })
         if platform == SuggestionBot.PLATFORM_TELEGRAM:
             err = _telegram_moderation_config_error(request.user, mod_users, admin_chat_post)
             if err:
@@ -751,6 +769,19 @@ def bot_edit(request, bot_id: int):
         if not can_edit_messages_only:
             admin_chat_post = (request.POST.get('admin_chat_id') or '').strip()
             moderation_qs, mod_users = _moderation_qs_and_users_for_post(request, bot.owner, existing_bot=bot)
+            if bot.platform in (SuggestionBot.PLATFORM_TELEGRAM, SuggestionBot.PLATFORM_MAX) and request.POST.getlist(
+                'moderators'
+            ):
+                if not mod_users:
+                    messages.error(request, _MODERATION_CHECKBOXES_NONE_SAVED)
+                    return render(request, 'bots/edit.html', {
+                        'bot': bot,
+                        'team_members': team_members,
+                        'selected_moderators': selected_moderators,
+                        'owner_groups': owner_groups,
+                        'can_edit_messages_only': can_edit_messages_only,
+                        'selected_channel_group_ids': selected_channel_group_ids,
+                    })
             if bot.platform == SuggestionBot.PLATFORM_TELEGRAM:
                 err = _telegram_moderation_config_error(bot.owner, mod_users, admin_chat_post)
                 if err:

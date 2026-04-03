@@ -76,8 +76,8 @@ def telegram_user_id_for_moderation_recipient(owner_id: int, user) -> int | None
     return int(targets[0]) if targets else None
 
 
-def max_user_id_str_for_moderation_recipient(owner_id: int, user) -> str:
-    """MAX user_id: для владельца — профиль, затем команда; для менеджера — карточка команды, затем профиль."""
+def max_chat_targets_for_moderation_recipient(owner_id: int, user) -> list[str]:
+    """Все различные MAX user_id из профиля и карточки команды (как для Telegram)."""
     prof = (getattr(user, 'max_user_id', None) or '').strip()
     tm_val = ''
     try:
@@ -92,10 +92,22 @@ def max_user_id_str_for_moderation_recipient(owner_id: int, user) -> str:
             tm_val = (tm.max_user_id or '').strip()
     except Exception:
         pass
-    oid = int(owner_id)
-    if int(user.pk) == oid:
-        return prof or tm_val
-    return tm_val or prof
+    order = (prof, tm_val) if int(user.pk) == int(owner_id) else (tm_val, prof)
+    out: list[str] = []
+    seen: set[str] = set()
+    for x in order:
+        if not x:
+            continue
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
+
+def max_user_id_str_for_moderation_recipient(owner_id: int, user) -> str:
+    """Первый MAX user_id (для проверок в формах)."""
+    t = max_chat_targets_for_moderation_recipient(owner_id, user)
+    return t[0] if t else ''
 
 
 class SuggestionBot(models.Model):
@@ -289,10 +301,15 @@ class SuggestionBot(models.Model):
             if s not in ids:
                 ids.append(s)
 
-        mod_users = list(self.moderators.order_by('pk').all())
+        # pk из M2M + свежая загрузка User из БД (без устаревшего prefetch по полю telegram_user_id).
+        mod_pks = list(self.moderators.values_list('pk', flat=True))
+        mod_pks.sort()
+        users_by_pk = User.objects.in_bulk(mod_pks)
+        mod_users = [users_by_pk[pk] for pk in mod_pks if pk in users_by_pk]
         mod_resolved = 0
+        oid = int(self.owner_id)
         for u in mod_users:
-            targets = telegram_chat_targets_for_moderation_recipient(int(self.owner_id), u)
+            targets = telegram_chat_targets_for_moderation_recipient(oid, u)
             if targets:
                 mod_resolved += 1
                 for s in targets:
@@ -321,12 +338,15 @@ class SuggestionBot(models.Model):
         return ids
 
     def get_moderation_max_dm_ids(self) -> list[str]:
-        """MAX: user_id для личных сообщений — по одному на каждого выбранного получателя (дубликаты ID допустимы)."""
+        """MAX: личные user_id — по каждому отмеченному пользователю; одинаковый ID у двух людей → два сообщения."""
         out: list[str] = []
-        mod_users = list(self.moderators.all())
+        mod_pks = list(self.moderators.values_list('pk', flat=True))
+        mod_pks.sort()
+        users_by_pk = User.objects.in_bulk(mod_pks)
+        mod_users = [users_by_pk[pk] for pk in mod_pks if pk in users_by_pk]
+        oid = int(self.owner_id)
         for u in mod_users:
-            s = self._max_user_id_str_for_recipient(u)
-            if s:
+            for s in max_chat_targets_for_moderation_recipient(oid, u):
                 out.append(s)
         if mod_users and not out and not (self.admin_chat_id or '').strip():
             logger.warning(
