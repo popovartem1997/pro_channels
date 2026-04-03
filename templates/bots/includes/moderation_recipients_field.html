@@ -10,7 +10,7 @@
     {% if platform_hint == 'max' or platform_hint == 'both' %}
       В <strong>MAX</strong> — по <strong>MAX user ID</strong> из профиля или карточки команды.
     {% endif %}
-    Укажите ID в <a href="{% url 'profile' %}">Профиле</a> (владелец) или в «Команда → доступы» (менеджер).
+    Для <strong>менеджера</strong> в приоритете ID из «Команда → доступы» (заполняет владелец); для <strong>владельца</strong> — из <a href="{% url 'profile' %}">Профиля</a>. Либо оба поля можно заполнить.
   </div>
   <select name="moderators" class="form-select" multiple size="6">
     <option value="{{ bot_owner.pk }}" {% if bot_owner.pk|stringformat:"s" in selected_moderators %}selected{% endif %}>
