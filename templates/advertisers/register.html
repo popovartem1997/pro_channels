@@ -4,7 +4,7 @@
 {% block content %}
 <div class="container py-5">
   <div class="row justify-content-center">
-    <div class="col-12 col-lg-6">
+    <div class="col-12 col-lg-7 col-xl-6">
       <div class="text-center mb-4">
         <h2 class="fw-bold">Стать рекламодателем</h2>
         <p class="text-muted">Размещайте рекламу в каналах ProChannels</p>
@@ -15,74 +15,127 @@
             {% csrf_token %}
             <input type="hidden" name="next" value="{{ next_redirect|default:'' }}">
             {% if not user.is_authenticated %}
+            <h6 class="text-muted text-uppercase small fw-bold mb-3">Аккаунт</h6>
             <div class="row g-3 mb-3">
               <div class="col-12">
                 <label class="form-label fw-semibold" for="id_email">Email</label>
-                <input class="form-control" id="id_email" name="email" type="email" required
+                <input class="form-control" id="id_email" name="email" type="email" required autocomplete="email"
                        value="{{ prefill.email|default:'' }}" placeholder="email@company.ru">
               </div>
               <div class="col-12 col-md-6">
                 <label class="form-label fw-semibold" for="id_password1">Пароль</label>
-                <input class="form-control" id="id_password1" name="password1" type="password" required
-                       value="{{ prefill.password1|default:'' }}">
+                <div class="input-group">
+                  <input class="form-control" id="id_password1" name="password1" type="password" required minlength="8" autocomplete="new-password"
+                         value="{{ prefill.password1|default:'' }}">
+                  <button class="btn btn-outline-secondary" type="button" data-pw-toggle="id_password1" aria-label="Показать пароль" title="Показать">
+                    <i class="bi bi-eye" aria-hidden="true"></i>
+                  </button>
+                </div>
+                <div class="form-text">Не менее 8 символов.</div>
               </div>
               <div class="col-12 col-md-6">
                 <label class="form-label fw-semibold" for="id_password2">Повторите пароль</label>
-                <input class="form-control" id="id_password2" name="password2" type="password" required
-                       value="{{ prefill.password2|default:'' }}">
-              </div>
-              <div class="col-12 col-md-6">
-                <label class="form-label fw-semibold" for="id_first_name">Имя (необязательно)</label>
-                <input class="form-control" id="id_first_name" name="first_name"
-                       value="{{ prefill.first_name|default:'' }}">
-              </div>
-              <div class="col-12 col-md-6">
-                <label class="form-label fw-semibold" for="id_phone">Телефон (необязательно)</label>
-                <input class="form-control" id="id_phone" name="phone"
-                       value="{{ prefill.phone|default:'' }}" placeholder="+7 (999) 999-99-99">
+                <div class="input-group">
+                  <input class="form-control" id="id_password2" name="password2" type="password" required minlength="8" autocomplete="new-password"
+                         value="{{ prefill.password2|default:'' }}">
+                  <button class="btn btn-outline-secondary" type="button" data-pw-toggle="id_password2" aria-label="Показать пароль" title="Показать">
+                    <i class="bi bi-eye" aria-hidden="true"></i>
+                  </button>
+                </div>
               </div>
             </div>
             {% endif %}
-            <div class="mb-3">
-              <label class="form-label fw-semibold" for="id_company_name">Название компании / ИП</label>
-              <input class="form-control" id="id_company_name" name="company_name" required
-                     value="{{ prefill.company_name|default:'' }}">
-              <div class="form-text">
-                Для ИП — ФИО. Для ООО/юрлица — название + организационно‑правовая форма.
+
+            <h6 class="text-muted text-uppercase small fw-bold mb-3">Контакт и представитель</h6>
+            <div class="row g-3 mb-3">
+              <div class="col-12 col-md-6">
+                <label class="form-label fw-semibold" for="id_first_name">Имя <span class="text-danger">*</span></label>
+                <input class="form-control" id="id_first_name" name="first_name" required minlength="2" autocomplete="given-name"
+                       value="{{ prefill.first_name|default:'' }}" placeholder="Как к вам обращаться">
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label fw-semibold" for="id_phone">Телефон <span class="text-danger">*</span></label>
+                <input class="form-control" id="id_phone" name="phone" required inputmode="tel" autocomplete="tel"
+                       value="{{ prefill.phone|default:'' }}" placeholder="+7 999 123-45-67">
+                <div class="form-text">Будет в договоре и для связи по заявкам (не менее 10 цифр).</div>
               </div>
             </div>
+
+            <h6 class="text-muted text-uppercase small fw-bold mb-3">Организация</h6>
             <div class="mb-3">
-              <label class="form-label fw-semibold" for="id_inn">ИНН</label>
-              <input class="form-control" id="id_inn" name="inn" required
+              <label class="form-label fw-semibold" for="id_company_name">Название компании / ИП <span class="text-danger">*</span></label>
+              <input class="form-control" id="id_company_name" name="company_name" required
+                     value="{{ prefill.company_name|default:'' }}">
+              <div class="form-text">Для ИП — ФИО. Для ООО/юрлица — название + организационно‑правовая форма.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_inn">ИНН <span class="text-danger">*</span></label>
+              <input class="form-control" id="id_inn" name="inn" required inputmode="numeric" pattern="[0-9]{10}|[0-9]{12}"
                      value="{{ prefill.inn|default:'' }}">
               <div class="form-text">10 цифр (юрлицо) или 12 цифр (ИП).</div>
             </div>
-            <div class="mb-3">
-              <label class="form-label fw-semibold" for="id_legal_address">Юридический адрес</label>
-              <textarea class="form-control" id="id_legal_address" name="legal_address" rows="3" required>{{ prefill.legal_address|default:'' }}</textarea>
-            </div>
-            <div class="mb-3">
-              <label class="form-label fw-semibold" for="id_contact_person">Контактное лицо</label>
-              <input class="form-control" id="id_contact_person" name="contact_person" required
-                     value="{{ prefill.contact_person|default:'' }}">
-            </div>
-            <div class="mb-3">
-              <label class="form-label fw-semibold" for="id_contact_phone">Телефон (необязательно)</label>
-              <input class="form-control" id="id_contact_phone" name="contact_phone"
-                     value="{{ prefill.contact_phone|default:'' }}">
-            </div>
-            <div class="row g-3">
+            <div class="row g-3 mb-3">
               <div class="col-12 col-md-6">
-                <label class="form-label fw-semibold" for="id_kpp">КПП (необязательно)</label>
-                <input class="form-control" id="id_kpp" name="kpp"
-                       value="{{ prefill.kpp|default:'' }}">
+                <label class="form-label fw-semibold" for="id_kpp">КПП</label>
+                <input class="form-control" id="id_kpp" name="kpp" maxlength="9"
+                       value="{{ prefill.kpp|default:'' }}" placeholder="Только для юрлиц">
               </div>
               <div class="col-12 col-md-6">
-                <label class="form-label fw-semibold" for="id_ogrn">ОГРН/ОГРНИП (необязательно)</label>
-                <input class="form-control" id="id_ogrn" name="ogrn"
+                <label class="form-label fw-semibold" for="id_ogrn">ОГРН / ОГРНИП</label>
+                <input class="form-control" id="id_ogrn" name="ogrn" maxlength="15"
                        value="{{ prefill.ogrn|default:'' }}">
               </div>
             </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_legal_address">Юридический адрес <span class="text-danger">*</span></label>
+              <textarea class="form-control" id="id_legal_address" name="legal_address" rows="2" required>{{ prefill.legal_address|default:'' }}</textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_actual_address">Фактический адрес</label>
+              <textarea class="form-control" id="id_actual_address" name="actual_address" rows="2"
+                        placeholder="Если совпадает с юридическим — можно продублировать">{{ prefill.actual_address|default:'' }}</textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_contact_person">Контактное лицо по договору <span class="text-danger">*</span></label>
+              <input class="form-control" id="id_contact_person" name="contact_person" required
+                     value="{{ prefill.contact_person|default:'' }}" placeholder="ФИО подписанта / менеджера">
+            </div>
+
+            <h6 class="text-muted text-uppercase small fw-bold mb-3">Банковские реквизиты</h6>
+            <p class="small text-muted mb-3">Нужны для договора и счетов; можно уточнить позже в профиле, если пока нет.</p>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_bank_name">Банк</label>
+              <input class="form-control" id="id_bank_name" name="bank_name" value="{{ prefill.bank_name|default:'' }}">
+            </div>
+            <div class="row g-3 mb-3">
+              <div class="col-12 col-md-6">
+                <label class="form-label fw-semibold" for="id_bank_account">Расчётный счёт</label>
+                <input class="form-control font-monospace" id="id_bank_account" name="bank_account" inputmode="numeric"
+                       value="{{ prefill.bank_account|default:'' }}">
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label fw-semibold" for="id_bank_bik">БИК</label>
+                <input class="form-control font-monospace" id="id_bank_bik" name="bank_bik" maxlength="9" inputmode="numeric"
+                       value="{{ prefill.bank_bik|default:'' }}">
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_bank_corr_account">Корреспондентский счёт банка</label>
+              <input class="form-control font-monospace" id="id_bank_corr_account" name="bank_corr_account" inputmode="numeric"
+                     value="{{ prefill.bank_corr_account|default:'' }}">
+            </div>
+
+            <h6 class="text-muted text-uppercase small fw-bold mb-3">Маркировка ВК ОРД</h6>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" for="id_ord_model_scheme">Тип контрагента в ОРД</label>
+              <select class="form-select" id="id_ord_model_scheme" name="ord_model_scheme">
+                {% for val, label in ord_scheme_choices %}
+                <option value="{{ val }}" {% if prefill.ord_model_scheme == val %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              <div class="form-text">Если не уверены — оставьте «Авто по ИНН».</div>
+            </div>
+
             <button type="submit" class="btn btn-brand w-100 fw-semibold mt-2">
               <i class="bi bi-megaphone me-1"></i> Зарегистрироваться
             </button>
@@ -92,4 +145,26 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  document.querySelectorAll('[data-pw-toggle]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var id = btn.getAttribute('data-pw-toggle');
+      var el = id ? document.getElementById(id) : null;
+      if (!el) return;
+      var show = el.type === 'password';
+      el.type = show ? 'text' : 'password';
+      btn.setAttribute('aria-label', show ? 'Скрыть пароль' : 'Показать пароль');
+      btn.setAttribute('title', show ? 'Скрыть' : 'Показать');
+      var ico = btn.querySelector('i');
+      if (ico) {
+        ico.className = show ? 'bi bi-eye-slash' : 'bi bi-eye';
+      }
+    });
+  });
+})();
+</script>
 {% endblock %}

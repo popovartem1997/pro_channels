@@ -1,6 +1,8 @@
 """
 Кабинет рекламодателя + панель владельца для модерации заявок.
 """
+import re
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -45,8 +47,23 @@ def _advertiser_register_next(request):
 
 
 _REG_PREFILL_KEYS = (
-    'email', 'password1', 'password2', 'first_name', 'phone', 'company_name', 'inn',
-    'legal_address', 'contact_person', 'contact_phone', 'kpp', 'ogrn',
+    'email',
+    'password1',
+    'password2',
+    'first_name',
+    'phone',
+    'company_name',
+    'inn',
+    'legal_address',
+    'actual_address',
+    'contact_person',
+    'kpp',
+    'ogrn',
+    'bank_name',
+    'bank_account',
+    'bank_bik',
+    'bank_corr_account',
+    'ord_model_scheme',
 )
 
 
@@ -58,7 +75,11 @@ def _advertiser_register_context(request, next_redirect=None):
             prefill[k] = (request.POST.get(k) or '').strip()
         prefill['password1'] = ''
         prefill['password2'] = ''
+    elif request.user.is_authenticated:
+        prefill['first_name'] = (request.user.first_name or '').strip()
+        prefill['phone'] = (getattr(request.user, 'phone', None) or '').strip()
     ctx['prefill'] = prefill
+    ctx['ord_scheme_choices'] = Advertiser.ORD_MODEL_SCHEME_CHOICES
     return ctx
 
 
@@ -87,6 +108,13 @@ def advertiser_register(request):
             if not password1 or password1 != password2 or len(password1) < 8:
                 messages.error(request, 'Проверьте пароль (минимум 8 символов) и совпадение паролей.')
                 return render(request, 'advertisers/register.html', _advertiser_register_context(request, next_redirect))
+            if len(first_name) < 2:
+                messages.error(request, 'Укажите имя (не менее 2 символов).')
+                return render(request, 'advertisers/register.html', _advertiser_register_context(request, next_redirect))
+            digits_phone = re.sub(r'\D', '', phone)
+            if len(digits_phone) < 10:
+                messages.error(request, 'Укажите телефон (не менее 10 цифр).')
+                return render(request, 'advertisers/register.html', _advertiser_register_context(request, next_redirect))
             if User.objects.filter(email=email).exists():
                 messages.error(request, 'Пользователь с таким email уже существует. Войдите в аккаунт.')
                 return render(request, 'advertisers/register.html', _advertiser_register_context(request, next_redirect))
@@ -94,8 +122,8 @@ def advertiser_register(request):
             user = User(
                 email=email,
                 username=email,
-                first_name=first_name or email.split('@')[0],
-                phone=phone,
+                first_name=first_name[:150],
+                phone=phone[:20],
                 company=request.POST.get('company_name', '').strip(),
                 role=User.ROLE_ADVERTISER,
                 is_email_verified=False,
@@ -111,13 +139,40 @@ def advertiser_register(request):
                 pass
             login(request, user, backend='django.contrib.auth.backends.ModelBackend')
 
+        first_name = request.POST.get('first_name', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        if len(first_name) < 2:
+            messages.error(request, 'Укажите имя (не менее 2 символов).')
+            return render(request, 'advertisers/register.html', _advertiser_register_context(request, next_redirect))
+        digits_phone = re.sub(r'\D', '', phone)
+        if len(digits_phone) < 10:
+            messages.error(request, 'Укажите телефон (не менее 10 цифр).')
+            return render(request, 'advertisers/register.html', _advertiser_register_context(request, next_redirect))
+
+        if request.user.is_authenticated:
+            u = request.user
+            u.first_name = first_name[:150]
+            u.phone = phone[:20]
+            if not (u.company or '').strip():
+                u.company = (request.POST.get('company_name', '') or '').strip()[:255]
+            u.save(update_fields=['first_name', 'phone', 'company'])
+
         company_name = request.POST.get('company_name', '').strip()
         inn = request.POST.get('inn', '').strip()
         legal_address = request.POST.get('legal_address', '').strip()
+        actual_address = request.POST.get('actual_address', '').strip()
         contact_person = request.POST.get('contact_person', '').strip()
+        bank_name = request.POST.get('bank_name', '').strip()
+        bank_account = request.POST.get('bank_account', '').strip()
+        bank_bik = request.POST.get('bank_bik', '').strip()
+        bank_corr = request.POST.get('bank_corr_account', '').strip()
+        ord_scheme = (request.POST.get('ord_model_scheme') or '').strip()
+        valid_schemes = {x[0] for x in Advertiser.ORD_MODEL_SCHEME_CHOICES}
+        if ord_scheme not in valid_schemes:
+            ord_scheme = ''
 
         if not all([company_name, inn, legal_address, contact_person]):
-            messages.error(request, 'Заполните все обязательные поля.')
+            messages.error(request, 'Заполните все обязательные поля организации и контакта.')
             return render(request, 'advertisers/register.html', _advertiser_register_context(request, next_redirect))
         if not inn.isdigit() or len(inn) not in (10, 12):
             messages.error(request, 'ИНН должен состоять из 10 или 12 цифр.')
@@ -129,8 +184,14 @@ def advertiser_register(request):
             kpp=request.POST.get('kpp', '').strip(),
             ogrn=request.POST.get('ogrn', '').strip(),
             legal_address=legal_address,
+            actual_address=actual_address,
             contact_person=contact_person,
-            contact_phone=request.POST.get('contact_phone', '').strip(),
+            contact_phone=phone[:20],
+            bank_name=bank_name,
+            bank_account=bank_account,
+            bank_bik=bank_bik,
+            bank_corr_account=bank_corr,
+            ord_model_scheme=ord_scheme,
         )
         if getattr(request.user, 'role', '') != request.user.ROLE_ADVERTISER:
             request.user.role = request.user.ROLE_ADVERTISER
