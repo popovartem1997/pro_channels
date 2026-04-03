@@ -32,12 +32,15 @@
           {% endif %}
         </div>
 
-        <div class="d-flex gap-2 flex-wrap">
+        <div class="d-flex gap-2 flex-wrap align-items-center">
           <button id="pcStartBtn" class="btn btn-brand" type="button" {% if not tg_channels %}disabled{% endif %}>
             <i class="bi bi-play-fill me-1"></i> Начать импорт
           </button>
           <button id="pcStopBtn" class="btn btn-outline-danger d-none" type="button">
             <i class="bi bi-stop-fill me-1"></i> Остановить
+          </button>
+          <button id="pcRequeueBtn" class="btn btn-outline-warning d-none" type="button" title="Если «В очереди», но задача не ушла в Celery">
+            <i class="bi bi-arrow-repeat me-1"></i> Снова в очередь Celery
           </button>
         </div>
 
@@ -147,6 +150,7 @@
     source: document.getElementById('pcSourceChannel'),
     start: document.getElementById('pcStartBtn'),
     stop: document.getElementById('pcStopBtn'),
+    requeue: document.getElementById('pcRequeueBtn'),
     badge: document.getElementById('pcStatusBadge'),
     bar: document.getElementById('pcProgressBar'),
     sent: document.getElementById('pcSent'),
@@ -208,6 +212,12 @@
     els.stop.classList.toggle('d-none', !isRunning);
   }
 
+  function updateRequeueVisibility(run) {
+    if (!els.requeue) return;
+    const pendingNoId = run && run.status === 'pending' && !((run.celery_task_id || '').trim());
+    els.requeue.classList.toggle('d-none', !pendingNoId);
+  }
+
   function updateProgress(run) {
     const p = run.progress || {};
     els.sent.textContent = String(p.sent || 0);
@@ -227,6 +237,7 @@
     }
     setStatus(run.status);
     setRunningUi(run.status === 'running' || run.status === 'pending');
+    updateRequeueVisibility(run);
     // Total неизвестен — делаем "индикатор активности"
     const w = Math.min(100, 5 + Math.log10((p.sent || 0) + 1) * 20);
     els.bar.style.width = (run.status === 'running' || run.status === 'pending') ? (w + '%') : '100%';
@@ -301,6 +312,31 @@
   els.confirmStart?.addEventListener('click', () => {
     confirmModal.hide();
     startImport();
+  });
+
+  els.requeue?.addEventListener('click', () => {
+    if (!currentRunId) return;
+    if (!window.confirm('Отправить этот импорт в очередь Celery ещё раз?')) return;
+    els.requeue.disabled = true;
+    const body = new URLSearchParams();
+    body.set('csrfmiddlewaretoken', csrf);
+    fetch(`{% url "channels:import_history_requeue" 0 %}`.replace('/0/', `/${currentRunId}/`), {
+      method: 'POST',
+      headers: {'X-Requested-With': 'XMLHttpRequest'},
+      body,
+    })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, json: j })))
+      .then(({ ok, json }) => {
+        if (!ok || !json.ok) throw new Error((json && json.message) || 'Ошибка');
+        loadDiagnostics();
+        poll();
+      })
+      .catch((e) => {
+        window.alert(String(e.message || e));
+      })
+      .finally(() => {
+        els.requeue.disabled = false;
+      });
   });
 
   els.stop?.addEventListener('click', () => {

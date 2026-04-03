@@ -20,5 +20,6 @@ urlpatterns = [
     path('import-history/start/', views.import_history_start, name='import_history_start'),
     path('import-history/status/<int:pk>/', views.import_history_status, name='import_history_status'),
     path('import-history/diagnostics/', views.import_history_diagnostics, name='import_history_diagnostics'),
+    path('import-history/requeue/<int:pk>/', views.import_history_requeue, name='import_history_requeue'),
     path('import-history/stop/<int:pk>/', views.import_history_stop, name='import_history_stop'),
 ]

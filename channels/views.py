@@ -767,11 +767,12 @@ def import_history_diagnostics(request):
     pending = list(qs.filter(status=HistoryImportRun.STATUS_PENDING).order_by('-created_at')[:30])
     running = list(qs.filter(status=HistoryImportRun.STATUS_RUNNING).order_by('-created_at')[:30])
 
-    def _run_short(r):
+    def _run_short(r, *, orphan_no_task_id: bool = False):
         return {
             'id': r.pk,
             'status': r.status,
             'celery_task_id': r.celery_task_id or '',
+            'orphan_no_task_id': orphan_no_task_id,
             'source': r.source_channel.name,
             'target': r.target_channel.name,
             'created_at': r.created_at.isoformat(timespec='seconds'),
@@ -823,11 +824,32 @@ def import_history_diagnostics(request):
     if broker:
         broker_tail = broker.split('@')[-1] if '@' in broker else broker[:120]
 
+    pending_payload = []
+    orphan_pending_ids = []
+    for r in pending:
+        orphan = not (r.celery_task_id or '').strip()
+        if orphan:
+            orphan_pending_ids.append(r.pk)
+        pending_payload.append(_run_short(r, orphan_no_task_id=orphan))
+
+    hints = [
+        'Если pending не пустой, а workers пустой — контейнер celery не запущен или другой CELERY_BROKER_URL, чем у web.',
+        'Команда: python manage.py requeue_pending_history_imports',
+    ]
+    if orphan_pending_ids:
+        hints.insert(
+            0,
+            'Внимание: pending без celery_task_id — в брокер, скорее всего, ничего не отправлялось '
+            '(старый код до сохранения id, сброс Redis и т.п.). На странице импорта нажмите «Снова в очередь Celery» '
+            f'или выполните: python manage.py requeue_pending_history_imports --run-ids {" ".join(str(x) for x in orphan_pending_ids)}',
+        )
+
     return JsonResponse(
         {
             'ok': True,
-            'pending': [_run_short(r) for r in pending],
+            'pending': pending_payload,
             'running': [_run_short(r) for r in running],
+            'orphan_pending_ids': orphan_pending_ids,
             'celery': {
                 'workers': celery_workers,
                 'active_history_import_tasks': active_history,
@@ -835,12 +857,51 @@ def import_history_diagnostics(request):
                 'error': celery_error,
             },
             'broker_host': broker_tail,
-            'hints': [
-                'Если pending не пустой, а workers пустой — контейнер celery не запущен или другой CELERY_BROKER_URL, чем у web.',
-                'Команда: python manage.py requeue_pending_history_imports',
-            ],
+            'hints': hints,
         }
     )
+
+
+@login_required
+@require_POST
+def import_history_requeue(request, pk: int):
+    """
+    Повторно отправить в Celery pending-импорт, у которого нет celery_task_id (или force для staff).
+    """
+    run = get_object_or_404(HistoryImportRun, pk=pk, created_by=request.user)
+    if run.status != HistoryImportRun.STATUS_PENDING:
+        return JsonResponse(
+            {'ok': False, 'message': 'Повторная постановка возможна только для статуса «В очереди».'},
+            status=400,
+        )
+    force = request.POST.get('force') == '1' and (request.user.is_staff or request.user.is_superuser)
+    if (run.celery_task_id or '').strip() and not force:
+        return JsonResponse(
+            {
+                'ok': False,
+                'message': 'У записи уже есть id задачи Celery. Если задача пропала из брокера — staff может отправить снова с force=1.',
+            },
+            status=400,
+        )
+    from .tasks import import_tg_history_to_max_task
+
+    try:
+        ar = import_tg_history_to_max_task.delay(run.pk)
+        j = dict(run.progress_json or {})
+        log = list(j.get('journal') or [])
+        log.append(
+            {
+                't': timezone.now().isoformat(timespec='seconds'),
+                'msg': f'Повторная отправка в Celery (id: {ar.id}).',
+            }
+        )
+        j['journal'] = log[-50:]
+        run.celery_task_id = ar.id
+        run.progress_json = j
+        run.save(update_fields=['celery_task_id', 'progress_json'])
+    except Exception as exc:
+        return JsonResponse({'ok': False, 'message': str(exc)}, status=500)
+    return JsonResponse({'ok': True, 'run_id': run.pk, 'celery_task_id': ar.id})
 
 
 @login_required
