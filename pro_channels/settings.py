@@ -171,13 +171,10 @@ CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_ACCEPT_CONTENT = ['json']
-# Явная очередь по умолчанию. Воркер должен слушать imports,celery (импорт истории — отдельно, иначе
-# зависает за длинным ParseTask на той же очереди).
+# Одна очередь celery: отдельная очередь imports ломала прод, если воркер запущен без -Q imports
+# (systemd/старый compose) — импорт истории и публикация «молчали», хотя парсинг шёл в той же очереди.
 CELERY_TASK_DEFAULT_QUEUE = 'celery'
 CELERY_TASK_CREATE_MISSING_QUEUES = True
-CELERY_TASK_ROUTES = {
-    'channels.tasks.import_tg_history_to_max_task': {'queue': 'imports'},
-}
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 # Долгие задачи (парсинг, импорт истории): не отбирать несколько сообщений в один процесс.
 CELERY_WORKER_PREFETCH_MULTIPLIER = config('CELERY_WORKER_PREFETCH_MULTIPLIER', default=1, cast=int)

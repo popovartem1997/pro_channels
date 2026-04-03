@@ -64,9 +64,8 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
       CELERY_TASK_ALWAYS_EAGER: "false"
-    # imports первым: импорт истории не ждёт, пока разгребается очередь парсинга/постов.
-    # -c 3: на 1 CPU иначе один процесс — всё остальное в хвосте.
-    command: celery -A pro_channels worker -l INFO -Q imports,celery -c 3
+    # Одна очередь celery (импорт истории + публикация + парсинг). -c 3 — не блокировать всё на 1 CPU.
+    command: celery -A pro_channels worker -l INFO -Q celery -c 3
     depends_on:
       redis:
         condition: service_started

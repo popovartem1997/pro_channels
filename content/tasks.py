@@ -13,6 +13,11 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
+try:
+    from telegram.error import RetryAfter
+except ImportError:  # pragma: no cover
+    RetryAfter = None  # type: ignore
+
 
 def _tg_postmedia_type_from_path(file_path: str, suggestion_content_type: str) -> str:
     """Тип вложения по расширению пути Telegram file_path (document как «фото»)."""
@@ -586,32 +591,51 @@ def publish_post_task(self, post_id: int, force: bool = False):
         logger.info(f'Пост #{post_id} уже опубликован, пропускаем (force=False)')
         return
 
-    # Пауза канала (оплаченный «топ» у другого поста): отложить публикацию.
-    # Важно: view уже мог выставить «Публикуется» — без сброса статуса пост «висит» в publishing до eta.
+    logger.info(
+        'publish_post_task старт post_id=%s force=%s retries=%s status=%s',
+        post_id,
+        force,
+        getattr(getattr(self, 'request', None), 'retries', None),
+        post.status,
+    )
+
+    # Пауза канала (оплаченный «топ»): пока хотя бы один канал «закрыт», откладываем весь пост.
+    # eta = max(pause) по всем таким каналам (раньше брали первый в queryset — можно было отложить на год зря).
+    # Истёкшую паузу снимаем в БД — иначе «залипшие» даты вечно блокируют публикацию.
     now = timezone.now()
+    latest_pause_end = None
     for channel in post.channels.all():
-        pause_until = getattr(channel, 'ad_publish_pause_until', None)
-        if pause_until and now < pause_until:
-            logger.info(
-                'Публикация поста #%s в канал %s отложена до %s (пауза очереди)',
-                post_id,
-                channel.pk,
-                pause_until,
-            )
-            publish_post_task.apply_async(args=[post_id], kwargs={'force': force}, eta=pause_until)
-            Post.objects.filter(pk=post_id).update(
-                status=Post.STATUS_SCHEDULED,
-                scheduled_at=pause_until,
-            )
-            return
+        raw_pause = getattr(channel, 'ad_publish_pause_until', None)
+        if not raw_pause:
+            continue
+        pu = raw_pause
+        if timezone.is_naive(pu):
+            pu = timezone.make_aware(pu, timezone.get_current_timezone())
+        if now >= pu:
+            Channel.objects.filter(pk=channel.pk).update(ad_publish_pause_until=None)
+            continue
+        latest_pause_end = pu if latest_pause_end is None else max(latest_pause_end, pu)
+
+    if latest_pause_end is not None:
+        logger.info(
+            'Публикация поста #%s отложена до %s (пауза очереди по каналам)',
+            post_id,
+            latest_pause_end,
+        )
+        publish_post_task.apply_async(
+            args=[post_id], kwargs={'force': force}, eta=latest_pause_end
+        )
+        Post.objects.filter(pk=post_id).update(
+            status=Post.STATUS_SCHEDULED,
+            scheduled_at=latest_pause_end,
+        )
+        return
 
     post.status = Post.STATUS_PUBLISHING
     post.save(update_fields=['status'])
 
     success_count = 0
     fail_count = 0
-
-    from telegram.error import RetryAfter
 
     for channel in post.channels.all():
         if (
@@ -637,37 +661,38 @@ def publish_post_task(self, post_id: int, force: bool = False):
             )
             success_count += 1
             logger.info(f'Пост #{post_id} опубликован в {channel.name}')
-        except RetryAfter as exc:
-            # Лимит запросов к Bot API; при пачке задач — 429. Не пишем FAIL, если ещё ни в один канал не ушли.
-            wait = max(int(getattr(exc, 'retry_after', 1) or 1), 1) + 1
-            if success_count == 0:
-                max_r = getattr(self, 'max_retries', None)
-                cur_r = getattr(getattr(self, 'request', None), 'retries', None) or 0
-                if max_r is not None and cur_r >= max_r:
-                    logger.error(
-                        'Пост #%s: исчерпаны повторы Celery после flood Telegram (%s/%s) — статус «Ошибка»',
-                        post_id,
-                        cur_r,
-                        max_r,
-                    )
-                    post.status = Post.STATUS_FAILED
-                    post.save(update_fields=['status'])
-                    return
-                logger.info(
-                    'Пост #%s: лимит Telegram (flood), повтор задачи через %s с',
-                    post_id,
-                    wait,
-                )
-                raise self.retry(exc=exc, countdown=wait)
-            PublishResult.objects.create(
-                post=post,
-                channel=channel,
-                status=PublishResult.STATUS_FAIL,
-                error_message=str(exc),
-            )
-            fail_count += 1
-            logger.error(f'Ошибка публикации поста #{post_id} в {channel.name}: {exc}')
         except Exception as exc:
+            if RetryAfter is not None and isinstance(exc, RetryAfter):
+                # Лимит запросов к Bot API; при пачке задач — 429. Не пишем FAIL, если ещё ни в один канал не ушли.
+                wait = max(int(getattr(exc, 'retry_after', 1) or 1), 1) + 1
+                if success_count == 0:
+                    max_r = getattr(self, 'max_retries', None)
+                    cur_r = getattr(getattr(self, 'request', None), 'retries', None) or 0
+                    if max_r is not None and cur_r >= max_r:
+                        logger.error(
+                            'Пост #%s: исчерпаны повторы Celery после flood Telegram (%s/%s) — статус «Ошибка»',
+                            post_id,
+                            cur_r,
+                            max_r,
+                        )
+                        post.status = Post.STATUS_FAILED
+                        post.save(update_fields=['status'])
+                        return
+                    logger.info(
+                        'Пост #%s: лимит Telegram (flood), повтор задачи через %s с',
+                        post_id,
+                        wait,
+                    )
+                    raise self.retry(exc=exc, countdown=wait)
+                PublishResult.objects.create(
+                    post=post,
+                    channel=channel,
+                    status=PublishResult.STATUS_FAIL,
+                    error_message=str(exc),
+                )
+                fail_count += 1
+                logger.error(f'Ошибка публикации поста #{post_id} в {channel.name}: {exc}')
+                continue
             PublishResult.objects.create(
                 post=post,
                 channel=channel,

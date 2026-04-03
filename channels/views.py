@@ -904,7 +904,7 @@ def import_history_diagnostics(request):
     if redis_len is not None and redis_len > 0 and not celery_error and celery_workers:
         hints.append(
             f'В Redis в очереди «celery» сейчас ~{redis_len} сообщ. Если воркер живой, но active пустой — '
-            'перезапустите celery после обновления (command с -Q imports,celery) или проверьте зависшие процессы.',
+            'перезапустите celery после обновления (command с -Q celery) или проверьте зависшие процессы.',
         )
     hints.append(
         'Блокировка Telethon: в JSON смотрите telethon_lock_by_owner.held_in_redis и celery.active_parse_tasks. '
