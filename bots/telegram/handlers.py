@@ -22,7 +22,7 @@ import uuid as uuid_module
 from asgiref.sync import sync_to_async
 from django.utils import timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import BadRequest
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters, ContextTypes
@@ -869,6 +869,14 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
+def _tg_moderation_chat_id(raw: str):
+    """Числовые id (в т.ч. отрицательные для групп) отдаём int — так надёжнее для Bot API."""
+    s = str(raw).strip()
+    if s.lstrip('-').isdigit():
+        return int(s)
+    return s
+
+
 def _build_display_name(user) -> str:
     name = ' '.join(filter(None, [user.first_name or '', user.last_name or ''])).strip()
     return name or user.username or str(user.id)
@@ -906,6 +914,7 @@ async def _forward_to_admin(update, context, suggestion, admin_chat_id: str):
         InlineKeyboardButton('❌ Отклонить', callback_data=f'reject|{uuid_str}'),
     ]])
 
+    dest = _tg_moderation_chat_id(admin_chat_id)
     try:
         # Prefer using saved suggestion media ids (for albums and merged messages).
         media_ids = list(getattr(suggestion, 'media_file_ids', None) or [])
@@ -913,7 +922,7 @@ async def _forward_to_admin(update, context, suggestion, admin_chat_id: str):
             # Send first media with caption + buttons, remaining media as separate messages (no buttons).
             first = media_ids[0]
             sent = await context.bot.send_photo(
-                chat_id=admin_chat_id,
+                chat_id=dest,
                 photo=first,
                 caption=caption,
                 reply_markup=keyboard,
@@ -921,44 +930,50 @@ async def _forward_to_admin(update, context, suggestion, admin_chat_id: str):
             )
             for fid in media_ids[1:10]:
                 try:
-                    await context.bot.send_photo(chat_id=admin_chat_id, photo=fid, reply_to_message_id=sent.message_id)
+                    await context.bot.send_photo(chat_id=dest, photo=fid, reply_to_message_id=sent.message_id)
                 except Exception:
                     try:
-                        await context.bot.send_photo(chat_id=admin_chat_id, photo=fid)
+                        await context.bot.send_photo(chat_id=dest, photo=fid)
                     except Exception:
                         pass
         else:
             # Fallback: use the actual incoming message payload
             if message.photo:
                 await context.bot.send_photo(
-                    chat_id=admin_chat_id, photo=message.photo[-1].file_id,
+                    chat_id=dest, photo=message.photo[-1].file_id,
                     caption=caption, reply_markup=keyboard, parse_mode='HTML',
                 )
             elif message.video:
                 await context.bot.send_video(
-                    chat_id=admin_chat_id, video=message.video.file_id,
+                    chat_id=dest, video=message.video.file_id,
                     caption=caption, reply_markup=keyboard, parse_mode='HTML',
                 )
             elif message.document:
                 await context.bot.send_document(
-                    chat_id=admin_chat_id, document=message.document.file_id,
+                    chat_id=dest, document=message.document.file_id,
                     caption=caption, reply_markup=keyboard, parse_mode='HTML',
                 )
             elif message.audio:
                 await context.bot.send_audio(
-                    chat_id=admin_chat_id, audio=message.audio.file_id,
+                    chat_id=dest, audio=message.audio.file_id,
                     caption=caption, reply_markup=keyboard, parse_mode='HTML',
                 )
             elif message.voice:
                 await context.bot.send_voice(
-                    chat_id=admin_chat_id, voice=message.voice.file_id,
+                    chat_id=dest, voice=message.voice.file_id,
                     caption=caption, reply_markup=keyboard, parse_mode='HTML',
                 )
             else:
                 await context.bot.send_message(
-                    chat_id=admin_chat_id, text=caption,
+                    chat_id=dest, text=caption,
                     reply_markup=keyboard, parse_mode='HTML',
                 )
+    except TelegramError as e:
+        logger.warning(
+            'Модерация → chat_id=%s: %s (часто: пользователь не нажимал /start у бота или неверный user ID).',
+            admin_chat_id,
+            e,
+        )
     except Exception as e:
         logger.error('Ошибка при пересылке в чат модерации %s: %s', admin_chat_id, e)
 
@@ -1159,6 +1174,7 @@ async def flush_collected_telegram_album(
         sender_line = f'👤 {_hx(disp)} (@{_hx(uname)})'
 
     for cid in admin_chat_ids:
+        dest = _tg_moderation_chat_id(str(cid))
         try:
             uuid_str = str(suggestion.tracking_id)
             keyboard = InlineKeyboardMarkup([[
@@ -1178,7 +1194,7 @@ async def flush_collected_telegram_album(
             mids = list(suggestion.media_file_ids or [])
             if mids:
                 sent = await bot.send_photo(
-                    chat_id=str(cid),
+                    chat_id=dest,
                     photo=mids[0],
                     caption=cap,
                     reply_markup=keyboard,
@@ -1186,14 +1202,20 @@ async def flush_collected_telegram_album(
                 )
                 for fid in mids[1:10]:
                     try:
-                        await bot.send_photo(chat_id=str(cid), photo=fid, reply_to_message_id=sent.message_id)
+                        await bot.send_photo(chat_id=dest, photo=fid, reply_to_message_id=sent.message_id)
                     except Exception:
                         try:
-                            await bot.send_photo(chat_id=str(cid), photo=fid)
+                            await bot.send_photo(chat_id=dest, photo=fid)
                         except Exception:
                             pass
             else:
-                await bot.send_message(chat_id=str(cid), text=cap, reply_markup=keyboard, parse_mode='HTML')
+                await bot.send_message(chat_id=dest, text=cap, reply_markup=keyboard, parse_mode='HTML')
+        except TelegramError as e:
+            logger.warning(
+                '[TG] album forward to admin chat_id=%s: %s (часто: нет /start у бота или неверный ID).',
+                cid,
+                e,
+            )
         except Exception as e:
             logger.error('[TG] album forward to admin %s: %s', cid, e)
 

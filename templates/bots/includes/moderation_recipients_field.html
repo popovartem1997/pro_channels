@@ -10,18 +10,27 @@
     {% if platform_hint == 'max' or platform_hint == 'both' %}
       В <strong>MAX</strong> — по <strong>MAX user ID</strong> из профиля или карточки команды.
     {% endif %}
-    Для <strong>менеджера</strong> в приоритете ID из «Команда → доступы» (заполняет владелец); для <strong>владельца</strong> — из <a href="{% url 'profile' %}">Профиля</a>. Либо оба поля можно заполнить.
+    Для <strong>менеджера</strong> укажите Telegram ID в «Команда → доступы» и/или в <a href="{% url 'profile' %}">профиле</a> менеджера — если заданы оба разных значения, уведомление уйдёт на каждый (на случай опечатки в одном месте).
   </div>
-  <select name="moderators" class="form-select" multiple size="6">
-    <option value="{{ bot_owner.pk }}" {% if bot_owner.pk|stringformat:"s" in selected_moderators %}selected{% endif %}>
-      Владелец — {{ bot_owner.get_full_name|default:bot_owner.username }} ({{ bot_owner.email }})
-    </option>
+  <div class="border rounded p-3 bg-light">
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" name="moderators" value="{{ bot_owner.pk }}" id="mod_owner_{{ bot_owner.pk }}"
+             {% if bot_owner.pk|stringformat:"s" in selected_moderators %}checked{% endif %}>
+      <label class="form-check-label" for="mod_owner_{{ bot_owner.pk }}">
+        Владелец — {{ bot_owner.get_full_name|default:bot_owner.username }} ({{ bot_owner.email }})
+      </label>
+    </div>
     {% for tm in team_members %}
-      <option value="{{ tm.member_id }}" {% if tm.member_id|stringformat:"s" in selected_moderators %}selected{% endif %}>
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" name="moderators" value="{{ tm.member_id }}" id="mod_tm_{{ tm.member_id }}"
+             {% if tm.member_id|stringformat:"s" in selected_moderators %}checked{% endif %}>
+      <label class="form-check-label" for="mod_tm_{{ tm.member_id }}">
         {{ tm.member.get_full_name|default:tm.member.username }} ({{ tm.member.email|default:tm.member.username }})
-      </option>
+      </label>
+    </div>
     {% endfor %}
-  </select>
+  </div>
+  <div class="form-text small text-muted mt-1">Можно отметить несколько получателей. Если используете только «чат модерации» ниже — все галочки можно снять.</div>
 
   <div class="mt-3">
     <label class="form-label fw-semibold" for="id_admin_chat_id">Чат модерации (запасной вариант)</label>

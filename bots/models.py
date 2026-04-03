@@ -15,13 +15,13 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
-def telegram_user_id_for_moderation_recipient(owner_id: int, user) -> int | None:
+def telegram_chat_targets_for_moderation_recipient(owner_id: int, user) -> list[str]:
     """
-    Числовой Telegram user_id для уведомлений о предложках.
+    Все различные Telegram user_id (строки) для рассылки модерации по одному пользователю сайта.
 
-    Владелец: сначала профиль User (основной источник), затем карточка команды.
-    Менеджер: сначала TeamMember (в «Команда → доступы» владелец задаёт Telegram ID менеджера),
-    затем профиль менеджера — иначе при заполненном только в карточке команды уведомления не уходили.
+    Берём и профиль, и карточку «Команда → доступы»: если в одном месте опечатка, а в другом верный ID,
+    уведомление всё равно уйдёт на рабочий чат. Порядок: владелец — сначала профиль, затем команда;
+    менеджер — сначала команда, затем профиль (дубликаты в списке не повторяем).
     """
     prof_tid: int | None = None
     tid = getattr(user, 'telegram_user_id', None)
@@ -54,8 +54,26 @@ def telegram_user_id_for_moderation_recipient(owner_id: int, user) -> int | None
 
     oid = int(owner_id)
     if int(user.pk) == oid:
-        return prof_tid or tm_tid
-    return tm_tid or prof_tid
+        order = (prof_tid, tm_tid)
+    else:
+        order = (tm_tid, prof_tid)
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for x in order:
+        if x is None:
+            continue
+        s = str(int(x))
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+def telegram_user_id_for_moderation_recipient(owner_id: int, user) -> int | None:
+    """Первый доступный Telegram user_id (для проверок в формах)."""
+    targets = telegram_chat_targets_for_moderation_recipient(owner_id, user)
+    return int(targets[0]) if targets else None
 
 
 def max_user_id_str_for_moderation_recipient(owner_id: int, user) -> str:
@@ -271,15 +289,14 @@ class SuggestionBot(models.Model):
             if s not in ids:
                 ids.append(s)
 
-        mod_users = list(self.moderators.all())
+        mod_users = list(self.moderators.order_by('pk').all())
         mod_resolved = 0
         for u in mod_users:
-            tid = self._telegram_user_id_for_recipient(u)
-            if tid is not None:
-                s = str(tid).strip()
-                if s:
+            targets = telegram_chat_targets_for_moderation_recipient(int(self.owner_id), u)
+            if targets:
+                mod_resolved += 1
+                for s in targets:
                     ids.append(s)
-                    mod_resolved += 1
             else:
                 logger.warning(
                     'SuggestionBot id=%s: в модераторах выбран пользователь pk=%s (%s), но Telegram user ID '
