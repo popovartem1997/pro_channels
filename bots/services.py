@@ -80,6 +80,53 @@ def _subscriber_menu_buttons_max() -> list:
     ]
 
 
+def notify_workspace_owner_telegram(owner_user, text: str, *, open_url: str | None = None) -> None:
+    """
+    Личные уведомления владельцу аккаунта в Telegram (как у модерации предложки).
+    Нужны: активный бот предложки (Telegram) этого владельца и его telegram_user_id в профиле или в карточке команды.
+    """
+    from bots.models import SuggestionBot, telegram_chat_targets_for_moderation_recipient
+
+    bot = (
+        SuggestionBot.objects.filter(
+            owner_id=owner_user.pk,
+            platform=SuggestionBot.PLATFORM_TELEGRAM,
+            is_active=True,
+        )
+        .order_by('-pk')
+        .first()
+    )
+    if not bot:
+        logger.debug('notify_workspace_owner_telegram: no telegram bot for owner_id=%s', owner_user.pk)
+        return
+    try:
+        token = bot.get_token()
+    except Exception as e:
+        logger.warning('notify_workspace_owner_telegram: token owner_id=%s: %s', owner_user.pk, e)
+        return
+    if not (token or '').strip():
+        return
+
+    targets = telegram_chat_targets_for_moderation_recipient(int(owner_user.pk), owner_user)
+    if not targets:
+        logger.debug('notify_workspace_owner_telegram: no telegram_user_id owner_id=%s', owner_user.pk)
+        return
+
+    body = (text or '').strip()[:3900]
+    markup = None
+    ou = (open_url or '').strip()
+    if ou.startswith(('http://', 'https://')):
+        markup = {
+            'inline_keyboard': [[{'text': 'Открыть на сайте', 'url': ou[:2000]}]]
+        }
+
+    for chat_id in targets:
+        try:
+            _telegram_send_message_raw(token, chat_id, body, reply_markup=markup)
+        except Exception as e:
+            logger.warning('notify_workspace_owner_telegram: send chat_id=%s: %s', chat_id, e)
+
+
 def _telegram_send_message_raw(
     token: str,
     chat_id: str,

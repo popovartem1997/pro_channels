@@ -5,9 +5,26 @@ import logging
 from datetime import timedelta
 
 from celery import shared_task
+from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
+
+
+@shared_task
+def notify_ad_application_owner_task(owner_id: int, text: str, open_url: str = '') -> None:
+    """Уведомление владельцу канала в Telegram (бот предложки + Telegram ID в профиле)."""
+    from bots.services import notify_workspace_owner_telegram
+
+    owner = get_user_model().objects.filter(pk=owner_id).first()
+    if not owner:
+        return
+    url = (open_url or '').strip()
+    notify_workspace_owner_telegram(
+        owner,
+        text,
+        open_url=url if url.startswith(('http://', 'https://')) else None,
+    )
 
 
 @shared_task

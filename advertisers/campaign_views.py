@@ -27,7 +27,9 @@ from .ad_campaign_services import (
     prefill_ad_application_ord_fields,
     save_pricing_to_application,
 )
+from .campaign_notify import ad_owner_application_url
 from .models import AdApplication, Advertiser
+from .tasks import notify_ad_application_owner_task
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,16 @@ def _try_save_payment_screenshot(request, app) -> bool:
     app.transfer_screenshot = f
     app.save(update_fields=['transfer_screenshot', 'updated_at'])
     messages.success(request, 'Скриншот сохранён. Владелец канала увидит его при подтверждении оплаты.')
+    try:
+        notify_ad_application_owner_task.delay(
+            app.channel.owner_id,
+            '📎 ProChannels: рекламодатель приложил скрин оплаты\n\n'
+            f'Заявка #{app.pk} · {app.channel.name}\n'
+            f'Сумма: {app.total_amount} ₽',
+            ad_owner_application_url(app.pk),
+        )
+    except Exception:
+        logger.debug('schedule screenshot notify failed', exc_info=True)
     return True
 
 
@@ -616,6 +628,18 @@ def campaign_submit_to_owner(request, pk: int):
         request,
         'Заявка отправлена владельцу канала. После одобрения вы сможете перейти к оплате.',
     )
+    try:
+        notify_ad_application_owner_task.delay(
+            app.channel.owner_id,
+            '📢 ProChannels: новая заявка на рекламу\n\n'
+            f'Заявка #{app.pk} · {app.channel.name}\n'
+            f'Рекламодатель: {app.advertiser.company_name}\n'
+            f'Сумма: {app.total_amount} ₽\n\n'
+            'Откройте карточку на сайте, чтобы одобрить способ оплаты или отказать.',
+            ad_owner_application_url(app.pk),
+        )
+    except Exception:
+        logger.debug('schedule new ad application notify failed', exc_info=True)
     return redirect('advertisers:campaign_pending_owner', pk=pk)
 
 
@@ -743,10 +767,32 @@ def campaign_checkout(request, pk: int):
         if method == AdApplication.PAY_TRANSFER:
             app.invoice.status = Invoice.STATUS_SENT
             app.invoice.save(update_fields=['status'])
+            try:
+                notify_ad_application_owner_task.delay(
+                    app.channel.owner_id,
+                    '💳 ProChannels: рекламодатель перешёл к оплате (перевод)\n\n'
+                    f'Заявка #{app.pk} · {app.channel.name}\n'
+                    f'Сумма: {app.total_amount} ₽\n\n'
+                    'После поступления денег откройте заявку и нажмите «Подтвердить оплату».',
+                    ad_owner_application_url(app.pk),
+                )
+            except Exception:
+                logger.debug('schedule checkout transfer notify failed', exc_info=True)
             return redirect('advertisers:campaign_transfer_wait', pk=app.pk)
 
         app.invoice.status = Invoice.STATUS_SENT
         app.invoice.save(update_fields=['status'])
+        try:
+            notify_ad_application_owner_task.delay(
+                app.channel.owner_id,
+                '💳 ProChannels: рекламодатель перешёл к оплате (ссылка)\n\n'
+                f'Заявка #{app.pk} · {app.channel.name}\n'
+                f'Сумма: {app.total_amount} ₽\n\n'
+                'Когда оплата поступит, откройте заявку и подтвердите её на сайте.',
+                ad_owner_application_url(app.pk),
+            )
+        except Exception:
+            logger.debug('schedule checkout pay_link notify failed', exc_info=True)
         return redirect('advertisers:campaign_pay_link_wait', pk=app.pk)
 
     return render(
@@ -1005,6 +1051,7 @@ def owner_campaign_confirm_payment(request, pk: int):
 
     try:
         ok, reason = fulfill_paid_ad_application(app)
+        url = ad_owner_application_url(app.pk)
         if ok:
             if is_retry_fulfill:
                 messages.success(request, 'Посты по слотам созданы и поставлены в расписание.')
@@ -1023,10 +1070,32 @@ def owner_campaign_confirm_payment(request, pk: int):
                     'Оплата отмечена, но посты по слотам не созданы. '
                     + (reason or 'Проверьте черновик и слоты, затем снова нажмите «Подтвердить оплату» (повтор безопасен).'),
                 )
+            try:
+                detail = (reason or '').strip()
+                notify_ad_application_owner_task.delay(
+                    app.channel.owner_id,
+                    '⚠️ ProChannels: оплата учтена, посты по слотам не созданы\n\n'
+                    f'Заявка #{app.pk} · {app.channel.name}\n'
+                    + (f'Причина: {detail}\n\n' if detail else '\n')
+                    + 'Пусть рекламодатель исправит данные в мастере, затем снова нажмите «Подтвердить» / «Создать посты».',
+                    url,
+                )
+            except Exception:
+                logger.debug('schedule fulfill fail notify failed', exc_info=True)
     except Exception as e:
         logger.exception('fulfill after transfer')
         if is_retry_fulfill:
             messages.warning(request, f'Не удалось создать посты: {e}')
         else:
             messages.warning(request, f'Оплата отмечена, но публикации нужно проверить: {e}')
+        try:
+            notify_ad_application_owner_task.delay(
+                app.channel.owner_id,
+                '⚠️ ProChannels: ошибка при создании постов по заявке\n\n'
+                f'Заявка #{app.pk} · {app.channel.name}\n'
+                f'{str(e)[:500]}',
+                ad_owner_application_url(app.pk),
+            )
+        except Exception:
+            logger.debug('schedule fulfill exception notify failed', exc_info=True)
     return redirect('advertisers:owner_campaign_detail', pk=pk)
