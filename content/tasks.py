@@ -586,7 +586,8 @@ def publish_post_task(self, post_id: int, force: bool = False):
         logger.info(f'Пост #{post_id} уже опубликован, пропускаем (force=False)')
         return
 
-    # Пауза канала (оплаченный «топ» у другого поста): отложить публикацию
+    # Пауза канала (оплаченный «топ» у другого поста): отложить публикацию.
+    # Важно: view уже мог выставить «Публикуется» — без сброса статуса пост «висит» в publishing до eta.
     now = timezone.now()
     for channel in post.channels.all():
         pause_until = getattr(channel, 'ad_publish_pause_until', None)
@@ -598,6 +599,10 @@ def publish_post_task(self, post_id: int, force: bool = False):
                 pause_until,
             )
             publish_post_task.apply_async(args=[post_id], kwargs={'force': force}, eta=pause_until)
+            Post.objects.filter(pk=post_id).update(
+                status=Post.STATUS_SCHEDULED,
+                scheduled_at=pause_until,
+            )
             return
 
     post.status = Post.STATUS_PUBLISHING
@@ -636,12 +641,24 @@ def publish_post_task(self, post_id: int, force: bool = False):
             # Лимит запросов к Bot API; при пачке задач — 429. Не пишем FAIL, если ещё ни в один канал не ушли.
             wait = max(int(getattr(exc, 'retry_after', 1) or 1), 1) + 1
             if success_count == 0:
+                max_r = getattr(self, 'max_retries', None)
+                cur_r = getattr(getattr(self, 'request', None), 'retries', None) or 0
+                if max_r is not None and cur_r >= max_r:
+                    logger.error(
+                        'Пост #%s: исчерпаны повторы Celery после flood Telegram (%s/%s) — статус «Ошибка»',
+                        post_id,
+                        cur_r,
+                        max_r,
+                    )
+                    post.status = Post.STATUS_FAILED
+                    post.save(update_fields=['status'])
+                    return
                 logger.info(
                     'Пост #%s: лимит Telegram (flood), повтор задачи через %s с',
                     post_id,
                     wait,
                 )
-                raise publish_post_task.retry(exc=exc, countdown=wait)
+                raise self.retry(exc=exc, countdown=wait)
             PublishResult.objects.create(
                 post=post,
                 channel=channel,
@@ -679,11 +696,17 @@ def publish_post_task(self, post_id: int, force: bool = False):
         post.status = Post.STATUS_FAILED
         post.save(update_fields=['status'])
     else:
-        # Обычно: нет каналов. Иначе цикл должен был дать success или fail.
-        if post.channels.count() == 0:
+        n_ch = post.channels.count()
+        if n_ch == 0:
             logger.warning('Пост #%s: нет каналов — публикация невозможна', post_id)
-            post.status = Post.STATUS_FAILED
-            post.save(update_fields=['status'])
+        else:
+            logger.error(
+                'Пост #%s: публикация завершилась без успехов и без записей об ошибках (каналов %s) — сброс в «Ошибка»',
+                post_id,
+                n_ch,
+            )
+        post.status = Post.STATUS_FAILED
+        post.save(update_fields=['status'])
 
 
 def _auto_register_ord(post):
