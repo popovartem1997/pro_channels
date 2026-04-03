@@ -609,6 +609,19 @@ def publish_post_task(self, post_id: int, force: bool = False):
     from telegram.error import RetryAfter
 
     for channel in post.channels.all():
+        if (
+            not force
+            and PublishResult.objects.filter(
+                post=post, channel=channel, status=PublishResult.STATUS_OK
+            ).exists()
+        ):
+            success_count += 1
+            logger.info(
+                'Пост #%s: канал «%s» уже с успешной публикацией — пропуск (дозапуск после сбоя)',
+                post_id,
+                channel.name,
+            )
+            continue
         try:
             result = _publish_to_channel(post, channel)
             PublishResult.objects.create(
@@ -665,6 +678,12 @@ def publish_post_task(self, post_id: int, force: bool = False):
     elif fail_count > 0:
         post.status = Post.STATUS_FAILED
         post.save(update_fields=['status'])
+    else:
+        # Обычно: нет каналов. Иначе цикл должен был дать success или fail.
+        if post.channels.count() == 0:
+            logger.warning('Пост #%s: нет каналов — публикация невозможна', post_id)
+            post.status = Post.STATUS_FAILED
+            post.save(update_fields=['status'])
 
 
 def _auto_register_ord(post):
@@ -1691,7 +1710,10 @@ def _publish_instagram(post, channel):
 @shared_task
 def check_scheduled_posts():
     """Периодическая задача: находит посты готовые к публикации и запускает их."""
+    from django.conf import settings
+
     from .models import Post
+
     now = timezone.now()
     ready_posts = Post.objects.filter(
         status=Post.STATUS_SCHEDULED,
@@ -1705,4 +1727,23 @@ def check_scheduled_posts():
 
     if count:
         logger.info(f'Запущена публикация {count} запланированных постов')
-    return count
+
+    stuck_min = int(getattr(settings, 'STUCK_PUBLISHING_RECOVER_MINUTES', 15) or 15)
+    stuck_min = max(5, min(stuck_min, 24 * 60))
+    threshold = now - datetime.timedelta(minutes=stuck_min)
+    stuck_ids = Post.objects.filter(
+        status=Post.STATUS_PUBLISHING,
+        updated_at__lt=threshold,
+    ).values_list('pk', flat=True)
+    rec = 0
+    for pid in stuck_ids:
+        publish_post_task.delay(int(pid))
+        rec += 1
+    if rec:
+        logger.info(
+            'Повторная постановка в очередь: %s пост(ов) в «Публикуется» без обновления >%s мин (после сбоя воркера)',
+            rec,
+            stuck_min,
+        )
+
+    return count + rec

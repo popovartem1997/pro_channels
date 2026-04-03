@@ -185,6 +185,9 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = config('CELERY_WORKER_PREFETCH_MULTIPLIER', 
 CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=False, cast=bool)
 CELERY_TASK_EAGER_PROPAGATES = True
 
+# Пост в «Публикуется» без завершения Celery (рестарт воркера): снова поставить publish_post_task через N минут
+STUCK_PUBLISHING_RECOVER_MINUTES = config('STUCK_PUBLISHING_RECOVER_MINUTES', default=15, cast=int)
+
 # ─── Cache ────────────────────────────────────────────────────────────────────
 # Общий для web + Celery (буфер альбомов Telegram). Без Redis все воркеры не видят одни данные.
 def _redis_url_select_db(url: str, db: int) -> str:

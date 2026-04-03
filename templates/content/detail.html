@@ -30,7 +30,8 @@
       <form method="post" action="{% url 'content:publish_now' post.pk %}" class="d-inline-flex m-0">
         {% csrf_token %}
         <button type="submit" class="btn btn-brand btn-sm">
-          <i class="bi bi-send me-1"></i> Опубликовать сейчас
+          <i class="bi bi-send me-1"></i>
+          {% if post.status == 'publishing' %}Повторить публикацию{% else %}Опубликовать сейчас{% endif %}
         </button>
       </form>
       {% if request.user.is_staff or request.user.is_superuser %}
