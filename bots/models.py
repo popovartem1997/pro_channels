@@ -5,12 +5,67 @@ SuggestionBot   — настройки конкретного бота (Telegram
 Suggestion      — одна предложенная пользователем заявка
 SuggestionUserStats — агрегированная статистика по пользователю (лидерборд)
 """
+import logging
 import uuid
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
+
+
+def telegram_user_id_for_moderation_recipient(owner_id: int, user) -> int | None:
+    """
+    Числовой Telegram user_id для уведомлений о предложках.
+    Сначала профиль (accounts.User), затем карточка команды (владелец или менеджер).
+    """
+    tid = getattr(user, 'telegram_user_id', None)
+    if tid is not None:
+        try:
+            i = int(tid)
+            if i > 0:
+                return i
+        except (TypeError, ValueError):
+            pass
+    try:
+        from managers.models import TeamMember
+
+        tm = TeamMember.objects.filter(
+            owner_id=int(owner_id),
+            member_id=user.pk,
+            is_active=True,
+        ).first()
+        if tm and tm.telegram_user_id is not None:
+            try:
+                i = int(tm.telegram_user_id)
+                if i > 0:
+                    return i
+            except (TypeError, ValueError):
+                pass
+    except Exception:
+        pass
+    return None
+
+
+def max_user_id_str_for_moderation_recipient(owner_id: int, user) -> str:
+    """MAX user_id: профиль, затем карточка команды."""
+    u = (getattr(user, 'max_user_id', None) or '').strip()
+    if u:
+        return u
+    try:
+        from managers.models import TeamMember
+
+        tm = TeamMember.objects.filter(
+            owner_id=int(owner_id),
+            member_id=user.pk,
+            is_active=True,
+        ).first()
+        if tm:
+            return (tm.max_user_id or '').strip()
+    except Exception:
+        pass
+    return ''
 
 
 class SuggestionBot(models.Model):
@@ -178,51 +233,17 @@ class SuggestionBot(models.Model):
         return out
 
     def _telegram_user_id_for_recipient(self, user) -> int | None:
-        """Telegram user_id: сначала профиль пользователя, иначе карточка команды (менеджер)."""
-        tid = getattr(user, 'telegram_user_id', None)
-        if tid is not None:
-            return int(tid)
-        if user.pk == self.owner_id:
-            return None
-        try:
-            from managers.models import TeamMember
-
-            tm = TeamMember.objects.filter(
-                owner_id=self.owner_id,
-                member_id=user.pk,
-                is_active=True,
-            ).first()
-            if tm and tm.telegram_user_id is not None:
-                return int(tm.telegram_user_id)
-        except Exception:
-            pass
-        return None
+        """Telegram user_id: профиль или карточка команды (одна логика для владельца и менеджера)."""
+        return telegram_user_id_for_moderation_recipient(int(self.owner_id), user)
 
     def _max_user_id_str_for_recipient(self, user) -> str:
-        """MAX user_id: сначала профиль, иначе карточка команды."""
-        u = (getattr(user, 'max_user_id', None) or '').strip()
-        if u:
-            return u
-        if user.pk == self.owner_id:
-            return ''
-        try:
-            from managers.models import TeamMember
-
-            tm = TeamMember.objects.filter(
-                owner_id=self.owner_id,
-                member_id=user.pk,
-                is_active=True,
-            ).first()
-            if tm:
-                return (tm.max_user_id or '').strip()
-        except Exception:
-            pass
-        return ''
+        """MAX user_id: профиль или карточка команды."""
+        return max_user_id_str_for_moderation_recipient(int(self.owner_id), user)
 
     def get_moderation_chat_ids(self) -> list[str]:
         """
         Список chat_id для Telegram: выбранные в настройках бота пользователи (профиль / команда)
-        плюс устаревшие admin_chat_id и custom_admin_chat_ids (если ещё заполнены).
+        плюс admin_chat_id и custom_admin_chat_ids (группа/доп. чаты).
         """
         ids: list[str] = []
 
@@ -235,14 +256,24 @@ class SuggestionBot(models.Model):
             if s not in ids:
                 ids.append(s)
 
-        for u in self.moderators.all():
+        mod_users = list(self.moderators.all())
+        mod_resolved = 0
+        for u in mod_users:
             tid = self._telegram_user_id_for_recipient(u)
             if tid is not None:
                 _add(str(tid))
+                mod_resolved += 1
 
         _add(self.admin_chat_id)
         for x in (self.custom_admin_chat_ids or []):
             _add(x)
+
+        if mod_users and mod_resolved == 0 and not (self.admin_chat_id or '').strip() and not (self.custom_admin_chat_ids or []):
+            logger.warning(
+                'SuggestionBot id=%s: в «Кому слать модерацию» выбраны пользователи, но ни у кого не найден '
+                'Telegram user ID (профиль/команда) и не задан чат модерации — уведомления в Telegram не уйдут.',
+                self.pk,
+            )
 
         return ids
 
@@ -250,11 +281,18 @@ class SuggestionBot(models.Model):
         """MAX: user_id для личных сообщений выбранным получателям модерации."""
         out: list[str] = []
         seen: set[str] = set()
-        for u in self.moderators.all():
+        mod_users = list(self.moderators.all())
+        for u in mod_users:
             s = self._max_user_id_str_for_recipient(u)
             if s and s not in seen:
                 seen.add(s)
                 out.append(s)
+        if mod_users and not out and not (self.admin_chat_id or '').strip():
+            logger.warning(
+                'SuggestionBot id=%s: для MAX выбраны получатели модерации, но ни у кого нет MAX user ID '
+                'и не задан admin_chat_id — личные уведомления не уйдут.',
+                self.pk,
+            )
         return out
 
 

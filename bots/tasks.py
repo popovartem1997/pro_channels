@@ -51,7 +51,9 @@ def process_telegram_update_task(self, bot_id: int, update_data: dict):
         from bots.telegram.handlers import build_application
         from telegram import Update
 
-        bot_config = SuggestionBot.objects.get(id=bot_id, platform=SuggestionBot.PLATFORM_TELEGRAM, is_active=True)
+        bot_config = SuggestionBot.objects.select_related('owner').prefetch_related('moderators').get(
+            id=bot_id, platform=SuggestionBot.PLATFORM_TELEGRAM, is_active=True
+        )
         app = build_application(bot_config)
         # Не полагаться на application.running (он может быть True после initialize) —
         # альбомы обрабатываем ожиданием+flush в самом хендлере, а не отложенной задачей.
@@ -134,7 +136,7 @@ def flush_telegram_media_group_task(self, cache_key: str, bot_id: int):
         chat_id = int(meta.get('chat_id') or 0)
         send_mode = bool(meta.get('send_mode'))
 
-        bot_config = SuggestionBot.objects.get(
+        bot_config = SuggestionBot.objects.select_related('owner').prefetch_related('moderators').get(
             id=bot_id,
             platform=SuggestionBot.PLATFORM_TELEGRAM,
             is_active=True,

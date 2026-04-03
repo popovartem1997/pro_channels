@@ -80,6 +80,47 @@ def _moderation_recipient_users_from_post(request, owner_user):
     return User.objects.filter(pk__in=ids)
 
 
+def _telegram_moderation_config_error(owner_user, mod_users, admin_chat_id: str) -> str | None:
+    """Ошибка для messages.error или None, если личка или группа настроены."""
+    from bots.models import telegram_user_id_for_moderation_recipient
+
+    admin_chat_id = (admin_chat_id or '').strip()
+    if not mod_users:
+        return None
+    if any(telegram_user_id_for_moderation_recipient(owner_user.pk, u) is not None for u in mod_users):
+        return None
+    if admin_chat_id:
+        return None
+    names = ', '.join(u.get_username() or u.email or str(u.pk) for u in mod_users[:8])
+    if len(mod_users) > 8:
+        names += '…'
+    return (
+        'Ни у кого из выбранных получателей нет сохранённого Telegram user ID, а «чат модерации» пуст. '
+        'Укажите ID в «Профиль» или «Команда → доступы», либо добавьте ID группы (супергруппы), куда добавлен бот. '
+        'Важно: пока модератор не нажал /start у этого бота, Telegram не доставит ему личные сообщения. '
+        f'Получатели: {names}.'
+    )
+
+
+def _max_moderation_config_error(owner_user, mod_users, admin_chat_id: str) -> str | None:
+    from bots.models import max_user_id_str_for_moderation_recipient
+
+    admin_chat_id = (admin_chat_id or '').strip()
+    if not mod_users:
+        return None
+    if any(max_user_id_str_for_moderation_recipient(owner_user.pk, u) for u in mod_users):
+        return None
+    if admin_chat_id:
+        return None
+    names = ', '.join(u.get_username() or u.email or str(u.pk) for u in mod_users[:8])
+    if len(mod_users) > 8:
+        names += '…'
+    return (
+        'Ни у кого из выбранных получателей нет MAX user ID и не задан чат модерации. '
+        f'Заполните ID в профиле или карточке команды. Получатели: {names}.'
+    )
+
+
 def _can_manage_bot_by_channel(user, bot: SuggestionBot) -> bool:
     if user.is_staff or user.is_superuser:
         return True
@@ -414,6 +455,32 @@ def bot_create(request):
                 'selected_channel_group_ids': selected_channel_group_ids,
             })
 
+        moderation_qs = _moderation_recipient_users_from_post(request, request.user)
+        mod_users = list(moderation_qs)
+        admin_chat_post = (request.POST.get('admin_chat_id') or '').strip()
+        if platform == SuggestionBot.PLATFORM_TELEGRAM:
+            err = _telegram_moderation_config_error(request.user, mod_users, admin_chat_post)
+            if err:
+                messages.error(request, err)
+                return render(request, 'bots/create.html', {
+                    'platforms': SuggestionBot.PLATFORM_CHOICES,
+                    'team_members': team_members,
+                    'selected_moderators': selected_moderators,
+                    'owner_groups': owner_groups,
+                    'selected_channel_group_ids': selected_channel_group_ids,
+                })
+        elif platform == SuggestionBot.PLATFORM_MAX:
+            err = _max_moderation_config_error(request.user, mod_users, admin_chat_post)
+            if err:
+                messages.error(request, err)
+                return render(request, 'bots/create.html', {
+                    'platforms': SuggestionBot.PLATFORM_CHOICES,
+                    'team_members': team_members,
+                    'selected_moderators': selected_moderators,
+                    'owner_groups': owner_groups,
+                    'selected_channel_group_ids': selected_channel_group_ids,
+                })
+
         bot = SuggestionBot(
             owner=request.user,
             name=name,
@@ -426,7 +493,7 @@ def bot_create(request):
         bot.set_token(token)
 
         if platform in (SuggestionBot.PLATFORM_TELEGRAM, SuggestionBot.PLATFORM_MAX):
-            bot.admin_chat_id = ''
+            bot.admin_chat_id = admin_chat_post
             bot.custom_admin_chat_ids = []
             bot.notify_owner = False
         else:
@@ -442,7 +509,7 @@ def bot_create(request):
         _ensure_max_webhook(bot)
 
         if platform in (SuggestionBot.PLATFORM_TELEGRAM, SuggestionBot.PLATFORM_MAX):
-            bot.moderators.set(_moderation_recipient_users_from_post(request, request.user))
+            bot.moderators.set(moderation_qs)
 
         # Audit
         try:
@@ -646,8 +713,36 @@ def bot_edit(request, bot_id: int):
         bot.rejected_message = request.POST.get('rejected_message', bot.rejected_message).strip() or bot.rejected_message
 
         if not can_edit_messages_only:
+            moderation_qs = _moderation_recipient_users_from_post(request, bot.owner)
+            mod_users = list(moderation_qs)
+            admin_chat_post = (request.POST.get('admin_chat_id') or '').strip()
+            if bot.platform == SuggestionBot.PLATFORM_TELEGRAM:
+                err = _telegram_moderation_config_error(bot.owner, mod_users, admin_chat_post)
+                if err:
+                    messages.error(request, err)
+                    return render(request, 'bots/edit.html', {
+                        'bot': bot,
+                        'team_members': team_members,
+                        'selected_moderators': selected_moderators,
+                        'owner_groups': owner_groups,
+                        'can_edit_messages_only': can_edit_messages_only,
+                        'selected_channel_group_ids': selected_channel_group_ids,
+                    })
+            elif bot.platform == SuggestionBot.PLATFORM_MAX:
+                err = _max_moderation_config_error(bot.owner, mod_users, admin_chat_post)
+                if err:
+                    messages.error(request, err)
+                    return render(request, 'bots/edit.html', {
+                        'bot': bot,
+                        'team_members': team_members,
+                        'selected_moderators': selected_moderators,
+                        'owner_groups': owner_groups,
+                        'can_edit_messages_only': can_edit_messages_only,
+                        'selected_channel_group_ids': selected_channel_group_ids,
+                    })
+
             if bot.platform in (SuggestionBot.PLATFORM_TELEGRAM, SuggestionBot.PLATFORM_MAX):
-                bot.admin_chat_id = ''
+                bot.admin_chat_id = admin_chat_post
                 bot.custom_admin_chat_ids = []
                 bot.notify_owner = False
             else:
@@ -664,7 +759,7 @@ def bot_edit(request, bot_id: int):
             _ensure_max_webhook(bot)
 
         if not can_edit_messages_only and bot.platform in (SuggestionBot.PLATFORM_TELEGRAM, SuggestionBot.PLATFORM_MAX):
-            bot.moderators.set(_moderation_recipient_users_from_post(request, bot.owner))
+            bot.moderators.set(moderation_qs)
 
         # Audit changes
         try:

@@ -64,9 +64,9 @@
           {% endif %}
 
           {% if bot.platform == 'telegram' and not can_edit_messages_only %}
-          {% include 'bots/includes/moderation_recipients_field.html' with bot_owner=bot.owner platform_hint='telegram' %}
+          {% include 'bots/includes/moderation_recipients_field.html' with bot_owner=bot.owner platform_hint='telegram' admin_chat_value=request.POST.admin_chat_id|default:bot.admin_chat_id %}
           {% elif bot.platform == 'max' and not can_edit_messages_only %}
-          {% include 'bots/includes/moderation_recipients_field.html' with bot_owner=bot.owner platform_hint='max' %}
+          {% include 'bots/includes/moderation_recipients_field.html' with bot_owner=bot.owner platform_hint='max' admin_chat_value=request.POST.admin_chat_id|default:bot.admin_chat_id %}
           {% elif not can_edit_messages_only %}
           <div class="mb-4">
             <label class="form-label fw-semibold">ID группы / сообщества</label>

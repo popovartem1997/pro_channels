@@ -73,7 +73,7 @@
           </div>
 
           <div id="field-admin-chat" class="platform-bot-field d-none mb-4">
-            {% include 'bots/includes/moderation_recipients_field.html' with bot_owner=request.user platform_hint='both' %}
+            {% include 'bots/includes/moderation_recipients_field.html' with bot_owner=request.user platform_hint='both' admin_chat_value=request.POST.admin_chat_id|default:'' %}
           </div>
 
           <!-- VK: group_id -->

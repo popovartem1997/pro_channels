@@ -1,10 +1,11 @@
-{# Ожидает: bot_owner (User), team_members (TeamMember qs), selected_moderators (set of str pk), platform_hint: "telegram"|"max"|"both" #}
+{# Ожидает: bot_owner (User), team_members (TeamMember qs), selected_moderators (set of str pk), platform_hint: "telegram"|"max"|"both"; опционально admin_chat_value #}
 <div class="mb-4">
   <label class="form-label fw-semibold">Кому слать модерацию</label>
   <div class="form-text small text-muted mb-2">
     Отметьте владельца и/или менеджеров с правом «Может модерировать предложки».
     {% if platform_hint == 'telegram' or platform_hint == 'both' %}
       В <strong>Telegram</strong> уведомления уходят в личку по <strong>Telegram user ID</strong> из профиля или карточки команды.
+      Чтобы бот мог писать в личку, каждый получатель должен один раз нажать <strong>/start</strong> у этого бота предложки.
     {% endif %}
     {% if platform_hint == 'max' or platform_hint == 'both' %}
       В <strong>MAX</strong> — по <strong>MAX user ID</strong> из профиля или карточки команды.
@@ -21,4 +22,20 @@
       </option>
     {% endfor %}
   </select>
+
+  <div class="mt-3">
+    <label class="form-label fw-semibold" for="id_admin_chat_id">Чат модерации (запасной вариант)</label>
+    <input type="text" name="admin_chat_id" id="id_admin_chat_id" class="form-control font-monospace"
+           value="{{ admin_chat_value|default:'' }}"
+           placeholder="-1001234567890">
+    <div class="form-text small text-muted">
+      {% if platform_hint == 'telegram' %}
+        ID супергруппы или канала, куда бот отправит заявку с кнопками, если личные сообщения недоступны (нет user ID или пользователь не нажимал /start у бота). Добавьте бота в чат и дайте право писать.
+      {% elif platform_hint == 'max' %}
+        ID чата MAX для модерации, если у выбранных людей не указан MAX user ID в профиле или команде.
+      {% else %}
+        <strong>Telegram:</strong> ID группы/канала с кнопками модерации — если личка не работает. <strong>MAX:</strong> запасной чат, если нет личных ID.
+      {% endif %}
+    </div>
+  </div>
 </div>
