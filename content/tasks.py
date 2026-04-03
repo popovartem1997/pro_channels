@@ -945,14 +945,23 @@ def _build_text(post, channel):
 
 
 def _tg_file_for_telegram_upload(mf):
-    """Локальный путь или InputFile (если нет .path — облако/хранилище)."""
+    """
+    Всегда InputFile для Telegram.
+
+    python-telegram-bot 20.x в InputMedia* вызывает parse_file_input(..., local_mode=True):
+    локальный путь превращается в file:// URI, а облачный Bot API его отклоняет
+    («Invalid file http url specified: unsupported url protocol») при send_media_group.
+    send_photo с путём-строкой обходит это через Bot._parse_file_input(local_mode=False).
+    """
     from telegram import InputFile
 
     name = os.path.basename(getattr(mf.file, 'name', '') or '') or 'media.bin'
     try:
         p = mf.file.path
         if p and os.path.isfile(p):
-            return p
+            with open(p, 'rb') as f:
+                raw = f.read()
+            return InputFile(io.BytesIO(raw), filename=name)
     except Exception:
         pass
     mf.file.open('rb')
