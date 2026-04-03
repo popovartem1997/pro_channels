@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models
 
 from core.crypto import encrypt_token, decrypt_token
@@ -51,6 +53,19 @@ class GlobalApiKeys(models.Model):
         default=False,
         verbose_name='ОРД: песочница (sandbox)',
         help_text='Запросы на api-sandbox.ord.vk.com вместо боя.',
+    )
+    vk_ord_contract_sum_from_campaign_total = models.BooleanField(
+        default=False,
+        verbose_name='ОРД договор: сумма из стоимости заявки',
+        help_text='Если включено — в договор в ОРД в поле amount подставляется итог текущей заявки (на шаге «ВК ОРД» в мастере). '
+        'Если выключено — всегда используется фиксированная сумма ниже.',
+    )
+    vk_ord_contract_amount_fixed = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal('0'),
+        verbose_name='ОРД договор: фиксированная сумма (₽)',
+        help_text='Подставляется в amount при выключенной опции «сумма из заявки», а также когда итог заявки ещё не рассчитан (0 ₽) — регистрация, профиль.',
     )
 
     # Telegram parsing (Telethon user API)

@@ -28,6 +28,8 @@ class GlobalApiKeysForm(forms.ModelForm):
             'vk_ord_pad_external_id',
             'vk_ord_operator_person_external_id',
             'vk_ord_use_sandbox',
+            'vk_ord_contract_sum_from_campaign_total',
+            'vk_ord_contract_amount_fixed',
             'telegram_api_id',
         ]
 

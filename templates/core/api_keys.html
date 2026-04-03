@@ -116,6 +116,16 @@
             {{ form.vk_ord_operator_person_external_id }}
             {% if form.vk_ord_operator_person_external_id.help_text %}<div class="form-text">{{ form.vk_ord_operator_person_external_id.help_text }}</div>{% endif %}
           </div>
+          <div class="form-check form-switch mb-3">
+            {{ form.vk_ord_contract_sum_from_campaign_total }}
+            <label class="form-check-label fw-semibold" for="{{ form.vk_ord_contract_sum_from_campaign_total.id_for_label }}">{{ form.vk_ord_contract_sum_from_campaign_total.label }}</label>
+            {% if form.vk_ord_contract_sum_from_campaign_total.help_text %}<div class="form-text">{{ form.vk_ord_contract_sum_from_campaign_total.help_text }}</div>{% endif %}
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">{{ form.vk_ord_contract_amount_fixed.label }}</label>
+            {{ form.vk_ord_contract_amount_fixed }}
+            {% if form.vk_ord_contract_amount_fixed.help_text %}<div class="form-text">{{ form.vk_ord_contract_amount_fixed.help_text }}</div>{% endif %}
+          </div>
           <div class="form-check form-switch mb-4">
             {{ form.vk_ord_use_sandbox }}
             <label class="form-check-label fw-semibold" for="{{ form.vk_ord_use_sandbox.id_for_label }}">{{ form.vk_ord_use_sandbox.label }}</label>

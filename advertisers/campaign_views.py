@@ -351,7 +351,11 @@ def _run_campaign_ord_prepare(app: AdApplication, *, sync_catalog: bool, use_san
         app.advertiser.refresh_from_db()
         app.channel.refresh_from_db()
 
-    prov = ensure_advertiser_ord_profile(app.advertiser, use_sandbox=use_sandbox)
+    prov = ensure_advertiser_ord_profile(
+        app.advertiser,
+        use_sandbox=use_sandbox,
+        campaign_total=app.total_amount,
+    )
     app.advertiser.refresh_from_db()
 
     if not prov.get('ok'):

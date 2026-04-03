@@ -7,6 +7,9 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
+from typing import Any
+
 from django.utils import timezone
 
 from advertisers.models import Advertiser, OrdContract
@@ -22,6 +25,29 @@ DEFAULT_CONTRACT_SUBJECT = (
 # org_distribution — «организация распространения» (договор РС ↔ агентство), нам не подходит.
 CONTRACT_TYPE_SERVICE = 'service'
 CONTRACT_SUBJECT_TYPE_AD_DISTRIBUTION = 'distribution'
+
+
+def _ord_contract_amount_string(keys: Any, campaign_total: Decimal | None) -> str:
+    """
+    Сумма для поля amount в PUT /v1/contract: из настроек админа — либо итог заявки, либо фикс.
+    """
+    use_real = bool(getattr(keys, 'vk_ord_contract_sum_from_campaign_total', False))
+    fixed = getattr(keys, 'vk_ord_contract_amount_fixed', None)
+    if fixed is None:
+        fixed = Decimal('0')
+    else:
+        fixed = Decimal(fixed)
+    total = campaign_total
+    if total is not None:
+        total = Decimal(total)
+    if use_real and total is not None and total > 0:
+        d = total
+    else:
+        d = fixed
+    if d < 0:
+        d = Decimal('0')
+    q = d.quantize(Decimal('0.01'))
+    return format(q, 'f')
 
 
 def person_external_id_for_advertiser(adv: Advertiser) -> str:
@@ -77,7 +103,12 @@ def build_person_put_body(adv: Advertiser) -> dict:
     }
 
 
-def ensure_advertiser_ord_profile(adv: Advertiser, *, use_sandbox: bool) -> dict:
+def ensure_advertiser_ord_profile(
+    adv: Advertiser,
+    *,
+    use_sandbox: bool,
+    campaign_total: Decimal | None = None,
+) -> dict:
     """
     PUT person (и при наличии настроек — PUT contract) в ОРД.
     Сохраняет ord_person_external_id у рекламодателя и зеркалит договор в OrdContract.
@@ -125,6 +156,7 @@ def ensure_advertiser_ord_profile(adv: Advertiser, *, use_sandbox: bool) -> dict
     cid = contract_external_id_for_advertiser(adv)
     today = timezone.now().date().isoformat()
     serial = f'PC-{adv.pk}'[:120]
+    amount_str = _ord_contract_amount_string(keys, campaign_total)
     cbody: dict = {
         'type': CONTRACT_TYPE_SERVICE,
         'client_external_id': pid,
@@ -133,7 +165,7 @@ def ensure_advertiser_ord_profile(adv: Advertiser, *, use_sandbox: bool) -> dict
         'serial': serial,
         'subject_type': CONTRACT_SUBJECT_TYPE_AD_DISTRIBUTION,
         'flags': ['vat_included', 'contractor_is_creatives_reporter'],
-        'amount': '0',
+        'amount': amount_str,
     }
     try:
         vk_ord_client.put_contract_v1(bearer, cid, cbody, use_sandbox=use_sandbox)
