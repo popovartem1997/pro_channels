@@ -26,6 +26,7 @@ class GlobalApiKeysForm(forms.ModelForm):
             'vk_ord_cabinet_id',
             'vk_ord_contract_external_id',
             'vk_ord_pad_external_id',
+            'vk_ord_operator_person_external_id',
             'vk_ord_use_sandbox',
             'telegram_api_id',
         ]

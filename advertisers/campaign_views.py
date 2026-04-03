@@ -301,6 +301,23 @@ def campaign_content(request, pk: int):
     return render(request, 'advertisers/campaign_content.html', {'app': app, 'post': post})
 
 
+def _auto_provision_ord_for_advertiser(request, adv, *, notify: bool = True) -> None:
+    """Создаёт/обновляет person (и договор при настройке) в ОРД; при notify показывает предупреждения."""
+    from advertisers.ord_provision import ensure_advertiser_ord_profile
+    from core.models import get_global_api_keys
+
+    keys = get_global_api_keys()
+    sandbox = bool(getattr(keys, 'vk_ord_use_sandbox', False))
+    res = ensure_advertiser_ord_profile(adv, use_sandbox=sandbox)
+    adv.refresh_from_db()
+    if not notify:
+        return
+    if res.get('contract_error'):
+        messages.warning(request, f'Автосоздание договора в ОРД: {res["contract_error"][:400]}')
+    if not res.get('ok') and res.get('error'):
+        messages.warning(request, f'Автоотправка контрагента в ОРД: {res["error"][:400]}')
+
+
 @login_required
 def campaign_ord(request, pk: int):
     app = _app_adv(request, pk)
@@ -319,6 +336,7 @@ def campaign_ord(request, pk: int):
             app.refresh_from_db()
             app.advertiser.refresh_from_db()
             app.channel.refresh_from_db()
+            _auto_provision_ord_for_advertiser(request, app.advertiser, notify=True)
             prefill_ad_application_ord_fields(app)
             app.refresh_from_db()
             if res.get('ok'):
@@ -331,6 +349,7 @@ def campaign_ord(request, pk: int):
                 messages.warning(request, res.get('error') or 'Не удалось синхронизировать ОРД.')
             return redirect('advertisers:campaign_ord', pk=app.pk)
 
+        _auto_provision_ord_for_advertiser(request, app.advertiser, notify=True)
         prefill_ad_application_ord_fields(app)
         app.refresh_from_db()
         app.ord_sync_error = ''
@@ -353,6 +372,7 @@ def campaign_ord(request, pk: int):
 
     app.advertiser.refresh_from_db()
     app.channel.refresh_from_db()
+    _auto_provision_ord_for_advertiser(request, app.advertiser, notify=False)
     prefill_ad_application_ord_fields(app)
     app.refresh_from_db()
     return render(request, 'advertisers/campaign_ord.html', {'app': app})

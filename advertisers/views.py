@@ -105,7 +105,7 @@ def advertiser_register(request):
         if not inn.isdigit() or len(inn) not in (10, 12):
             messages.error(request, 'ИНН должен состоять из 10 или 12 цифр.')
             return render(request, 'advertisers/register.html', _advertiser_register_context(request, next_redirect))
-        Advertiser.objects.create(
+        adv = Advertiser.objects.create(
             user=request.user,
             company_name=company_name,
             inn=inn,
@@ -118,7 +118,26 @@ def advertiser_register(request):
         if getattr(request.user, 'role', '') != request.user.ROLE_ADVERTISER:
             request.user.role = request.user.ROLE_ADVERTISER
             request.user.save(update_fields=['role'])
-        messages.success(request, 'Профиль рекламодателя создан.')
+        msg_ok = 'Профиль рекламодателя создан.'
+        try:
+            from core.models import get_global_api_keys
+            from advertisers.ord_provision import ensure_advertiser_ord_profile
+
+            keys = get_global_api_keys()
+            ord_res = ensure_advertiser_ord_profile(
+                adv, use_sandbox=bool(getattr(keys, 'vk_ord_use_sandbox', False))
+            )
+            if ord_res.get('ok'):
+                msg_ok += ' Данные отправлены в ВК ОРД (контрагент).'
+                if ord_res.get('contract_id'):
+                    msg_ok += ' Договор в ОРД создан или обновлён.'
+            elif ord_res.get('error'):
+                msg_ok += f' Автоотправка в ОРД: {ord_res["error"][:280]}'
+            if ord_res.get('contract_error'):
+                msg_ok += f' Договор в ОРД: {ord_res["contract_error"][:220]}'
+        except Exception:
+            pass
+        messages.success(request, msg_ok)
         if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
             return redirect(next_url)
         return redirect('advertisers:campaign_list')

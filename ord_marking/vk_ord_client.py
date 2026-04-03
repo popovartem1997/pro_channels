@@ -97,6 +97,27 @@ def ord_request(
     raise OrdVkApiError(0, str(last_err or 'network error'), {'error': str(last_err or 'network error')})
 
 
+def put_person_v1(
+    bearer: str,
+    external_id: str,
+    body: dict,
+    *,
+    use_sandbox: bool = False,
+) -> dict:
+    """PUT /v1/person/{external_id} — создание/обновление контрагента в ОРД (идемпотентно)."""
+    safe_id = quote(str(external_id), safe='')
+    status, data = ord_request(
+        bearer,
+        'PUT',
+        f'/v1/person/{safe_id}',
+        use_sandbox=use_sandbox,
+        json_body=body,
+    )
+    if status not in (200, 201):
+        raise OrdVkApiError(status, json.dumps(data, ensure_ascii=False), data if isinstance(data, dict) else {})
+    return data if isinstance(data, dict) else {}
+
+
 def put_contract_v1(
     bearer: str,
     external_id: str,

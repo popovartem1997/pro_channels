@@ -40,6 +40,13 @@ class GlobalApiKeys(models.Model):
         verbose_name='ОРД: внешний ID площадки по умолчанию',
         help_text='Для передачи статистики показов, если не задан у канала.',
     )
+    vk_ord_operator_person_external_id = models.CharField(
+        max_length=220,
+        blank=True,
+        verbose_name='ОРД: person исполнителя (оператор ProChannels)',
+        help_text='Внешний id контрагента в ОРД для вашей организации (исполнитель по договору с рекламодателем). '
+        'Нужен для автоматического создания договора; person рекламодателя создаётся без этого поля.',
+    )
     vk_ord_use_sandbox = models.BooleanField(
         default=False,
         verbose_name='ОРД: песочница (sandbox)',
