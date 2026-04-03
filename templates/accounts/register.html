@@ -45,8 +45,9 @@
             </div>
 
             <div class="col-sm-6">
-              <label class="form-label fw-semibold small">Компания / ИП <span class="text-danger">*</span></label>
+              <label class="form-label fw-semibold small" for="{{ form.company.id_for_label }}">{{ form.company.label }} <span class="text-danger">*</span></label>
               {{ form.company }}
+              {% if form.company.help_text %}<div class="form-text">{{ form.company.help_text }}</div>{% endif %}
               {% if form.company.errors %}<div class="text-danger small mt-1">{{ form.company.errors.0 }}</div>{% endif %}
             </div>
 

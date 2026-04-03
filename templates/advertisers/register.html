@@ -101,30 +101,6 @@
                      value="{{ prefill.contact_person|default:'' }}" placeholder="ФИО подписанта / менеджера">
             </div>
 
-            <h6 class="text-muted text-uppercase small fw-bold mb-3">Банковские реквизиты</h6>
-            <p class="small text-muted mb-3">Нужны для договора и счетов; можно уточнить позже в профиле, если пока нет.</p>
-            <div class="mb-3">
-              <label class="form-label fw-semibold" for="id_bank_name">Банк</label>
-              <input class="form-control" id="id_bank_name" name="bank_name" value="{{ prefill.bank_name|default:'' }}">
-            </div>
-            <div class="row g-3 mb-3">
-              <div class="col-12 col-md-6">
-                <label class="form-label fw-semibold" for="id_bank_account">Расчётный счёт</label>
-                <input class="form-control font-monospace" id="id_bank_account" name="bank_account" inputmode="numeric"
-                       value="{{ prefill.bank_account|default:'' }}">
-              </div>
-              <div class="col-12 col-md-6">
-                <label class="form-label fw-semibold" for="id_bank_bik">БИК</label>
-                <input class="form-control font-monospace" id="id_bank_bik" name="bank_bik" maxlength="9" inputmode="numeric"
-                       value="{{ prefill.bank_bik|default:'' }}">
-              </div>
-            </div>
-            <div class="mb-3">
-              <label class="form-label fw-semibold" for="id_bank_corr_account">Корреспондентский счёт банка</label>
-              <input class="form-control font-monospace" id="id_bank_corr_account" name="bank_corr_account" inputmode="numeric"
-                     value="{{ prefill.bank_corr_account|default:'' }}">
-            </div>
-
             <h6 class="text-muted text-uppercase small fw-bold mb-3">Маркировка ВК ОРД</h6>
             <div class="mb-3">
               <label class="form-label fw-semibold" for="id_ord_model_scheme">Тип контрагента в ОРД</label>

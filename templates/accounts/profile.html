@@ -22,7 +22,7 @@
             {{ form.phone }}
           </div>
           <div class="mb-3">
-            <label class="form-label fw-semibold">Компания / ИП</label>
+            <label class="form-label fw-semibold" for="{{ form.company.id_for_label }}">{{ form.company.label }}</label>
             {{ form.company }}
             {% if adv_form %}<div class="form-text">Для ОРД и договора см. также блок «Реквизиты рекламодателя» ниже — там точное юридическое название.</div>{% endif %}
           </div>

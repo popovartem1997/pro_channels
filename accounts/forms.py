@@ -19,13 +19,16 @@ class RegisterForm(UserCreationForm):
         widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': '+7 (999) 999-99-99'})
     )
     company = forms.CharField(
-        max_length=255, required=True,
+        label='Название компании, ИП или физлица',
+        max_length=255,
+        required=True,
         widget=forms.TextInput(
             attrs={
                 'class': 'form-control',
-                'placeholder': 'Компания, ИП или физлицо (ФИО)',
+                'placeholder': 'ООО «…», ИП Иванов И.И. или ФИО физлица',
             }
-        )
+        ),
+        help_text='Юрлицо — полное наименование с ОПФ. ИП или физлицо — ФИО как в договоре.',
     )
 
     class Meta:
@@ -36,6 +39,9 @@ class RegisterForm(UserCreationForm):
         super().__init__(*args, **kwargs)
         self.fields['password1'].widget.attrs.update({'class': 'form-control', 'placeholder': 'Пароль'})
         self.fields['password2'].widget.attrs.update({'class': 'form-control', 'placeholder': 'Повторите пароль'})
+        self.fields['company'].widget.attrs.setdefault(
+            'aria-label', self.fields['company'].label
+        )
 
     def save(self, commit=True):
         user = super().save(commit=False)
@@ -95,6 +101,7 @@ class ProfileForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['company'].label = 'Название компании, ИП или физлица'
         if self.instance.pk and self.instance.telegram_user_id is not None:
             self.fields['telegram_user_id'].initial = str(self.instance.telegram_user_id)
         if self.instance.pk:

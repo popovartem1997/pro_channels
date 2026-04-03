@@ -59,10 +59,6 @@ _REG_PREFILL_KEYS = (
     'contact_person',
     'kpp',
     'ogrn',
-    'bank_name',
-    'bank_account',
-    'bank_bik',
-    'bank_corr_account',
     'ord_model_scheme',
 )
 
@@ -162,10 +158,6 @@ def advertiser_register(request):
         legal_address = request.POST.get('legal_address', '').strip()
         actual_address = request.POST.get('actual_address', '').strip()
         contact_person = request.POST.get('contact_person', '').strip()
-        bank_name = request.POST.get('bank_name', '').strip()
-        bank_account = request.POST.get('bank_account', '').strip()
-        bank_bik = request.POST.get('bank_bik', '').strip()
-        bank_corr = request.POST.get('bank_corr_account', '').strip()
         ord_scheme = (request.POST.get('ord_model_scheme') or '').strip()
         valid_schemes = {x[0] for x in Advertiser.ORD_MODEL_SCHEME_CHOICES}
         if ord_scheme not in valid_schemes:
@@ -187,10 +179,6 @@ def advertiser_register(request):
             actual_address=actual_address,
             contact_person=contact_person,
             contact_phone=phone[:20],
-            bank_name=bank_name,
-            bank_account=bank_account,
-            bank_bik=bank_bik,
-            bank_corr_account=bank_corr,
             ord_model_scheme=ord_scheme,
         )
         if getattr(request.user, 'role', '') != request.user.ROLE_ADVERTISER:
