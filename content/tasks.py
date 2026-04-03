@@ -973,20 +973,12 @@ def _tg_strip_br_for_telegram_api(html: str) -> str:
 
 
 def _tg_html_has_rich_formatting(html: str) -> bool:
-    """Теги, которые в TG HTML дают не-monospace оформление; без них надёжнее <pre>."""
+    """Есть ли в фрагменте теги, ради которых отправляем text_html как есть (не plain)."""
     import re
 
     return bool(
         re.search(r'</?(?:b|strong|i|em|u|s|strike|del|a|code|blockquote)\b', html or '', re.I)
     )
-
-
-def _tg_telegram_body_pre_from_plain(plain: str) -> str:
-    """Моноширинный блок: в Telegram сохраняются и пробелы, и переносы без NBSP/br-трюков."""
-    from html import escape
-
-    s = (plain or '').replace('\r\n', '\n').replace('\r', '\n')
-    return '<pre>' + escape(s, quote=False) + '</pre>'
 
 
 def _build_text(post, channel):
@@ -1004,14 +996,16 @@ def _build_text(post, channel):
         th = th_raw.strip()
         if th:
             if not _tg_html_has_rich_formatting(th_raw) and '<pre' not in th_raw.lower():
-                text = _tg_telegram_body_pre_from_plain(post.text or '')
+                # Раньше сюда клали <pre>: в Telegram это выглядело как «код» для обычного текста.
+                # Редактор часто сохраняет только <br> без b/i/a — это не повод для моноширинного блока.
+                text = _tg_plain_to_html_caption(post.text or '')
             else:
                 text = post.text_html
                 if '<pre' not in text.lower():
                     text = text.replace('\r\n', '\n')
                     text = _tg_preserve_spaces_telegram_html(text)
         else:
-            text = _tg_telegram_body_pre_from_plain(post.text or '')
+            text = _tg_plain_to_html_caption(post.text or '')
 
         if post.ord_label:
             ol = escape((post.ord_label or '').strip(), quote=False)

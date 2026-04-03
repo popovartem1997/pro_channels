@@ -677,8 +677,12 @@
       else if (a === 'italic') exec('italic');
       else if (a === 'underline') exec('underline');
       else if (a === 'strike') exec('strikeThrough');
-      else if (a === 'quote') exec('formatBlock'); // best-effort
-      else if (a === 'code') exec('formatBlock'); // best-effort
+      else if (a === 'quote') {
+        try { document.execCommand('formatBlock', false, 'blockquote'); } catch (e) {}
+      }
+      else if (a === 'code') {
+        try { document.execCommand('formatBlock', false, 'pre'); } catch (e) {}
+      }
       else if (a === 'link') execLink();
       else if (a === 'clear') {
         ed.textContent = '';
