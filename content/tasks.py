@@ -1770,6 +1770,7 @@ def _publish_instagram(post, channel):
 def check_scheduled_posts():
     """Периодическая задача: находит посты готовые к публикации и запускает их."""
     from django.conf import settings
+    from django.core.cache import cache
 
     from .models import Post
 
@@ -1795,7 +1796,17 @@ def check_scheduled_posts():
         updated_at__lt=threshold,
     ).values_list('pk', flat=True)
     rec = 0
+    skipped_throttle = 0
+    # Дроссель: иначе beat раз в минуту кладёт новый delay для того же post_id — в Redis тысячи
+    # дубликатов; после фактической публикации воркер долго «жуёт» уже опубликованные посты.
+    throttle_ttl = max(120, min(int(stuck_min) * 45, 3600))
     for pid in stuck_ids:
+        if not Post.objects.filter(pk=pid, status=Post.STATUS_PUBLISHING).exists():
+            continue
+        lock_key = f'pch:stuck_publish_enqueued:{int(pid)}'
+        if not cache.add(lock_key, '1', timeout=throttle_ttl):
+            skipped_throttle += 1
+            continue
         publish_post_task.delay(int(pid))
         rec += 1
     if rec:
@@ -1803,6 +1814,12 @@ def check_scheduled_posts():
             'Повторная постановка в очередь: %s пост(ов) в «Публикуется» без обновления >%s мин (после сбоя воркера)',
             rec,
             stuck_min,
+        )
+    if skipped_throttle:
+        logger.info(
+            'Зависшие публикации: пропущено %s пост(ов) из-за дросселя повторной постановки (%s с)',
+            skipped_throttle,
+            throttle_ttl,
         )
 
     return count + rec
