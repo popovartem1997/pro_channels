@@ -9,6 +9,7 @@ from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth import update_session_auth_hash
 from .models import User, EmailVerification, PasswordResetToken
 from .forms import RegisterForm, LoginForm, ProfileForm
+from advertisers.forms import AdvertiserRequisitesForm
 
 
 def register(request):
@@ -137,15 +138,51 @@ def reset_password_confirm(request, token):
 
 @login_required
 def profile(request):
+    adv = getattr(request.user, 'advertiser_profile', None)
+    adv_form = None
     if request.method == 'POST':
         form = ProfileForm(request.POST, request.FILES, instance=request.user)
-        if form.is_valid():
+        if adv:
+            adv_form = AdvertiserRequisitesForm(request.POST, instance=adv)
+        valid_adv = adv_form.is_valid() if adv_form else True
+        if form.is_valid() and valid_adv:
             form.save()
-            messages.success(request, 'Профиль обновлён.')
+            if adv_form:
+                adv_form.save()
+                request.user.company = (adv_form.instance.company_name or '').strip()
+                request.user.save(update_fields=['company'])
+                try:
+                    from core.models import get_global_api_keys
+                    from advertisers.ord_provision import ensure_advertiser_ord_profile
+
+                    keys = get_global_api_keys()
+                    ord_res = ensure_advertiser_ord_profile(
+                        adv_form.instance, use_sandbox=bool(getattr(keys, 'vk_ord_use_sandbox', False))
+                    )
+                    if ord_res.get('ok'):
+                        msg = 'Профиль обновлён. Реквизиты отправлены в ВК ОРД (контрагент).'
+                        if ord_res.get('contract_id'):
+                            msg += ' Договор в ОРД обновлён или создан.'
+                        messages.success(request, msg)
+                        ce = (ord_res.get('contract_error') or '').strip()
+                        if ce:
+                            messages.warning(request, f'Договор в ОРД: {ce[:400]}')
+                    else:
+                        err = (ord_res.get('error') or '').strip()
+                        if err:
+                            messages.warning(request, f'Профиль сохранён. ОРД: {err[:400]}')
+                        else:
+                            messages.success(request, 'Профиль обновлён.')
+                except Exception:
+                    messages.success(request, 'Профиль обновлён.')
+            else:
+                messages.success(request, 'Профиль обновлён.')
             return redirect('profile')
     else:
         form = ProfileForm(instance=request.user)
-    return render(request, 'accounts/profile.html', {'form': form})
+        if adv:
+            adv_form = AdvertiserRequisitesForm(instance=adv)
+    return render(request, 'accounts/profile.html', {'form': form, 'adv_form': adv_form})
 
 
 @login_required
