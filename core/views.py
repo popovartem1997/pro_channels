@@ -730,7 +730,7 @@ def celery_monitor(request):
 
     broker = (getattr(settings, 'CELERY_BROKER_URL', None) or '').strip()
     queues, q_err = redis_queue_lengths(broker)
-    insp = celery_inspect_bundle()
+    insp = celery_inspect_bundle(timeout=1.0, include_scheduled_stats=False)
     active_raw = dict(insp.get('active') or {})
     reserved_raw = dict(insp.get('reserved') or {})
 
@@ -757,9 +757,7 @@ def celery_monitor(request):
         parse_qs = parse_qs.filter(is_active=False)
     parse_tasks = list(parse_qs[:80])
 
-    post_qs = Post.objects.select_related('author').prefetch_related('channels').order_by(
-        'scheduled_at', '-updated_at'
-    )
+    post_qs = Post.objects.select_related('author').order_by('scheduled_at', '-updated_at')
     if not staff:
         post_qs = post_qs.filter(author=request.user)
     if post_st == 'scheduled':
@@ -774,11 +772,17 @@ def celery_monitor(request):
 
     beat_rows, beat_err = beat_periodic_preview(50)
     tr_sub = (request.GET.get('tr_q') or '').strip()
-    task_results, tr_err = recent_task_results(
-        limit=60, task_name_contains=tr_sub, status=tr_status
-    )
-    if not staff:
-        task_results = [r for r in task_results if r.get('category') in ('parse', 'import')]
+    if staff:
+        task_results, tr_err = recent_task_results(
+            limit=60, task_name_contains=tr_sub, status=tr_status
+        )
+    else:
+        task_results, tr_err = recent_task_results(
+            limit=40,
+            task_name_contains=tr_sub,
+            status=tr_status,
+            categories_only=['parse', 'import'],
+        )
 
     ctx = {
         'filter_cat': cat,
@@ -833,7 +837,7 @@ def celery_monitor_snapshot(request):
 
     broker = (getattr(settings, 'CELERY_BROKER_URL', None) or '').strip()
     queues, q_err = redis_queue_lengths(broker)
-    insp = celery_inspect_bundle(timeout=2.0)
+    insp = celery_inspect_bundle(timeout=1.0, include_scheduled_stats=False)
     active = filter_tasks_by_name(
         filter_tasks_by_category(dict(insp.get('active') or {}), cat),
         name_sub,

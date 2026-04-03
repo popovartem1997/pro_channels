@@ -26,7 +26,15 @@ def redis_queue_lengths(broker_url: str) -> tuple[dict[str, int | None], str | N
         return {}, str(exc)
 
 
-def celery_inspect_bundle(timeout: float = 2.5) -> dict[str, Any]:
+def celery_inspect_bundle(
+    timeout: float = 1.0,
+    *,
+    include_scheduled_stats: bool = False,
+) -> dict[str, Any]:
+    """
+    inspect() ходит к каждому воркеру; несколько вызовов подряд с таймаутом 2.5 с
+    легко дают 10+ секунд на страницу. По умолчанию — только ping/active/reserved.
+    """
     from pro_channels.celery import app as celery_app
 
     out: dict[str, Any] = {
@@ -45,8 +53,9 @@ def celery_inspect_bundle(timeout: float = 2.5) -> dict[str, Any]:
         out['ping'] = insp.ping() or {}
         out['active'] = insp.active() or {}
         out['reserved'] = insp.reserved() or {}
-        out['scheduled'] = insp.scheduled() or {}
-        out['stats'] = insp.stats() or {}
+        if include_scheduled_stats:
+            out['scheduled'] = insp.scheduled() or {}
+            out['stats'] = insp.stats() or {}
     except Exception as exc:
         out['error'] = str(exc)
     return out
@@ -102,7 +111,8 @@ def beat_periodic_preview(limit: int = 40) -> tuple[list[dict[str, Any]], str | 
         return [], str(exc)
 
     rows = []
-    for pt in PeriodicTask.objects.filter(enabled=True).order_by('name')[:limit]:
+    qs = PeriodicTask.objects.filter(enabled=True).order_by('name')
+    for pt in qs[:limit]:
         lr = getattr(pt, 'last_run_at', None)
         rows.append(
             {
@@ -121,22 +131,53 @@ def recent_task_results(
     limit: int = 40,
     task_name_contains: str = '',
     status: str = '',
+    categories_only: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], str | None]:
+    """
+    Только SQL-фильтры + LIMIT — не сканируем сотни тысяч строк TaskResult в Python.
+    """
     try:
+        from django.db.models import Q
+
         from django_celery_results.models import TaskResult
     except Exception as exc:
         return [], str(exc)
 
-    qs = TaskResult.objects.all().order_by('-date_done', '-pk')[:800]
-    name_sub = (task_name_contains or '').strip().lower()
+    name_sub = (task_name_contains or '').strip()
     st = (status or '').strip().upper()
+    lim = max(1, min(int(limit), 200))
+
+    qs = TaskResult.objects.all()
+    if name_sub:
+        qs = qs.filter(task_name__icontains=name_sub)
+    if st:
+        qs = qs.filter(status=st)
+    if categories_only:
+        parts: list[Q] = []
+        for c in categories_only:
+            c = (c or '').lower()
+            if c == 'parse':
+                parts.append(
+                    Q(task_name__icontains='execute_parse_task')
+                    | Q(task_name__icontains='check_parse_tasks')
+                )
+            elif c == 'import':
+                parts.append(Q(task_name__icontains='import_tg_history'))
+            elif c == 'publish':
+                parts.append(
+                    Q(task_name__icontains='publish_post_task')
+                    | Q(task_name__icontains='check_scheduled_posts')
+                )
+        if parts:
+            q_combo = parts[0]
+            for p in parts[1:]:
+                q_combo |= p
+            qs = qs.filter(q_combo)
+    qs = qs.order_by('-date_done', '-pk')[:lim]
+
     out: list[dict[str, Any]] = []
     for tr in qs:
         tn = tr.task_name or ''
-        if name_sub and name_sub not in tn.lower():
-            continue
-        if st and (tr.status or '').upper() != st:
-            continue
         out.append(
             {
                 'task_id': tr.task_id,
@@ -146,8 +187,6 @@ def recent_task_results(
                 'category': task_category(tn),
             }
         )
-        if len(out) >= limit:
-            break
     return out, None
 
 
