@@ -944,14 +944,16 @@ def _build_text(post, channel):
     return text
 
 
-def _tg_file_for_telegram_upload(mf):
+def _tg_file_for_telegram_upload(mf, *, attach: bool):
     """
-    Всегда InputFile для Telegram.
+    Возвращает InputFile с содержимым файла (не путь-строку).
 
-    python-telegram-bot 20.x в InputMedia* вызывает parse_file_input(..., local_mode=True):
-    локальный путь превращается в file:// URI, а облачный Bot API его отклоняет
-    («Invalid file http url specified: unsupported url protocol») при send_media_group.
-    send_photo с путём-строкой обходит это через Bot._parse_file_input(local_mode=False).
+    В python-telegram-bot 20.x InputMedia* вызывает parse_file_input(..., local_mode=True):
+    локальный путь становится file://, облачный Bot API отклоняет это в send_media_group.
+
+    attach=True — только для альбома (InputMedia + send_media_group): в JSON нужен attach://…
+    и тот же идентификатор во вложении; иначе «Can't parse inputmedia: media not found».
+    attach=False — для одиночного send_photo / send_video / send_document.
     """
     from telegram import InputFile
 
@@ -961,7 +963,7 @@ def _tg_file_for_telegram_upload(mf):
         if p and os.path.isfile(p):
             with open(p, 'rb') as f:
                 raw = f.read()
-            return InputFile(io.BytesIO(raw), filename=name)
+            return InputFile(io.BytesIO(raw), filename=name, attach=attach)
     except Exception:
         pass
     mf.file.open('rb')
@@ -969,7 +971,7 @@ def _tg_file_for_telegram_upload(mf):
         raw = mf.file.read()
     finally:
         mf.file.close()
-    return InputFile(io.BytesIO(raw), filename=name)
+    return InputFile(io.BytesIO(raw), filename=name, attach=attach)
 
 
 def _tg_input_media_for_group_item(media_obj, media_type: str, *, caption, parse_mode):
@@ -1012,13 +1014,14 @@ def _prepare_telegram_publish_bundle(post, channel):
     text = _build_text(post, channel)
     parse_mode = ParseMode.HTML
 
-    media_rows = list(post.media_files.order_by('order', 'pk'))
+    media_rows = list(post.media_files.order_by('order', 'pk'))[:10]
+    use_attach = len(media_rows) > 1
     media_payload = []
-    for mf in media_rows[:10]:
+    for mf in media_rows:
         media_payload.append(
             {
                 'type': mf.media_type,
-                'upload': _tg_file_for_telegram_upload(mf),
+                'upload': _tg_file_for_telegram_upload(mf, attach=use_attach),
             }
         )
 
