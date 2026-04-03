@@ -24,9 +24,6 @@
   {% csrf_token %}
   <button type="submit" class="btn btn-brand">Отправить владельцу на согласование</button>
 </form>
-<p class="small text-muted mt-2 mb-0">
-  <a href="{% url 'advertisers:campaign_contacts' app.pk %}">Контакты по заявке #{{ app.pk }}</a>
-</p>
 {% else %}
 <form method="post" id="sign-contract-form" class="d-inline">
   {% csrf_token %}
