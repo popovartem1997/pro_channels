@@ -244,6 +244,9 @@ class SuggestionBot(models.Model):
         """
         Список chat_id для Telegram: выбранные в настройках бота пользователи (профиль / команда)
         плюс admin_chat_id и custom_admin_chat_ids (группа/доп. чаты).
+
+        Для модераторов одно и то же Telegram ID может встречаться несколько раз (владелец + менеджер
+        с одним аккаунтом) — шлём отдельное уведомление на каждую отметку в «Кому слать модерацию».
         """
         ids: list[str] = []
 
@@ -261,8 +264,10 @@ class SuggestionBot(models.Model):
         for u in mod_users:
             tid = self._telegram_user_id_for_recipient(u)
             if tid is not None:
-                _add(str(tid))
-                mod_resolved += 1
+                s = str(tid).strip()
+                if s:
+                    ids.append(s)
+                    mod_resolved += 1
 
         _add(self.admin_chat_id)
         for x in (self.custom_admin_chat_ids or []):
@@ -278,14 +283,12 @@ class SuggestionBot(models.Model):
         return ids
 
     def get_moderation_max_dm_ids(self) -> list[str]:
-        """MAX: user_id для личных сообщений выбранным получателям модерации."""
+        """MAX: user_id для личных сообщений — по одному на каждого выбранного получателя (дубликаты ID допустимы)."""
         out: list[str] = []
-        seen: set[str] = set()
         mod_users = list(self.moderators.all())
         for u in mod_users:
             s = self._max_user_id_str_for_recipient(u)
-            if s and s not in seen:
-                seen.add(s)
+            if s:
                 out.append(s)
         if mod_users and not out and not (self.admin_chat_id or '').strip():
             logger.warning(

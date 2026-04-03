@@ -1172,15 +1172,6 @@ def channel_interesting_facts_edit(request, pk):
 
     if request.method == 'POST':
         action = (request.POST.get('action') or '').strip()
-        if action == 'generate_now':
-            from .facts_services import create_draft_post_for_facts
-
-            ok, msg = create_draft_post_for_facts(facts.pk, force=True)
-            if ok:
-                messages.success(request, msg)
-            else:
-                messages.error(request, msg)
-            return redirect('channels:interesting_facts_edit', pk=pk)
 
         facts.is_enabled = request.POST.get('is_enabled') == 'on'
         facts.topic = (request.POST.get('topic') or '').strip()
@@ -1190,6 +1181,23 @@ def channel_interesting_facts_edit(request, pk):
             allowed = {c[0] for c in ChannelInterestingFacts.INTERVAL_CHOICES}
             if v in allowed:
                 facts.interval_hours = v
+
+        if action == 'generate_now':
+            if len(facts.topic) < 5:
+                messages.error(
+                    request,
+                    'Укажите тему запроса в поле выше (минимум 5 символов) — она сохранится вместе с генерацией.',
+                )
+                return redirect('channels:interesting_facts_edit', pk=pk)
+            facts.save()
+            from .facts_services import create_draft_post_for_facts
+
+            ok, msg = create_draft_post_for_facts(facts.pk, force=True)
+            if ok:
+                messages.success(request, msg)
+            else:
+                messages.error(request, msg)
+            return redirect('channels:interesting_facts_edit', pk=pk)
 
         if facts.is_enabled and len(facts.topic) < 5:
             messages.error(request, 'Для включения укажите тему запроса (не меньше нескольких слов).')
