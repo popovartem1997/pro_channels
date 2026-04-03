@@ -5,7 +5,7 @@
 <div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
   <div>
     <h1><i class="bi bi-ui-checks me-2" style="color:var(--brand)"></i>Заявки на рекламу</h1>
-    <p class="text-muted small mb-0">Новый поток по вашим каналам</p>
+    <p class="text-muted small mb-0">Согласование и кнопка «Одобрить и указать оплату» — в карточке заявки (статус «На согласовании у владельца»).</p>
   </div>
   <a href="{% url 'advertisers:owner_orders' %}" class="btn btn-outline-secondary btn-sm">Старые заказы</a>
 </div>
@@ -97,7 +97,13 @@
               {% endfor %}
             </td>
             <td class="small text-muted">{{ a.updated_at|date:"d.m.Y H:i" }}</td>
-            <td class="pe-4 small"><a href="{% url 'advertisers:owner_campaign_detail' a.pk %}">Карточка</a></td>
+            <td class="pe-4 small text-nowrap">
+              {% if a.status == 'pending_owner' %}
+              <a href="{% url 'advertisers:owner_campaign_detail' a.pk %}" class="btn btn-sm btn-success">Одобрить и указать оплату</a>
+              {% else %}
+              <a href="{% url 'advertisers:owner_campaign_detail' a.pk %}" class="btn btn-sm btn-outline-primary">Карточка</a>
+              {% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>

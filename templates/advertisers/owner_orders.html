@@ -4,12 +4,17 @@
 {% block content %}
 <div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
   <div>
-    <h1><i class="bi bi-megaphone me-2" style="color:var(--brand)"></i>Рекламные заявки</h1>
-    <p class="text-muted small mb-0">Все заявки от рекламодателей</p>
+    <h1><i class="bi bi-archive me-2" style="color:var(--brand)"></i>Старые заказы (legacy)</h1>
+    <p class="text-muted small mb-0">Старый тип заявок без мастера канала. Актуальные заявки — в другом разделе.</p>
   </div>
-  <a href="{% url 'advertisers:owner_campaigns' %}" class="btn btn-outline-primary btn-sm">
-    Заявки (новый поток)
+  <a href="{% url 'advertisers:owner_campaigns' %}" class="btn btn-brand btn-sm">
+    Актуальные заявки на рекламу
   </a>
+</div>
+
+<div class="alert alert-info small mb-4 mb-md-4">
+  <strong>Согласование и оплата по новому сценарию</strong> (мастер: канал → слоты → договор → одобрение с выбором способа оплаты) находятся в разделе
+  <a href="{% url 'advertisers:owner_campaigns' %}" class="alert-link fw-semibold">«Заявки на рекламу»</a> в меню слева. На этой странице — только устаревший список заказов.
 </div>
 
 <!-- Фильтр статусов -->
