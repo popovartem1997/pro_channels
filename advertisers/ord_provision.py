@@ -29,10 +29,26 @@ def contract_external_id_for_advertiser(adv: Advertiser) -> str:
     return f'prochannels_contract_adv_{adv.pk}'
 
 
+def _ord_juridical_model_scheme(inn: str) -> str:
+    """
+    Обязательное поле juridical_details.model_scheme в API ОРД (PersonCreateOrUpdateDto).
+    См. типы контрагента: juridical (юрлицо, ИНН 10), ip (ИП, ИНН 12), иностранные варианты — при необходимости расширить.
+    """
+    n = len((inn or '').strip())
+    if n == 12:
+        return 'ip'
+    if n == 10:
+        return 'juridical'
+    return 'juridical'
+
+
 def build_person_put_body(adv: Advertiser) -> dict:
     """Тело PUT person в формате, совместимом с GET /v1/person/{id} в проекте."""
     inn = (adv.inn or '').strip()
-    jd: dict = {'inn': inn}
+    jd: dict = {
+        'model_scheme': _ord_juridical_model_scheme(inn),
+        'inn': inn,
+    }
     if len(inn) == 10 and (adv.kpp or '').strip():
         jd['kpp'] = (adv.kpp or '').strip()[:9]
     if (adv.ogrn or '').strip():
