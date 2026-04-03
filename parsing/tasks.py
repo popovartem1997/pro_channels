@@ -353,10 +353,14 @@ def _parse_telegram(source, keywords, keyword_objects):
                         'Важно: у celery должен быть смонтирован тот же /app/media.'
                     )
             found = 0
-            logger.info('TG parse: get_entity source_id=%s', (source.source_id or '')[:120])
+            msg_limit = int(getattr(settings, 'PARSE_TELEGRAM_MESSAGE_LIMIT', 80) or 80)
+            msg_limit = max(5, min(msg_limit, 500))
+            scanned_with_text = 0
+            keyword_hits = 0
+            logger.info('TG parse: get_entity source_id=%s limit=%s', (source.source_id or '')[:120], msg_limit)
             channel = await client.get_entity(source.source_id)
-            # Берём только последние 20 постов/сообщений, чтобы не подтягивать давний контент.
-            async for message in client.iter_messages(channel, limit=20):
+            # Последние N сообщений (новые к моменту запуска уже могут быть в БД → «найдено 0», см. лог duplicate).
+            async for message in client.iter_messages(channel, limit=msg_limit):
                 msg_text = ''
                 try:
                     msg_text = (message.text or '').strip()
@@ -381,8 +385,10 @@ def _parse_telegram(source, keywords, keyword_objects):
                         pass
                 if not msg_text:
                     continue
+                scanned_with_text += 1
                 matched = _match_keywords(msg_text, keywords)
                 if matched:
+                    keyword_hits += 1
                     kw_obj = keyword_objects[matched[0]]
                     # Публичная ссылка на оригинальный пост (если source_id публичный).
                     original_url = ''
@@ -434,6 +440,19 @@ def _parse_telegram(source, keywords, keyword_objects):
                     )
                     if created:
                         found += 1
+                    else:
+                        logger.info(
+                            'TG parse: duplicate skip source=%s msg_id=%s (уже в ленте парсинга)',
+                            source.pk,
+                            getattr(message, 'id', None),
+                        )
+            logger.info(
+                'TG parse: source=%s done with_text=%s keyword_hits=%s new_saved=%s',
+                source.pk,
+                scanned_with_text,
+                keyword_hits,
+                found,
+            )
             return found
         finally:
             if client is not None:

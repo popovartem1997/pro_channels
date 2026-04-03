@@ -224,6 +224,8 @@ TELEGRAM_API_HASH = config('TELEGRAM_API_HASH', default='')
 # Сериализация доступа к файлу *.session в Redis (см. parsing.tasks._telethon_session_lock)
 TELETHON_REDIS_LOCK_TTL = config('TELETHON_REDIS_LOCK_TTL', default=28800, cast=int)
 TELETHON_REDIS_LOCK_WAIT = config('TELETHON_REDIS_LOCK_WAIT', default=600, cast=int)
+# Сколько последних сообщений канала смотреть за один проход (дедуп по msg id в БД).
+PARSE_TELEGRAM_MESSAGE_LIMIT = config('PARSE_TELEGRAM_MESSAGE_LIMIT', default=80, cast=int)
 
 # ─── VK Парсинг ──────────────────────────────────────────────────────────────
 VK_PARSE_ACCESS_TOKEN = config('VK_PARSE_ACCESS_TOKEN', default='')
