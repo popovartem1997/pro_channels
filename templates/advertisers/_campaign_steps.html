@@ -1,73 +1,99 @@
 {% with step=step|default:1 %}
 <style>
-  .campaign-wizard-steps { row-gap: 0.35rem; }
-  .campaign-wizard-steps .sep { color: var(--bs-secondary); opacity: 0.6; user-select: none; }
-  .campaign-wizard-steps a.step-link {
-    color: var(--bs-primary);
-    text-decoration: none;
-    border-radius: 6px;
-    padding: 0.15rem 0.35rem;
-    margin: -0.15rem -0.35rem;
+  .campaign-wizard-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: flex-start;
   }
-  .campaign-wizard-steps a.step-link:hover { text-decoration: underline; }
-  .campaign-wizard-steps .step-current {
-    font-weight: 600;
-    color: var(--bs-body-color) !important;
+  .campaign-wizard-steps .campaign-step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.125rem;
+    padding: 0.35rem 0.85rem;
+    border-radius: 999px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.2;
     text-decoration: none !important;
+    white-space: nowrap;
+    border: 1px solid transparent;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+  @media (max-width: 575.98px) {
+    .campaign-wizard-steps .campaign-step {
+      flex: 1 1 calc(50% - 0.25rem);
+      max-width: calc(50% - 0.25rem);
+      min-width: 0;
+      white-space: normal;
+      text-align: center;
+      hyphens: auto;
+    }
+    .campaign-wizard-steps .campaign-step--wide {
+      flex: 1 1 100%;
+      max-width: 100%;
+    }
+  }
+  .campaign-wizard-steps a.campaign-step:not(.campaign-step--current):hover {
+    filter: brightness(0.97);
+  }
+  .campaign-wizard-steps .campaign-step--current {
+    background-color: var(--bs-primary);
+    border-color: var(--bs-primary);
+    color: #fff !important;
     cursor: default;
     pointer-events: none;
-    padding: 0.15rem 0.35rem;
   }
-  .campaign-wizard-steps .step-muted {
+  .campaign-wizard-steps a.campaign-step--current {
+    pointer-events: none;
+  }
+  .campaign-wizard-steps .campaign-step--link {
+    background-color: var(--bs-body-bg);
+    border-color: var(--bs-border-color);
+    color: var(--bs-primary);
+  }
+  .campaign-wizard-steps .campaign-step--muted {
+    background-color: var(--bs-tertiary-bg);
+    border-color: var(--bs-border-color-translucent);
     color: var(--bs-secondary);
-    opacity: 0.75;
-    padding: 0.15rem 0.35rem;
+    opacity: 0.92;
+    cursor: default;
   }
 </style>
-<nav class="campaign-wizard-steps mb-4 d-flex flex-wrap align-items-center small" aria-label="Шаги заявки">
+<nav class="campaign-wizard-steps mb-4" aria-label="Шаги заявки">
   {% if app and app.allows_campaign_wizard_edit %}
-    <a href="{% url 'advertisers:campaign_draft_channel' app.pk %}" class="step-link {% if step == 1 %}step-current{% endif %}">1. Канал</a>
-    <span class="sep d-none d-sm-inline px-1">→</span>
-    <a href="{% url 'advertisers:campaign_slots' app.pk %}" class="step-link {% if step == 2 %}step-current{% endif %}">2. Слоты и услуги</a>
-    <span class="sep d-none d-sm-inline px-1">→</span>
-    <a href="{% url 'advertisers:campaign_content' app.pk %}" class="step-link {% if step == 3 %}step-current{% endif %}">3. Пост</a>
-    <span class="sep d-none d-sm-inline px-1">→</span>
-    <a href="{% url 'advertisers:campaign_ord' app.pk %}" class="step-link {% if step == 4 %}step-current{% endif %}">4. ОРД</a>
-    <span class="sep d-none d-sm-inline px-1">→</span>
-    <a href="{% url 'advertisers:campaign_review' app.pk %}" class="step-link {% if step == 5 %}step-current{% endif %}">5. Сводка</a>
-    <span class="sep d-none d-sm-inline px-1">→</span>
-    <a href="{% url 'advertisers:campaign_contract' app.pk %}" class="step-link {% if step == 6 %}step-current{% endif %}">6. Договор</a>
-    <span class="sep d-none d-sm-inline px-1">→</span>
+    <a href="{% url 'advertisers:campaign_draft_channel' app.pk %}" class="campaign-step campaign-step--link {% if step == 1 %}campaign-step--current{% endif %}" {% if step == 1 %}aria-current="step"{% endif %}>1. Канал</a>
+    <a href="{% url 'advertisers:campaign_slots' app.pk %}" class="campaign-step campaign-step--link {% if step == 2 %}campaign-step--current{% endif %}" title="Слоты и дополнительные услуги" {% if step == 2 %}aria-current="step"{% endif %}>2. Слоты</a>
+    <a href="{% url 'advertisers:campaign_content' app.pk %}" class="campaign-step campaign-step--link {% if step == 3 %}campaign-step--current{% endif %}" {% if step == 3 %}aria-current="step"{% endif %}>3. Пост</a>
+    <a href="{% url 'advertisers:campaign_ord' app.pk %}" class="campaign-step campaign-step--link {% if step == 4 %}campaign-step--current{% endif %}" {% if step == 4 %}aria-current="step"{% endif %}>4. ОРД</a>
+    <a href="{% url 'advertisers:campaign_review' app.pk %}" class="campaign-step campaign-step--link {% if step == 5 %}campaign-step--current{% endif %}" {% if step == 5 %}aria-current="step"{% endif %}>5. Сводка</a>
+    <a href="{% url 'advertisers:campaign_contract' app.pk %}" class="campaign-step campaign-step--link {% if step == 6 %}campaign-step--current{% endif %}" {% if step == 6 %}aria-current="step"{% endif %}>6. Договор</a>
     {% if app.status == 'paid' %}
-    <span class="step-muted">7. Оплачено — при необходимости правьте шаги 2–6 и попросите владельца снова подтвердить оплату</span>
+    <span class="campaign-step campaign-step--muted campaign-step--wide" title="После оплаты при необходимости правьте шаги 2–6 и попросите владельца снова подтвердить оплату">7. Оплачено</span>
     {% else %}
-    <span class="step-muted">7. Оплата (после одобрения)</span>
+    <span class="campaign-step campaign-step--muted campaign-step--wide" title="Оплата станет доступна после одобрения заявки владельцем канала">7. Оплата позже</span>
     {% endif %}
   {% else %}
-    <span class="{% if step == 1 %}step-current{% else %}step-muted{% endif %}">1. Канал</span>
-    <span class="sep d-none d-sm-inline px-1">→</span>
-    <span class="{% if step == 2 %}step-current{% else %}step-muted{% endif %}">2. Слоты и услуги</span>
-    <span class="sep d-none d-sm-inline px-1">→</span>
-    <span class="{% if step == 3 %}step-current{% else %}step-muted{% endif %}">3. Пост</span>
-    <span class="sep d-none d-sm-inline px-1">→</span>
-    <span class="{% if step == 4 %}step-current{% else %}step-muted{% endif %}">4. ОРД</span>
-    <span class="sep d-none d-sm-inline px-1">→</span>
-    <span class="{% if step == 5 %}step-current{% else %}step-muted{% endif %}">5. Сводка</span>
-    <span class="sep d-none d-sm-inline px-1">→</span>
-    <span class="{% if step == 6 %}step-current{% else %}step-muted{% endif %}">6. Договор</span>
-    <span class="sep d-none d-sm-inline px-1">→</span>
+    <span class="campaign-step {% if step == 1 %}campaign-step--current{% else %}campaign-step--muted{% endif %}" {% if step == 1 %}aria-current="step"{% endif %}>1. Канал</span>
+    <span class="campaign-step {% if step == 2 %}campaign-step--current{% else %}campaign-step--muted{% endif %}" title="Слоты и дополнительные услуги" {% if step == 2 %}aria-current="step"{% endif %}>2. Слоты</span>
+    <span class="campaign-step {% if step == 3 %}campaign-step--current{% else %}campaign-step--muted{% endif %}" {% if step == 3 %}aria-current="step"{% endif %}>3. Пост</span>
+    <span class="campaign-step {% if step == 4 %}campaign-step--current{% else %}campaign-step--muted{% endif %}" {% if step == 4 %}aria-current="step"{% endif %}>4. ОРД</span>
+    <span class="campaign-step {% if step == 5 %}campaign-step--current{% else %}campaign-step--muted{% endif %}" {% if step == 5 %}aria-current="step"{% endif %}>5. Сводка</span>
+    <span class="campaign-step {% if step == 6 %}campaign-step--current{% else %}campaign-step--muted{% endif %}" {% if step == 6 %}aria-current="step"{% endif %}>6. Договор</span>
     {% if app %}
       {% if app.status == 'approved_for_payment' or app.status == 'awaiting_payment' %}
         {% if step == 7 %}
-        <span class="step-current">7. Оплата</span>
+        <span class="campaign-step campaign-step--current" aria-current="step">7. Оплата</span>
         {% else %}
-        <a href="{% url 'advertisers:campaign_checkout' app.pk %}" class="step-link">7. Оплата</a>
+        <a href="{% url 'advertisers:campaign_checkout' app.pk %}" class="campaign-step campaign-step--link">7. Оплата</a>
         {% endif %}
       {% else %}
-        <span class="{% if step == 7 %}step-current{% else %}step-muted{% endif %}">7. Оплата (после одобрения)</span>
+        <span class="campaign-step campaign-step--muted campaign-step--wide {% if step == 7 %}campaign-step--current{% endif %}" {% if step == 7 %}aria-current="step"{% endif %} title="Оплата станет доступна после одобрения заявки владельцем канала">7. Оплата позже</span>
       {% endif %}
     {% else %}
-    <span class="step-muted">7. Оплата (после одобрения)</span>
+    <span class="campaign-step campaign-step--muted campaign-step--wide" title="Оплата станет доступна после одобрения заявки владельцем канала">7. Оплата позже</span>
     {% endif %}
   {% endif %}
 </nav>
