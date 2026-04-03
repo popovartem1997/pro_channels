@@ -1,0 +1,372 @@
+{% extends 'base.html' %}
+{% block title %}Заявка №{{ order.pk }} — {{ order.title|truncatechars:40 }}{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+  <div class="min-w-0">
+    <a href="{% url 'advertisers:owner_orders' %}{% if request.GET.from_status %}?status={{ request.GET.from_status|urlencode }}{% endif %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small d-inline-flex align-items-center">
+      <i class="bi bi-arrow-left me-1"></i> К списку заявок
+    </a>
+    <h1 class="h4 text-break mb-1">Заявка №{{ order.pk }}</h1>
+    <p class="text-muted small mb-0 text-break">{{ order.title }}</p>
+  </div>
+  <div class="flex-shrink-0">
+    {% if order.status == 'submitted' %}
+      <span class="badge bg-warning-subtle text-warning rounded-pill px-2">На рассмотрении</span>
+    {% elif order.status == 'approved' %}
+      <span class="badge bg-success-subtle text-success rounded-pill px-2">Одобрен</span>
+    {% elif order.status == 'rejected' %}
+      <span class="badge bg-danger-subtle text-danger rounded-pill px-2">Отклонён</span>
+    {% elif order.status == 'active' %}
+      <span class="badge bg-primary-subtle text-primary rounded-pill px-2">Выполняется</span>
+    {% elif order.status == 'completed' %}
+      <span class="badge bg-secondary-subtle text-secondary rounded-pill px-2">Завершён</span>
+    {% elif order.status == 'draft' %}
+      <span class="badge bg-light text-dark rounded-pill px-2">Черновик</span>
+    {% elif order.status == 'cancelled' %}
+      <span class="badge bg-light text-dark rounded-pill px-2">Отменён</span>
+    {% else %}
+      <span class="badge bg-light text-dark rounded-pill px-2">{{ order.get_status_display }}</span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="d-flex flex-wrap gap-2 mb-4">
+  {% if order.status == 'submitted' %}
+  <form method="post" action="{% url 'advertisers:owner_order_moderate' order.pk %}" class="d-inline">
+    {% csrf_token %}
+    <input type="hidden" name="return_to" value="order_detail">
+    <input type="hidden" name="action" value="approve">
+    <button class="btn btn-success btn-sm" type="submit"><i class="bi bi-check-lg me-1"></i> Одобрить</button>
+  </form>
+  <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#rejectModalDetail">
+    <i class="bi bi-x-lg me-1"></i> Отклонить
+  </button>
+  {% elif order.status == 'approved' %}
+  <form method="post" action="{% url 'advertisers:owner_order_moderate' order.pk %}" class="d-inline">
+    {% csrf_token %}
+    <input type="hidden" name="return_to" value="order_detail">
+    <input type="hidden" name="action" value="activate">
+    <button class="btn btn-primary btn-sm" type="submit">Запустить кампанию</button>
+  </form>
+  {% elif order.status == 'active' %}
+  <form method="post" action="{% url 'advertisers:owner_order_moderate' order.pk %}" class="d-inline">
+    {% csrf_token %}
+    <input type="hidden" name="return_to" value="order_detail">
+    <input type="hidden" name="action" value="complete">
+    <button class="btn btn-outline-secondary btn-sm" type="submit">Завершить</button>
+  </form>
+  {% endif %}
+  {% if order.status == 'completed' and not acts %}
+  <a href="{% url 'advertisers:create_act' order.pk %}" class="btn btn-outline-primary btn-sm">Создать акт</a>
+  {% endif %}
+</div>
+
+<div class="row g-3">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <h2 class="h6 fw-bold text-muted text-uppercase small mb-3">Кампания и текст</h2>
+        <dl class="row small mb-0 gx-0 gy-2">
+          <dt class="col-sm-3 text-muted">Бюджет</dt>
+          <dd class="col-sm-9 mb-0 fw-semibold">{{ order.budget }} ₽</dd>
+          <dt class="col-sm-3 text-muted">Период</dt>
+          <dd class="col-sm-9 mb-0">{{ order.start_date|date:"d.m.Y" }} — {{ order.end_date|date:"d.m.Y" }}</dd>
+          <dt class="col-sm-3 text-muted">Повтор</dt>
+          <dd class="col-sm-9 mb-0">
+            {% if order.repeat_interval_days %}
+              каждые {{ order.repeat_interval_days }} дн.
+            {% else %}
+              однократно
+            {% endif %}
+          </dd>
+          <dt class="col-sm-3 text-muted">Создана</dt>
+          <dd class="col-sm-9 mb-0">{{ order.created_at|date:"d.m.Y H:i" }}</dd>
+          <dt class="col-sm-3 text-muted">Обновлена</dt>
+          <dd class="col-sm-9 mb-0">{{ order.updated_at|date:"d.m.Y H:i" }}</dd>
+        </dl>
+        <hr class="my-3">
+        <h3 class="h6 fw-semibold mb-2">Описание / текст рекламы</h3>
+        <div class="small" style="white-space: pre-wrap; line-height: 1.65;">{{ order.description }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <h2 class="h6 fw-bold text-muted text-uppercase small mb-3">Рекламодатель</h2>
+        {% with adv=order.advertiser %}
+        <dl class="row small mb-0 gx-0 gy-2">
+          <dt class="col-sm-3 text-muted">Компания / ИП</dt>
+          <dd class="col-sm-9 mb-0 fw-semibold text-break">{{ adv.company_name }}</dd>
+          <dt class="col-sm-3 text-muted">ИНН</dt>
+          <dd class="col-sm-9 mb-0">{{ adv.inn }}</dd>
+          {% if adv.kpp %}
+          <dt class="col-sm-3 text-muted">КПП</dt>
+          <dd class="col-sm-9 mb-0">{{ adv.kpp }}</dd>
+          {% endif %}
+          {% if adv.ogrn %}
+          <dt class="col-sm-3 text-muted">ОГРН / ОГРНИП</dt>
+          <dd class="col-sm-9 mb-0">{{ adv.ogrn }}</dd>
+          {% endif %}
+          <dt class="col-sm-3 text-muted">Юр. адрес</dt>
+          <dd class="col-sm-9 mb-0 text-break">{{ adv.legal_address }}</dd>
+          {% if adv.actual_address %}
+          <dt class="col-sm-3 text-muted">Факт. адрес</dt>
+          <dd class="col-sm-9 mb-0 text-break">{{ adv.actual_address }}</dd>
+          {% endif %}
+          <dt class="col-sm-3 text-muted">Контакт</dt>
+          <dd class="col-sm-9 mb-0">{{ adv.contact_person }}{% if adv.contact_phone %} · {{ adv.contact_phone }}{% endif %}</dd>
+          <dt class="col-sm-3 text-muted">Email (аккаунт)</dt>
+          <dd class="col-sm-9 mb-0 text-break">{{ adv.user.email }}</dd>
+          {% if adv.bank_name or adv.bank_account %}
+          <dt class="col-sm-3 text-muted">Банк</dt>
+          <dd class="col-sm-9 mb-0 text-break">{{ adv.bank_name|default:"—" }}</dd>
+          <dt class="col-sm-3 text-muted">Р/с</dt>
+          <dd class="col-sm-9 mb-0 font-monospace small">{{ adv.bank_account|default:"—" }}</dd>
+          <dt class="col-sm-3 text-muted">БИК</dt>
+          <dd class="col-sm-9 mb-0">{{ adv.bank_bik|default:"—" }}</dd>
+          <dt class="col-sm-3 text-muted">К/с</dt>
+          <dd class="col-sm-9 mb-0 font-monospace small">{{ adv.bank_corr_account|default:"—" }}</dd>
+          {% endif %}
+          {% if adv.ord_person_external_id %}
+          <dt class="col-sm-3 text-muted">ОРД person ID</dt>
+          <dd class="col-sm-9 mb-0 font-monospace small text-break">{{ adv.ord_person_external_id }}</dd>
+          {% endif %}
+          {% if adv.ord_model_scheme %}
+          <dt class="col-sm-3 text-muted">Тип в ОРД</dt>
+          <dd class="col-sm-9 mb-0">{{ adv.get_ord_model_scheme_display }}</dd>
+          {% endif %}
+          <dt class="col-sm-3 text-muted">Договор</dt>
+          <dd class="col-sm-9 mb-0">
+            {% if adv.contract_signed %}Подписан{% else %}Не подписан{% endif %}
+            {% if adv.contract_number %} · № {{ adv.contract_number }}{% endif %}
+            {% if adv.contract_date %} · {{ adv.contract_date|date:"d.m.Y" }}{% endif %}
+          </dd>
+          {% if adv.contract_file %}
+          <dt class="col-sm-3 text-muted">Файл договора</dt>
+          <dd class="col-sm-9 mb-0"><a href="{{ adv.contract_file.url }}" target="_blank" rel="noopener noreferrer">Скачать</a></dd>
+          {% endif %}
+        </dl>
+        {% endwith %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <h2 class="h6 fw-bold text-muted text-uppercase small mb-3">Каналы размещения</h2>
+        {% with chs=order.channels.all %}
+          {% if chs %}
+            <ul class="list-unstyled mb-0 small">
+              {% for channel in chs %}
+              <li class="d-flex align-items-center gap-2 mb-2">
+                {% if channel.platform == 'telegram' %}
+                  <span class="badge badge-tg">TG</span>
+                {% elif channel.platform == 'vk' %}
+                  <span class="badge badge-vk">VK</span>
+                {% elif channel.platform == 'max' %}
+                  <span class="badge badge-max">MAX</span>
+                {% else %}
+                  <span class="badge badge-ig">IG</span>
+                {% endif %}
+                <span class="text-break">{{ channel.name }}</span>
+              </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="text-muted small mb-0">Каналы не указаны.</p>
+          {% endif %}
+        {% endwith %}
+      </div>
+    </div>
+  </div>
+
+  {% if order.invoice %}
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <h2 class="h6 fw-bold text-muted text-uppercase small mb-3">Счёт</h2>
+        {% with inv=order.invoice %}
+        <dl class="row small mb-0 gx-0 gy-2">
+          <dt class="col-sm-3 text-muted">Номер</dt>
+          <dd class="col-sm-9 mb-0 font-monospace">{{ inv.number }}</dd>
+          <dt class="col-sm-3 text-muted">Сумма</dt>
+          <dd class="col-sm-9 mb-0 fw-semibold">{{ inv.amount }} ₽</dd>
+          <dt class="col-sm-3 text-muted">Статус</dt>
+          <dd class="col-sm-9 mb-0">{{ inv.get_status_display }}</dd>
+          {% if inv.due_date %}
+          <dt class="col-sm-3 text-muted">Срок оплаты</dt>
+          <dd class="col-sm-9 mb-0">{{ inv.due_date|date:"d.m.Y" }}</dd>
+          {% endif %}
+          {% if inv.paid_at %}
+          <dt class="col-sm-3 text-muted">Оплачен</dt>
+          <dd class="col-sm-9 mb-0">{{ inv.paid_at|date:"d.m.Y H:i" }}</dd>
+          {% endif %}
+          <dt class="col-sm-3 text-muted">Описание</dt>
+          <dd class="col-sm-9 mb-0 text-break">{{ inv.description }}</dd>
+          {% if inv.tbank_payment_id %}
+          <dt class="col-sm-3 text-muted">TBank payment</dt>
+          <dd class="col-sm-9 mb-0 font-monospace small text-break">{{ inv.tbank_payment_id }}</dd>
+          {% endif %}
+          {% if inv.tbank_order_id %}
+          <dt class="col-sm-3 text-muted">TBank order</dt>
+          <dd class="col-sm-9 mb-0 font-monospace small text-break">{{ inv.tbank_order_id }}</dd>
+          {% endif %}
+          <dt class="col-sm-3 text-muted">Создан</dt>
+          <dd class="col-sm-9 mb-0">{{ inv.created_at|date:"d.m.Y H:i" }}</dd>
+        </dl>
+        <div class="mt-3">
+          <a href="{% url 'billing:invoice_pdf' inv.pk %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-download me-1"></i> PDF счёта
+          </a>
+        </div>
+        {% endwith %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if order.moderator %}
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body py-3">
+        <p class="small mb-0 text-muted">Последнее решение модератора: <span class="text-dark fw-semibold">{{ order.moderator.get_full_name|default:order.moderator.username }}</span> ({{ order.moderator.email }})</p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if order.status == 'rejected' and order.rejection_reason %}
+  <div class="col-12">
+    <div class="card border-0 shadow-sm border-start border-danger border-3">
+      <div class="card-body">
+        <h2 class="h6 fw-bold text-danger mb-2">Причина отклонения</h2>
+        <div class="small" style="white-space: pre-wrap;">{{ order.rejection_reason }}</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if order.post %}
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <h2 class="h6 fw-bold text-muted text-uppercase small mb-3">Автопост (связанный)</h2>
+        {% with p=order.post %}
+        <dl class="row small mb-0 gx-0 gy-2">
+          <dt class="col-sm-3 text-muted">ID поста</dt>
+          <dd class="col-sm-9 mb-0 font-monospace">{{ p.pk }}</dd>
+          <dt class="col-sm-3 text-muted">Статус</dt>
+          <dd class="col-sm-9 mb-0">{{ p.get_status_display }}</dd>
+          {% if p.scheduled_at %}
+          <dt class="col-sm-3 text-muted">Запланирован</dt>
+          <dd class="col-sm-9 mb-0">{{ p.scheduled_at|date:"d.m.Y H:i" }}</dd>
+          {% endif %}
+          {% if p.published_at %}
+          <dt class="col-sm-3 text-muted">Опубликован</dt>
+          <dd class="col-sm-9 mb-0">{{ p.published_at|date:"d.m.Y H:i" }}</dd>
+          {% endif %}
+          <dt class="col-sm-3 text-muted">Повтор</dt>
+          <dd class="col-sm-9 mb-0">
+            {% if p.repeat_enabled %}{{ p.get_repeat_type_display }}{% if p.repeat_interval_days %} (каждые {{ p.repeat_interval_days }} дн.){% endif %}{% else %}нет{% endif %}
+          </dd>
+        </dl>
+        <h3 class="h6 fw-semibold mt-3 mb-2">Текст поста</h3>
+        <div class="small text-muted" style="white-space: pre-wrap; line-height: 1.6;">{{ p.text }}</div>
+        {% if p.text_html %}
+        <h3 class="h6 fw-semibold mt-3 mb-2">HTML (Telegram)</h3>
+        <pre class="small bg-light p-2 rounded mb-0 overflow-auto" style="max-height: 12rem;">{{ p.text_html }}</pre>
+        {% endif %}
+        {% endwith %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if acts %}
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-0">
+        <div class="px-3 py-3 border-bottom">
+          <h2 class="h6 fw-bold text-muted text-uppercase small mb-0">Акты выполненных работ</h2>
+        </div>
+        <div class="table-responsive d-none d-md-block">
+          <table class="table table-hover align-middle mb-0 small">
+            <thead class="table-light">
+              <tr>
+                <th class="ps-3">Номер</th>
+                <th>Дата</th>
+                <th>Сумма</th>
+                <th>Услуги</th>
+                <th>Подписан</th>
+                <th class="pe-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for act in acts %}
+              <tr>
+                <td class="ps-3 font-monospace">{{ act.number }}</td>
+                <td>{{ act.issued_at|date:"d.m.Y"|default:"—" }}</td>
+                <td>{{ act.amount }} ₽</td>
+                <td class="small" style="max-width: 14rem;"><span style="white-space: pre-wrap;">{{ act.service_description|truncatechars:120 }}</span></td>
+                <td>{% if act.is_signed %}Да{% else %}Нет{% endif %}</td>
+                <td class="pe-3 text-end">
+                  {% if act.pdf_file %}
+                  <a href="{% url 'advertisers:act_pdf' act.pk %}" class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener noreferrer"><i class="bi bi-download"></i></a>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="d-md-none p-3">
+          {% for act in acts %}
+          <div class="card bg-light border-0 mb-2">
+            <div class="card-body py-2 px-3 small">
+              <div class="fw-semibold font-monospace">{{ act.number }}</div>
+              <div class="text-muted">{{ act.issued_at|date:"d.m.Y" }} · {{ act.amount }} ₽</div>
+              <div class="mt-2" style="white-space: pre-wrap;">{{ act.service_description }}</div>
+              <div class="mt-1">Подписан: {% if act.is_signed %}да{% else %}нет{% endif %}</div>
+              {% if act.pdf_file %}
+              <a href="{% url 'advertisers:act_pdf' act.pk %}" class="btn btn-sm btn-outline-secondary mt-2" target="_blank" rel="noopener noreferrer">Скачать PDF</a>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{% if order.status == 'submitted' %}
+<div class="modal fade" id="rejectModalDetail" tabindex="-1" aria-labelledby="rejectModalDetailLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <form method="post" action="{% url 'advertisers:owner_order_moderate' order.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="return_to" value="order_detail">
+        <input type="hidden" name="action" value="reject">
+        <div class="modal-header border-0 pb-0">
+          <h5 class="modal-title fw-semibold" id="rejectModalDetailLabel">Отклонить заявку №{{ order.pk }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+        </div>
+        <div class="modal-body pt-2">
+          <label class="form-label fw-semibold">Причина отклонения</label>
+          <textarea name="rejection_reason" class="form-control" rows="3" placeholder="Укажите причину для рекламодателя"></textarea>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-danger">Отклонить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

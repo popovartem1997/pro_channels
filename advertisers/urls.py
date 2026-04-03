@@ -28,6 +28,7 @@ urlpatterns = [
     path('campaign/<int:pk>/wait-transfer/', cv.campaign_transfer_wait, name='campaign_transfer_wait'),
     # Панель владельца
     path('manage/', views.owner_orders, name='owner_orders'),
+    path('manage/order/<int:pk>/', views.owner_order_detail, name='owner_order_detail'),
     path('manage/campaigns/', views.owner_ad_applications, name='owner_campaigns'),
     path('manage/campaigns/<int:pk>/', cv.owner_campaign_detail, name='owner_campaign_detail'),
     path(

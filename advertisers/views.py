@@ -256,13 +256,42 @@ def owner_orders(request):
         messages.error(request, 'Нет доступа.')
         return redirect('dashboard')
     status_filter = request.GET.get('status', '')
-    orders = AdvertisingOrder.objects.select_related('advertiser').order_by('-created_at')
+    orders = (
+        AdvertisingOrder.objects.select_related('advertiser', 'invoice', 'moderator')
+        .prefetch_related('channels')
+        .order_by('-created_at')
+    )
     if status_filter:
         orders = orders.filter(status=status_filter)
     return render(request, 'advertisers/owner_orders.html', {
         'orders': orders,
         'status_filter': status_filter,
         'statuses': AdvertisingOrder.STATUS_CHOICES,
+    })
+
+
+def _owner_order_moderate_redirect(request, order):
+    if request.method == 'POST' and request.POST.get('return_to') == 'order_detail':
+        return redirect('advertisers:owner_order_detail', pk=order.pk)
+    return redirect('advertisers:owner_orders')
+
+
+@login_required
+def owner_order_detail(request, pk):
+    """Полная информация по рекламной заявке (заказу) для владельца / staff."""
+    if not (request.user.is_staff or request.user.role == request.user.ROLE_OWNER):
+        messages.error(request, 'Нет доступа.')
+        return redirect('dashboard')
+    order = get_object_or_404(
+        AdvertisingOrder.objects.select_related(
+            'advertiser', 'advertiser__user', 'invoice', 'moderator', 'post',
+        ).prefetch_related('channels'),
+        pk=pk,
+    )
+    acts = Act.objects.filter(order=order).order_by('-issued_at')
+    return render(request, 'advertisers/owner_order_detail.html', {
+        'order': order,
+        'acts': acts,
     })
 
 
@@ -302,10 +331,10 @@ def owner_order_moderate(request, pk):
             # Старт кампании только после оплаты счёта рекламодателем
             if not order.invoice or order.invoice.status != Invoice.STATUS_PAID:
                 messages.error(request, 'Нельзя запустить кампанию: счёт не оплачен.')
-                return redirect('advertisers:owner_orders')
+                return _owner_order_moderate_redirect(request, order)
             if order.status != AdvertisingOrder.STATUS_APPROVED:
                 messages.error(request, 'Нельзя запустить кампанию из текущего статуса.')
-                return redirect('advertisers:owner_orders')
+                return _owner_order_moderate_redirect(request, order)
             order.status = AdvertisingOrder.STATUS_ACTIVE
             order.save(update_fields=['status'])
             try:
@@ -316,7 +345,7 @@ def owner_order_moderate(request, pk):
         elif action == 'complete':
             if order.status != AdvertisingOrder.STATUS_ACTIVE:
                 messages.error(request, 'Нельзя завершить кампанию из текущего статуса.')
-                return redirect('advertisers:owner_orders')
+                return _owner_order_moderate_redirect(request, order)
             order.status = AdvertisingOrder.STATUS_COMPLETED
             order.save(update_fields=['status'])
             # Автогенерация акта (1 акт на заказ)
@@ -331,7 +360,7 @@ def owner_order_moderate(request, pk):
                 from billing.pdf import generate_act_pdf
                 generate_act_pdf(act)
             messages.success(request, f'Заявка #{order.pk} завершена.')
-    return redirect('advertisers:owner_orders')
+    return _owner_order_moderate_redirect(request, order)
 
 
 @login_required
