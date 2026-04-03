@@ -72,12 +72,15 @@
           </div>
 
           <h6 class="fw-bold mb-3">ID менеджера для ботов</h6>
+          <p class="small text-muted mb-3">
+            Менеджер может также указать свои ID в разделе <a href="{% url 'profile' %}">Профиль</a> — для личных уведомлений удобнее держать их там.
+          </p>
           <div class="row g-3 mb-4">
             <div class="col-12 col-md-6">
               <label class="form-label fw-semibold" for="id_telegram_user_id">Telegram ID</label>
               <input type="text" class="form-control font-monospace" id="id_telegram_user_id" name="telegram_user_id"
                      value="{{ member.telegram_user_id|default:'' }}" placeholder="например 123456789">
-              <div class="form-text">Числовой Telegram user_id менеджера (для уведомлений/идентификации).</div>
+              <div class="form-text">Числовой Telegram user_id (уведомления бота предложки, если менеджер в списке получателей).</div>
             </div>
             <div class="col-12 col-md-6">
               <label class="form-label fw-semibold" for="id_max_user_id">MAX ID</label>

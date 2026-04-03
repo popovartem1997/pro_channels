@@ -177,10 +177,52 @@ class SuggestionBot(models.Model):
                 out.append(ch)
         return out
 
+    def _telegram_user_id_for_recipient(self, user) -> int | None:
+        """Telegram user_id: сначала профиль пользователя, иначе карточка команды (менеджер)."""
+        tid = getattr(user, 'telegram_user_id', None)
+        if tid is not None:
+            return int(tid)
+        if user.pk == self.owner_id:
+            return None
+        try:
+            from managers.models import TeamMember
+
+            tm = TeamMember.objects.filter(
+                owner_id=self.owner_id,
+                member_id=user.pk,
+                is_active=True,
+            ).first()
+            if tm and tm.telegram_user_id is not None:
+                return int(tm.telegram_user_id)
+        except Exception:
+            pass
+        return None
+
+    def _max_user_id_str_for_recipient(self, user) -> str:
+        """MAX user_id: сначала профиль, иначе карточка команды."""
+        u = (getattr(user, 'max_user_id', None) or '').strip()
+        if u:
+            return u
+        if user.pk == self.owner_id:
+            return ''
+        try:
+            from managers.models import TeamMember
+
+            tm = TeamMember.objects.filter(
+                owner_id=self.owner_id,
+                member_id=user.pk,
+                is_active=True,
+            ).first()
+            if tm:
+                return (tm.max_user_id or '').strip()
+        except Exception:
+            pass
+        return ''
+
     def get_moderation_chat_ids(self) -> list[str]:
         """
-        Список chat_id, куда пересылать предложения на модерацию.
-        Включает admin_chat_id, custom_admin_chat_ids и Telegram user_id модераторов из карточки «Команда».
+        Список chat_id для Telegram: выбранные в настройках бота пользователи (профиль / команда)
+        плюс устаревшие admin_chat_id и custom_admin_chat_ids (если ещё заполнены).
         """
         ids: list[str] = []
 
@@ -193,30 +235,27 @@ class SuggestionBot(models.Model):
             if s not in ids:
                 ids.append(s)
 
-        _add(self.admin_chat_id)
+        for u in self.moderators.all():
+            tid = self._telegram_user_id_for_recipient(u)
+            if tid is not None:
+                _add(str(tid))
 
+        _add(self.admin_chat_id)
         for x in (self.custom_admin_chat_ids or []):
             _add(x)
 
-        for u in self.moderators.all():
-            try:
-                from managers.models import TeamMember
-
-                tm = (
-                    TeamMember.objects.filter(
-                        owner_id=self.owner_id,
-                        member_id=u.id,
-                        is_active=True,
-                    )
-                    .exclude(telegram_user_id__isnull=True)
-                    .first()
-                )
-                if tm and tm.telegram_user_id:
-                    _add(str(int(tm.telegram_user_id)))
-            except Exception:
-                pass
-
         return ids
+
+    def get_moderation_max_dm_ids(self) -> list[str]:
+        """MAX: user_id для личных сообщений выбранным получателям модерации."""
+        out: list[str] = []
+        seen: set[str] = set()
+        for u in self.moderators.all():
+            s = self._max_user_id_str_for_recipient(u)
+            if s and s not in seen:
+                seen.add(s)
+                out.append(s)
+        return out
 
 
 class Suggestion(models.Model):

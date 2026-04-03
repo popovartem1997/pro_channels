@@ -25,6 +25,22 @@
             <label class="form-label fw-semibold">Компания / ИП</label>
             {{ form.company }}
           </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_telegram_user_id">{{ form.telegram_user_id.label }}</label>
+            {{ form.telegram_user_id }}
+            {% if form.telegram_user_id.help_text %}
+              <div class="form-text">{{ form.telegram_user_id.help_text }}</div>
+            {% endif %}
+            {% for e in form.telegram_user_id.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="id_max_user_id">{{ form.max_user_id.label }}</label>
+            {{ form.max_user_id }}
+            {% if form.max_user_id.help_text %}
+              <div class="form-text">{{ form.max_user_id.help_text }}</div>
+            {% endif %}
+            {% for e in form.max_user_id.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+          </div>
           <div class="mb-4">
             <label class="form-label fw-semibold">Аватар</label>
             {{ form.avatar }}

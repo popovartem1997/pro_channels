@@ -1,3 +1,5 @@
+import re
+
 from django import forms
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from .models import User
@@ -58,6 +60,23 @@ class LoginForm(AuthenticationForm):
 
 
 class ProfileForm(forms.ModelForm):
+    telegram_user_id = forms.CharField(
+        required=False,
+        label='Telegram user ID',
+        widget=forms.TextInput(
+            attrs={'class': 'form-control font-monospace', 'placeholder': 'Например 123456789', 'autocomplete': 'off'}
+        ),
+        help_text='Числовой ID в Telegram (например через @userinfobot). Нужен, если вы в списке «Кому слать модерацию» у бота предложки.',
+    )
+    max_user_id = forms.CharField(
+        required=False,
+        label='MAX user ID',
+        widget=forms.TextInput(
+            attrs={'class': 'form-control font-monospace', 'placeholder': 'user_id в MAX', 'autocomplete': 'off'}
+        ),
+        help_text='Идентификатор пользователя MAX для личных уведомлений о предложках.',
+    )
+
     class Meta:
         model = User
         fields = ['first_name', 'last_name', 'phone', 'company', 'avatar']
@@ -68,3 +87,29 @@ class ProfileForm(forms.ModelForm):
             'company': forms.TextInput(attrs={'class': 'form-control'}),
             'avatar': forms.FileInput(attrs={'class': 'form-control'}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk and self.instance.telegram_user_id is not None:
+            self.fields['telegram_user_id'].initial = str(self.instance.telegram_user_id)
+        if self.instance.pk:
+            self.fields['max_user_id'].initial = self.instance.max_user_id or ''
+
+    def clean_telegram_user_id(self):
+        v = (self.cleaned_data.get('telegram_user_id') or '').strip()
+        if not v:
+            return None
+        if not re.fullmatch(r'-?\d+', v):
+            raise forms.ValidationError('Укажите числовой Telegram ID.')
+        return int(v)
+
+    def clean_max_user_id(self):
+        return (self.cleaned_data.get('max_user_id') or '').strip()
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.telegram_user_id = self.cleaned_data.get('telegram_user_id')
+        user.max_user_id = self.cleaned_data.get('max_user_id') or ''
+        if commit:
+            user.save()
+        return user

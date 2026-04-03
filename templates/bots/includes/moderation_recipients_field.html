@@ -1,0 +1,24 @@
+{# Ожидает: bot_owner (User), team_members (TeamMember qs), selected_moderators (set of str pk), platform_hint: "telegram"|"max"|"both" #}
+<div class="mb-4">
+  <label class="form-label fw-semibold">Кому слать модерацию</label>
+  <div class="form-text small text-muted mb-2">
+    Отметьте владельца и/или менеджеров с правом «Может модерировать предложки».
+    {% if platform_hint == 'telegram' or platform_hint == 'both' %}
+      В <strong>Telegram</strong> уведомления уходят в личку по <strong>Telegram user ID</strong> из профиля или карточки команды.
+    {% endif %}
+    {% if platform_hint == 'max' or platform_hint == 'both' %}
+      В <strong>MAX</strong> — по <strong>MAX user ID</strong> из профиля или карточки команды.
+    {% endif %}
+    Укажите ID в <a href="{% url 'profile' %}">Профиле</a> (владелец) или в «Команда → доступы» (менеджер).
+  </div>
+  <select name="moderators" class="form-select" multiple size="6">
+    <option value="{{ bot_owner.pk }}" {% if bot_owner.pk|stringformat:"s" in selected_moderators %}selected{% endif %}>
+      Владелец — {{ bot_owner.get_full_name|default:bot_owner.username }} ({{ bot_owner.email }})
+    </option>
+    {% for tm in team_members %}
+      <option value="{{ tm.member_id }}" {% if tm.member_id|stringformat:"s" in selected_moderators %}selected{% endif %}>
+        {{ tm.member.get_full_name|default:tm.member.username }} ({{ tm.member.email|default:tm.member.username }})
+      </option>
+    {% endfor %}
+  </select>
+</div>

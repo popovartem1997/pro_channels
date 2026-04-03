@@ -64,77 +64,9 @@
           {% endif %}
 
           {% if bot.platform == 'telegram' and not can_edit_messages_only %}
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Куда слать модерацию (Telegram)</label>
-            <input type="text" name="admin_chat_id" class="form-control font-monospace"
-                   value="{{ request.POST.admin_chat_id|default:bot.admin_chat_id }}"
-                   placeholder="-1001234567890">
-          </div>
-
-          <div class="form-check form-switch mb-3">
-            <input class="form-check-input" type="checkbox" role="switch"
-                   id="id_notify_owner" name="notify_owner"
-                   {% if request.POST %}{% if request.POST.notify_owner %}checked{% endif %}{% else %}{% if bot.notify_owner %}checked{% endif %}{% endif %}>
-            <label class="form-check-label fw-semibold" for="id_notify_owner">
-              Уведомлять владельца в Telegram (если привязан Telegram ID)
-            </label>
-          </div>
-
-          {% if not can_edit_messages_only %}
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Модераторы (сайт) — кому дублировать в Telegram</label>
-            <div class="form-text small text-muted mb-2">
-              В личку уйдёт копия заявки, если у менеджера указан <strong>Telegram ID</strong> в
-              «Команда → доступ к каналам».
-            </div>
-            <select name="moderators" class="form-select" multiple size="5">
-              {% for tm in team_members %}
-                <option value="{{ tm.member_id }}" {% if tm.member_id|stringformat:"s" in selected_moderators %}selected{% endif %}>
-                  {{ tm.member.get_full_name|default:tm.member.username }} ({{ tm.member.username }})
-                </option>
-              {% endfor %}
-            </select>
-          </div>
-          {% endif %}
-
-          {% if not can_edit_messages_only %}
-          <div class="mb-4">
-            <label class="form-label fw-semibold">Доп. chat_id/user_id (через запятую/пробел/перенос)</label>
-            <textarea name="custom_admin_chat_ids" class="form-control font-monospace" rows="2"
-                      placeholder="12345678, -1001234567890">{{ request.POST.custom_admin_chat_ids|default:custom_admin_chat_ids }}</textarea>
-            <div class="form-text">Только числа.</div>
-          </div>
-          {% endif %}
+          {% include 'bots/includes/moderation_recipients_field.html' with bot_owner=bot.owner platform_hint='telegram' %}
           {% elif bot.platform == 'max' and not can_edit_messages_only %}
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Куда слать модерацию (MAX)</label>
-            <input type="text" name="admin_chat_id" class="form-control font-monospace"
-                   value="{{ request.POST.admin_chat_id|default:bot.admin_chat_id }}"
-                   placeholder="12345678">
-            <div class="form-text">Укажите <code>chat_id</code> или <code>user_id</code> (только числа), куда бот будет присылать заявки с кнопками.</div>
-          </div>
-          <div class="mb-4">
-            <label class="form-label fw-semibold">Доп. chat_id/user_id (через запятую/пробел/перенос)</label>
-            <textarea name="custom_admin_chat_ids" class="form-control font-monospace" rows="2"
-                      placeholder="12345678">{{ request.POST.custom_admin_chat_ids|default:custom_admin_chat_ids }}</textarea>
-            <div class="form-text">Только числа.</div>
-          </div>
-
-          {% if not can_edit_messages_only %}
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Модераторы (сайт) — кому дублировать в MAX</label>
-            <select name="moderators" class="form-select" multiple size="5">
-              {% for tm in team_members %}
-                <option value="{{ tm.member_id }}" {% if tm.member_id|stringformat:"s" in selected_moderators %}selected{% endif %}>
-                  {{ tm.member.get_full_name|default:tm.member.username }} ({{ tm.member.username }})
-                </option>
-              {% endfor %}
-            </select>
-            <div class="form-text">
-              Для доставки в MAX у менеджера должен быть заполнен <code>MAX ID</code> (user_id) в доступах команды.
-            </div>
-          </div>
-          {% endif %}
+          {% include 'bots/includes/moderation_recipients_field.html' with bot_owner=bot.owner platform_hint='max' %}
           {% elif not can_edit_messages_only %}
           <div class="mb-4">
             <label class="form-label fw-semibold">ID группы / сообщества</label>

@@ -53,6 +53,33 @@ def _ensure_max_webhook(bot: SuggestionBot):
         return
 
 
+def _moderation_recipient_users_from_post(request, owner_user):
+    """
+    Пользователи из multiselect «Кому слать модерацию».
+    Разрешены только владелец и активные менеджеры с правом модерировать предложки.
+    """
+    from django.contrib.auth import get_user_model
+    from managers.models import TeamMember
+
+    User = get_user_model()
+    allowed = {owner_user.pk}
+    allowed.update(
+        TeamMember.objects.filter(
+            owner=owner_user,
+            is_active=True,
+            can_moderate=True,
+        ).values_list('member_id', flat=True)
+    )
+    ids: list[int] = []
+    for x in request.POST.getlist('moderators'):
+        s = str(x).strip()
+        if s.isdigit():
+            pk = int(s)
+            if pk in allowed:
+                ids.append(pk)
+    return User.objects.filter(pk__in=ids)
+
+
 def _can_manage_bot_by_channel(user, bot: SuggestionBot) -> bool:
     if user.is_staff or user.is_superuser:
         return True
@@ -331,7 +358,10 @@ def bot_list(request):
 def bot_create(request):
     from managers.models import TeamMember
     team_members = TeamMember.objects.filter(owner=request.user, is_active=True, can_moderate=True).select_related('member')
-    selected_moderators = set(request.POST.getlist('moderators')) if request.method == 'POST' else set()
+    if request.method == 'POST':
+        selected_moderators = set(request.POST.getlist('moderators'))
+    else:
+        selected_moderators = {str(request.user.pk)}
     from channels.models import ChannelGroup
 
     owner_groups = ChannelGroup.objects.filter(owner=request.user).order_by('name')
@@ -347,7 +377,6 @@ def bot_create(request):
         selected_channel_group_ids.add(int(chgroup_prefill))
 
     if request.method == 'POST':
-        import re
         name = request.POST.get('name', '').strip()
         platform = request.POST.get('platform', '')
         token = request.POST.get('bot_token', '').strip()
@@ -397,20 +426,9 @@ def bot_create(request):
         bot.set_token(token)
 
         if platform in (SuggestionBot.PLATFORM_TELEGRAM, SuggestionBot.PLATFORM_MAX):
-            bot.admin_chat_id = request.POST.get('admin_chat_id', '').strip()
-            bot.notify_owner = request.POST.get('notify_owner') == 'on' if platform == SuggestionBot.PLATFORM_TELEGRAM else False
-
-            # Custom chat ids: numbers separated by comma/space/newline
-            raw_custom = (request.POST.get('custom_admin_chat_ids') or '').strip()
-            ids = []
-            for part in re.split(r'[\s,]+', raw_custom):
-                p = part.strip()
-                if not p:
-                    continue
-                # Allow only numeric (chat_id/user_id). @username is not reliable for Bot API sends.
-                if re.fullmatch(r'-?\d+', p):
-                    ids.append(p)
-            bot.custom_admin_chat_ids = ids
+            bot.admin_chat_id = ''
+            bot.custom_admin_chat_ids = []
+            bot.notify_owner = False
         else:
             gid = request.POST.get('group_id', '').strip()
             # VK/MAX group ids are typically provided without '-'. Normalize to digits.
@@ -423,16 +441,8 @@ def bot_create(request):
         # Автоподключение webhook для MAX (без кнопок)
         _ensure_max_webhook(bot)
 
-        # Moderators: only owner team members with can_moderate
-        moderator_ids = request.POST.getlist('moderators')
-        if moderator_ids:
-            allowed_users = TeamMember.objects.filter(
-                owner=request.user,
-                is_active=True,
-                can_moderate=True,
-                member_id__in=moderator_ids,
-            ).values_list('member_id', flat=True)
-            bot.moderators.set(list(allowed_users))
+        if platform in (SuggestionBot.PLATFORM_TELEGRAM, SuggestionBot.PLATFORM_MAX):
+            bot.moderators.set(_moderation_recipient_users_from_post(request, request.user))
 
         # Audit
         try:
@@ -538,10 +548,9 @@ def telegram_webhook_setup(request, bot_id: int):
 @login_required
 def bot_edit(request, bot_id: int):
     from managers.models import TeamMember
-    import re
 
     bot = get_object_or_404(
-        SuggestionBot.objects.prefetch_related('channel_groups'),
+        SuggestionBot.objects.select_related('owner').prefetch_related('channel_groups'),
         pk=bot_id,
     )
     if not _can_view_bot(request.user, bot):
@@ -565,9 +574,6 @@ def bot_edit(request, bot_id: int):
         selected_moderators = set(request.POST.getlist('moderators'))
     else:
         selected_moderators = set(str(x) for x in bot.moderators.values_list('id', flat=True))
-
-    # textarea initial
-    custom_admin_chat_ids = '\n'.join(str(x) for x in (bot.custom_admin_chat_ids or []))
 
     if request.method == 'POST':
         if not can_edit_messages_only:
@@ -598,7 +604,6 @@ def bot_edit(request, bot_id: int):
                 'bot': bot,
                 'team_members': team_members,
                 'selected_moderators': selected_moderators,
-                'custom_admin_chat_ids': request.POST.get('custom_admin_chat_ids', custom_admin_chat_ids),
                 'owner_groups': owner_groups,
                 'can_edit_messages_only': can_edit_messages_only,
                 'selected_channel_group_ids': selected_channel_group_ids,
@@ -614,7 +619,6 @@ def bot_edit(request, bot_id: int):
                     'bot': bot,
                     'team_members': team_members,
                     'selected_moderators': selected_moderators,
-                    'custom_admin_chat_ids': request.POST.get('custom_admin_chat_ids', custom_admin_chat_ids),
                     'owner_groups': owner_groups,
                     'can_edit_messages_only': can_edit_messages_only,
                     'selected_channel_group_ids': selected_channel_group_ids,
@@ -626,7 +630,6 @@ def bot_edit(request, bot_id: int):
                     'bot': bot,
                     'team_members': team_members,
                     'selected_moderators': selected_moderators,
-                    'custom_admin_chat_ids': request.POST.get('custom_admin_chat_ids', custom_admin_chat_ids),
                     'owner_groups': owner_groups,
                     'can_edit_messages_only': can_edit_messages_only,
                     'selected_channel_group_ids': selected_channel_group_ids,
@@ -644,18 +647,9 @@ def bot_edit(request, bot_id: int):
 
         if not can_edit_messages_only:
             if bot.platform in (SuggestionBot.PLATFORM_TELEGRAM, SuggestionBot.PLATFORM_MAX):
-                bot.admin_chat_id = request.POST.get('admin_chat_id', '').strip()
-                bot.notify_owner = request.POST.get('notify_owner') == 'on' if bot.platform == SuggestionBot.PLATFORM_TELEGRAM else False
-
-                raw_custom = (request.POST.get('custom_admin_chat_ids') or '').strip()
-                ids = []
-                for part in re.split(r'[\s,]+', raw_custom):
-                    p = part.strip()
-                    if not p:
-                        continue
-                    if re.fullmatch(r'-?\d+', p):
-                        ids.append(p)
-                bot.custom_admin_chat_ids = ids
+                bot.admin_chat_id = ''
+                bot.custom_admin_chat_ids = []
+                bot.notify_owner = False
             else:
                 gid = request.POST.get('group_id', '').strip()
                 gid = gid.replace('club', '').replace('public', '')
@@ -669,16 +663,8 @@ def bot_edit(request, bot_id: int):
         if not can_edit_messages_only:
             _ensure_max_webhook(bot)
 
-        if not can_edit_messages_only:
-            # apply moderators set (owner only)
-            moderator_ids = request.POST.getlist('moderators')
-            allowed_users = TeamMember.objects.filter(
-                owner=bot.owner,
-                is_active=True,
-                can_moderate=True,
-                member_id__in=moderator_ids,
-            ).values_list('member_id', flat=True)
-            bot.moderators.set(list(allowed_users))
+        if not can_edit_messages_only and bot.platform in (SuggestionBot.PLATFORM_TELEGRAM, SuggestionBot.PLATFORM_MAX):
+            bot.moderators.set(_moderation_recipient_users_from_post(request, bot.owner))
 
         # Audit changes
         try:
@@ -719,7 +705,6 @@ def bot_edit(request, bot_id: int):
         'bot': bot,
         'team_members': team_members,
         'selected_moderators': selected_moderators,
-        'custom_admin_chat_ids': custom_admin_chat_ids,
         'owner_groups': owner_groups,
         'can_edit_messages_only': can_edit_messages_only,
         'selected_channel_group_ids': selected_channel_group_ids,

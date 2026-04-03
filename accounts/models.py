@@ -61,6 +61,20 @@ class User(AbstractUser):
         help_text='Пусто — встроенный набор. Иначе JSON-массив объектов с полями id, label, title, instruction.',
     )
 
+    telegram_user_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        verbose_name='Telegram user ID',
+        help_text='Числовой ID в Telegram для личных уведомлений бота предложки.',
+    )
+    max_user_id = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        verbose_name='MAX user ID',
+        help_text='ID пользователя MAX для личных уведомлений о предложках.',
+    )
+
     class Meta:
         verbose_name = 'Пользователь'
         verbose_name_plural = 'Пользователи'
