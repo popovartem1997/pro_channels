@@ -184,7 +184,15 @@
         <td class="small">{{ p.scheduled_at|date:"d.m.Y H:i"|default:"—" }} / {{ p.published_at|date:"d.m.Y H:i"|default:"—" }}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="3" class="text-muted small">Посты появятся после оплаты</td></tr>
+      <tr><td colspan="3" class="text-muted small">
+        {% if app.status == 'awaiting_payment' or app.status == 'approved_for_payment' %}
+          Посты появятся после оплаты.
+        {% elif app.status == 'paid' %}
+          Оплата принята, но публикации по слотам не созданы: проверьте текст или оформление черновика и выбранные слоты, затем снова нажмите «Подтвердить оплату» на этой странице.
+        {% else %}
+          Нет записей о публикациях по этой заявке.
+        {% endif %}
+      </td></tr>
       {% endfor %}
     </tbody>
   </table>

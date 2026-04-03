@@ -325,6 +325,17 @@ def clone_scheduled_post_for_slot(
     return post
 
 
+def _draft_post_has_body(template) -> bool:
+    """Черновик с текстом или с непустым HTML после снятия тегов."""
+    if not template:
+        return False
+    if (template.text or '').strip():
+        return True
+    from django.utils.html import strip_tags
+
+    return bool(strip_tags(template.text_html or '').strip())
+
+
 @transaction.atomic
 def fulfill_paid_ad_application(app) -> bool:
     """
@@ -338,7 +349,7 @@ def fulfill_paid_ad_application(app) -> bool:
     if app.campaign_posts.exists():
         return True
     template = app.post
-    if not template or not (template.text or '').strip():
+    if not _draft_post_has_body(template):
         return False
     ids = list(app.selected_slot_ids or [])
     if not ids:

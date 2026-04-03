@@ -1,3 +1,4 @@
+import logging
 from decimal import Decimal
 
 from django.contrib import admin
@@ -7,6 +8,8 @@ from django.template.response import TemplateResponse
 from django.urls import path
 
 from .models import AdApplication, AdvertisingSlot, Advertiser, AdvertisingOrder, Act
+
+logger = logging.getLogger(__name__)
 
 
 @admin.register(AdApplication)
@@ -24,6 +27,24 @@ class AdApplicationAdmin(admin.ModelAdmin):
         'owner_approved_at',
         'owner_last_rejection_reason',
     )
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if not change:
+            return
+        from billing.models import Invoice
+
+        from advertisers.ad_campaign_services import fulfill_paid_ad_application
+
+        if obj.status != AdApplication.STATUS_PAID or not obj.invoice_id:
+            return
+        inv = getattr(obj, 'invoice', None)
+        if inv is None or inv.status != Invoice.STATUS_PAID:
+            return
+        try:
+            fulfill_paid_ad_application(obj)
+        except Exception:
+            logger.exception('fulfill from AdApplicationAdmin.save_model app=%s', obj.pk)
 
     def get_urls(self):
         info = self.opts.app_label, self.opts.model_name

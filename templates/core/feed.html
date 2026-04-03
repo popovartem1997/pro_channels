@@ -40,6 +40,7 @@
         <select class="form-select form-select-sm js-feed-auto-submit" name="kind">
           <option value="all" {% if kind == 'all' %}selected{% endif %}>Все</option>
           <option value="post" {% if kind == 'post' %}selected{% endif %}>Посты</option>
+          <option value="ad" {% if kind == 'ad' %}selected{% endif %}>Реклама</option>
           <option value="subscriber" {% if kind == 'subscriber' %}selected{% endif %}>От подписчиков</option>
           <option value="parsing" {% if kind == 'parsing' %}selected{% endif %}>Парсинг</option>
         </select>

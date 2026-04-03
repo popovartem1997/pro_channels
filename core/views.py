@@ -371,7 +371,9 @@ def feed(request):
     from channels.models import Channel
     from parsing.models import ParsedItem
 
-    kind = (request.GET.get('kind') or 'all').strip()  # all|post|subscriber|parsing
+    kind = (request.GET.get('kind') or 'all').strip()  # all|post|subscriber|parsing|ad
+    if kind not in ('all', 'post', 'subscriber', 'parsing', 'ad'):
+        kind = 'all'
     # unified status filter (one select in UI)
     status_filter = (request.GET.get('status') or '').strip()
     status_kind = ''
@@ -408,6 +410,9 @@ def feed(request):
     parsed_qs = parsed_qs.select_related(
         'source', 'source__channel', 'source__channel_group', 'keyword', 'keyword__channel',
     )
+
+    if kind == 'ad':
+        post_qs = post_qs.filter(campaign_application__isnull=False)
 
     items = []
 
@@ -496,7 +501,7 @@ def feed(request):
             elif status_filter in {'pending', 'rejected', 'published'}:
                 status_kind, status_value = 'parsing', status_filter
 
-        if kind == 'post':
+        if kind in ('post', 'ad'):
             v = status_value if status_kind in ('', 'post') else status_filter
             if ':' in v:
                 v = v.split(':', 1)[1]
@@ -548,13 +553,13 @@ def feed(request):
             | Q(source__name__icontains=search_q)
         )
 
-    if kind in ('all', 'post'):
+    if kind in ('all', 'post', 'ad'):
         from content.models import PostMedia
         for p in post_qs.order_by('-created_at')[:200]:
             items.append({
                 'kind': 'post',
                 'dt': p.created_at,
-                'title': 'Пост',
+                'title': 'Реклама' if p.campaign_application_id else 'Пост',
                 'text': p.text or '',
                 'status': p.status,
                 'status_display': p.get_status_display(),

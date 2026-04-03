@@ -929,8 +929,16 @@ def owner_campaign_confirm_payment(request, pk: int):
     app.status = AdApplication.STATUS_PAID
     app.save(update_fields=['transfer_marked_received', 'status', 'updated_at'])
     try:
-        fulfill_paid_ad_application(app)
-        messages.success(request, 'Оплата подтверждена, посты поставлены в расписание.')
+        ok = fulfill_paid_ad_application(app)
+        if ok:
+            messages.success(request, 'Оплата подтверждена, посты поставлены в расписание.')
+        else:
+            messages.warning(
+                request,
+                'Оплата отмечена, но посты по слотам не созданы: в черновике должен быть текст '
+                '(или оформление в редакторе), в заявке — выбранные слоты. Исправьте и снова нажмите '
+                '«Подтвердить оплату» здесь (повтор безопасен).',
+            )
     except Exception as e:
         logger.exception('fulfill after transfer')
         messages.warning(request, f'Оплата отмечена, но публикации нужно проверить: {e}')
