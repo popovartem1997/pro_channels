@@ -869,14 +869,6 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-def _tg_moderation_chat_id(raw: str):
-    """Числовые id (в т.ч. отрицательные для групп) отдаём int — так надёжнее для Bot API."""
-    s = str(raw).strip()
-    if s.lstrip('-').isdigit():
-        return int(s)
-    return s
-
-
 def _build_display_name(user) -> str:
     name = ' '.join(filter(None, [user.first_name or '', user.last_name or ''])).strip()
     return name or user.username or str(user.id)
@@ -1174,7 +1166,7 @@ async def flush_collected_telegram_album(
         sender_line = f'👤 {_hx(disp)} (@{_hx(uname)})'
 
     for cid in admin_chat_ids:
-        dest = _tg_moderation_chat_id(str(cid))
+        dest = str(cid).strip()
         try:
             uuid_str = str(suggestion.tracking_id)
             keyboard = InlineKeyboardMarkup([[

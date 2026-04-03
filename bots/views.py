@@ -80,6 +80,30 @@ def _moderation_recipient_users_from_post(request, owner_user):
     return User.objects.filter(pk__in=ids)
 
 
+def _moderation_qs_and_users_for_post(request, owner_user, *, existing_bot: SuggestionBot | None):
+    """
+    Чекбоксы «Кому слать модерацию» не попадают в POST, если ни одна не отмечена.
+    Без этого при «Сохранить» вызывалось moderators.set([]) и список получателей обнулялся —
+    модерация переставала уходить никому.
+
+    Правило: есть отмеченные галочки → берём их; иначе если заполнен «чат модерации» → явно пустой
+    список личных получателей (только группа); иначе при редактировании сохраняем текущий M2M из БД.
+    """
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    admin_chat = (request.POST.get('admin_chat_id') or '').strip()
+    if request.POST.getlist('moderators'):
+        qs = _moderation_recipient_users_from_post(request, owner_user)
+        return qs, list(qs)
+    if admin_chat:
+        return User.objects.none(), []
+    if existing_bot is not None:
+        qs = existing_bot.moderators.all()
+        return qs, list(qs)
+    return User.objects.none(), []
+
+
 def _telegram_moderation_config_error(owner_user, mod_users, admin_chat_id: str) -> str | None:
     """Ошибка для messages.error или None, если личка или группа настроены."""
     from bots.models import telegram_user_id_for_moderation_recipient
@@ -468,9 +492,8 @@ def bot_create(request):
                 'selected_channel_group_ids': selected_channel_group_ids,
             })
 
-        moderation_qs = _moderation_recipient_users_from_post(request, request.user)
-        mod_users = list(moderation_qs)
         admin_chat_post = (request.POST.get('admin_chat_id') or '').strip()
+        moderation_qs, mod_users = _moderation_qs_and_users_for_post(request, request.user, existing_bot=None)
         if platform == SuggestionBot.PLATFORM_TELEGRAM:
             err = _telegram_moderation_config_error(request.user, mod_users, admin_chat_post)
             if err:
@@ -726,9 +749,8 @@ def bot_edit(request, bot_id: int):
         bot.rejected_message = request.POST.get('rejected_message', bot.rejected_message).strip() or bot.rejected_message
 
         if not can_edit_messages_only:
-            moderation_qs = _moderation_recipient_users_from_post(request, bot.owner)
-            mod_users = list(moderation_qs)
             admin_chat_post = (request.POST.get('admin_chat_id') or '').strip()
+            moderation_qs, mod_users = _moderation_qs_and_users_for_post(request, bot.owner, existing_bot=bot)
             if bot.platform == SuggestionBot.PLATFORM_TELEGRAM:
                 err = _telegram_moderation_config_error(bot.owner, mod_users, admin_chat_post)
                 if err:
