@@ -113,7 +113,7 @@
 
 <!-- Мобильный топбар (виден только на телефоне/планшете) -->
 <div class="mobile-topbar">
-  <a class="brand" href="{% if user.role == 'advertiser' %}{% url 'advertisers:dashboard' %}{% else %}{% url 'dashboard' %}{% endif %}">
+  <a class="brand" href="{% if user.role == 'advertiser' %}{% url 'advertisers:campaign_list' %}{% else %}{% url 'dashboard' %}{% endif %}">
     <i class="bi bi-broadcast-pin" style="color:var(--brand)"></i> Pro<span>Channels</span>
   </a>
   <button class="btn btn-sm btn-outline-secondary" id="sidebar-toggle" aria-label="Меню">
@@ -127,7 +127,7 @@
 <div class="d-flex" style="min-height:100vh;">
   <nav class="sidebar d-flex flex-column p-3" id="sidebar">
     <div class="d-flex align-items-center justify-content-between mb-3">
-      <a class="brand" href="{% if user.role == 'advertiser' %}{% url 'advertisers:dashboard' %}{% else %}{% url 'dashboard' %}{% endif %}">
+      <a class="brand" href="{% if user.role == 'advertiser' %}{% url 'advertisers:campaign_list' %}{% else %}{% url 'dashboard' %}{% endif %}">
         <i class="bi bi-broadcast-pin" style="color:var(--brand)"></i> Pro<span>Channels</span>
       </a>
       <!-- Закрыть (только мобильный) -->
@@ -139,10 +139,7 @@
     {% if user.role == 'advertiser' %}
     <span class="nav-section">Реклама</span>
     <ul class="nav flex-column">
-      <li><a class="nav-link {% if request.resolver_match.namespace == 'advertisers' %}{% if request.resolver_match.url_name == 'dashboard' or request.resolver_match.url_name == 'order_detail' %}active{% endif %}{% endif %}" href="{% url 'advertisers:dashboard' %}">
-        <i class="bi bi-clipboard-check"></i> Заказы
-      </a></li>
-      <li><a class="nav-link {% if '/advertisers/campaign/' in request.path %}active{% endif %}" href="{% url 'advertisers:campaign_list' %}">
+      <li><a class="nav-link {% if request.resolver_match.namespace == 'advertisers' and request.resolver_match.url_name == 'campaign_list' or '/advertisers/campaign/' in request.path %}active{% endif %}" href="{% url 'advertisers:campaign_list' %}">
         <i class="bi bi-collection"></i> Мои заявки
       </a></li>
       <li><a class="nav-link {% if request.resolver_match.url_name == 'catalog' %}active{% endif %}" href="{% url 'advertisers:catalog' %}">
@@ -210,7 +207,7 @@
       <span class="nav-section">Реклама</span>
       <ul class="nav flex-column">
         <li><a class="nav-link {% if '/advertisers/' in request.path and '/advertisers/manage/' not in request.path and request.resolver_match.url_name != 'register' %}active{% endif %}"
-               href="{% if user.is_staff or user.role == 'owner' %}{% url 'advertisers:catalog' %}{% else %}{% url 'advertisers:dashboard' %}{% endif %}">
+               href="{% if user.is_staff or user.role == 'owner' %}{% url 'advertisers:catalog' %}{% else %}{% url 'advertisers:campaign_list' %}{% endif %}">
           <i class="bi bi-megaphone"></i> Заказы
         </a></li>
         {% if user.is_staff or user.role == 'owner' %}

@@ -2,7 +2,7 @@
 {% block title %}Слоты · заявка #{{ app.pk }}{% endblock %}
 {% block content %}
 <div class="page-header">
-  <h1>Свободные слоты</h1>
+  <h1>Слоты и доп. услуги</h1>
   <p class="text-muted small mb-0">{{ app.channel.name }} · заявка #{{ app.pk }}</p>
 </div>
 {% include 'advertisers/_campaign_steps.html' with step=2 %}
@@ -27,6 +27,7 @@
         {% endfor %}
       </table>
     </div>
+    {% include 'advertisers/_campaign_addon_fields.html' %}
     <div class="mt-3 d-flex gap-2 flex-wrap">
       <button type="submit" class="btn btn-brand">Далее</button>
       <a href="{% url 'advertisers:campaign_list' %}" class="btn btn-outline-secondary">К заявкам</a>

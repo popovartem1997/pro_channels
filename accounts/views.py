@@ -155,6 +155,8 @@ def dashboard(request):
     from content.models import Post
 
     user = request.user
+    if getattr(user, 'role', None) == User.ROLE_ADVERTISER:
+        return redirect('advertisers:campaign_list')
     if user.role in ('manager', 'assistant_admin'):
         from managers.models import TeamMember
         memberships = TeamMember.objects.filter(member=user, is_active=True).select_related('owner').prefetch_related('channels')

@@ -48,7 +48,7 @@ def _advertiser_register_context(request, next_redirect=None):
 def advertiser_register(request):
     """Регистрация профиля рекламодателя."""
     if request.user.is_authenticated and hasattr(request.user, 'advertiser_profile'):
-        return redirect('advertisers:dashboard')
+        return redirect('advertisers:campaign_list')
 
     if request.method == 'POST':
         next_redirect = (request.POST.get('next') or '').strip()
@@ -121,30 +121,15 @@ def advertiser_register(request):
         messages.success(request, 'Профиль рекламодателя создан.')
         if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
             return redirect(next_url)
-        return redirect('advertisers:dashboard')
+        return redirect('advertisers:campaign_list')
 
     return render(request, 'advertisers/register.html', _advertiser_register_context(request))
 
 
 @login_required
 def advertiser_dashboard(request):
-    try:
-        adv = Advertiser.objects.get(user=request.user)
-    except Advertiser.DoesNotExist:
-        messages.info(request, 'Чтобы создавать заявки на рекламу, заполните профиль рекламодателя.')
-        return redirect('advertisers:register')
-    orders = AdvertisingOrder.objects.filter(advertiser=adv).select_related('invoice').order_by('-created_at')
-    adv = Advertiser.objects.select_related('user').prefetch_related('ord_contracts').get(pk=adv.pk)
-    orders_total_count = orders.count()
-    active_orders_count = orders.filter(
-        status__in=[AdvertisingOrder.STATUS_APPROVED, AdvertisingOrder.STATUS_ACTIVE]
-    ).count()
-    return render(request, 'advertisers/dashboard.html', {
-        'advertiser': adv,
-        'orders': orders,
-        'orders_total_count': orders_total_count,
-        'active_orders_count': active_orders_count,
-    })
+    """Старый URL /advertisers/ — ведёт на список заявок (новый поток)."""
+    return redirect('advertisers:campaign_list')
 
 
 @login_required
@@ -217,7 +202,7 @@ def order_create(request):
             if channel_ids:
                 order.channels.set(channel_ids)
             messages.success(request, 'Заявка на рекламу отправлена на рассмотрение.')
-            return redirect('advertisers:dashboard')
+            return redirect('advertisers:campaign_list')
 
     # Показываем только активные каналы для размещения
     owner_ids = list(User.objects.filter(role=User.ROLE_OWNER).values_list('id', flat=True))

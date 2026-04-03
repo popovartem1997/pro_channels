@@ -28,6 +28,81 @@ from .models import AdApplication, Advertiser
 logger = logging.getLogger(__name__)
 
 
+def _iter_active_addons(channel: Channel):
+    addons_all = list(
+        ChannelAdAddon.objects.filter(channel=channel, is_active=True).order_by('title')
+    )
+    pin_addon = next(
+        (a for a in addons_all if a.addon_kind == ChannelAdAddon.ADDON_KIND_PIN_HOURLY),
+        None,
+    )
+    top_addons = [a for a in addons_all if a.addon_kind == ChannelAdAddon.ADDON_KIND_TOP_BLOCK]
+    custom_addons = [a for a in addons_all if a.addon_kind == ChannelAdAddon.ADDON_KIND_CUSTOM]
+    return pin_addon, top_addons, custom_addons
+
+
+def _pin_hours_default(pin_addon: ChannelAdAddon | None) -> int:
+    if not pin_addon:
+        return 1
+    max_h = int(pin_addon.max_pin_hours or 72)
+    return min(24, max(1, max_h))
+
+
+def _parse_addon_post(request, pin_addon: ChannelAdAddon | None):
+    codes = list(request.POST.getlist('addon_codes'))
+    pin_hours = 0
+    if pin_addon:
+        pcode = (pin_addon.code or '').strip()
+        pin_checked = pcode in codes
+        if not pin_checked:
+            codes = [c for c in codes if str(c) != pcode]
+            pin_hours = 0
+        else:
+            raw = (request.POST.get('ad_pin_hours') or '0').strip()
+            pin_hours = int(raw) if raw.isdigit() else 0
+            max_h = int(pin_addon.max_pin_hours or 72)
+            pin_hours = min(max(0, pin_hours), max_h)
+            if pin_hours < 1:
+                return (
+                    codes,
+                    pin_hours,
+                    'Для закрепа укажите число часов не меньше 1 '
+                    f'(максимум {max_h}).',
+                )
+    return codes, pin_hours, None
+
+
+def _addon_display_rows(app: AdApplication) -> list[dict]:
+    """Строки для сводки: что выбрано из доп. услуг."""
+    rows: list[dict] = []
+    for code in app.addon_codes or []:
+        code_s = str(code).strip()
+        if not code_s:
+            continue
+        row = ChannelAdAddon.objects.filter(
+            channel=app.channel, code__iexact=code_s, is_active=True
+        ).first()
+        if not row:
+            rows.append({'label': code_s, 'detail': ''})
+            continue
+        kind = row.addon_kind or ChannelAdAddon.ADDON_KIND_CUSTOM
+        if kind == ChannelAdAddon.ADDON_KIND_PIN_HOURLY:
+            ph = int(app.ad_pin_hours or 0)
+            rows.append(
+                {
+                    'label': row.title,
+                    'detail': f'{ph} ч. × {row.price} ₽/ч = {(row.price or 0) * ph} ₽',
+                }
+            )
+        elif kind == ChannelAdAddon.ADDON_KIND_TOP_BLOCK:
+            bh = row.block_hours or ((row.top_duration_minutes or 0) // 60 if row.top_duration_minutes else 0)
+            extra = f', без других постов {bh} ч.' if bh else ''
+            rows.append({'label': row.title, 'detail': f'{row.price} ₽{extra}'})
+        else:
+            rows.append({'label': row.title, 'detail': f'{row.price} ₽'})
+    return rows
+
+
 def _advertiser(request):
     return get_object_or_404(Advertiser, user=request.user)
 
@@ -101,6 +176,9 @@ def campaign_slots(request, pk: int):
     ensure_ad_slots_for_channel(app.channel)
     from advertisers.models import AdvertisingSlot
 
+    pin_addon, top_addons, custom_addons = _iter_active_addons(app.channel)
+    pin_hours_default = _pin_hours_default(pin_addon)
+
     if request.method == 'POST':
         sel = request.POST.getlist('slot_ids')
         try:
@@ -110,9 +188,18 @@ def campaign_slots(request, pk: int):
             if n < 1:
                 messages.error(request, 'Выберите хотя бы один слот.')
             else:
-                save_pricing_to_application(app, slot_count=n, addon_codes=app.addon_codes or [])
-                messages.success(request, f'Выбрано слотов: {n}.')
-                return redirect('advertisers:campaign_content', pk=app.pk)
+                codes, pin_hours, ad_err = _parse_addon_post(request, pin_addon)
+                if ad_err:
+                    messages.error(request, ad_err)
+                else:
+                    save_pricing_to_application(
+                        app,
+                        slot_count=n,
+                        addon_codes=codes,
+                        pin_hours=pin_hours,
+                    )
+                    messages.success(request, f'Выбрано слотов: {n}.')
+                    return redirect('advertisers:campaign_content', pk=app.pk)
         except ValueError as e:
             messages.error(request, str(e))
 
@@ -124,7 +211,15 @@ def campaign_slots(request, pk: int):
     return render(
         request,
         'advertisers/campaign_slots.html',
-        {'app': app, 'slots': slots, 'selected': selected},
+        {
+            'app': app,
+            'slots': slots,
+            'selected': selected,
+            'pin_addon': pin_addon,
+            'top_addons': top_addons,
+            'custom_addons': custom_addons,
+            'pin_hours_default': pin_hours_default,
+        },
     )
 
 
@@ -253,67 +348,14 @@ def campaign_review(request, pk: int):
         save_pricing_to_application(app, slot_count=n, addon_codes=app.addon_codes or [])
         app.refresh_from_db()
 
-    addons_all = list(
-        ChannelAdAddon.objects.filter(channel=app.channel, is_active=True).order_by('title')
-    )
-    pin_addon = next(
-        (a for a in addons_all if a.addon_kind == ChannelAdAddon.ADDON_KIND_PIN_HOURLY),
-        None,
-    )
-    top_addons = [a for a in addons_all if a.addon_kind == ChannelAdAddon.ADDON_KIND_TOP_BLOCK]
-    custom_addons = [a for a in addons_all if a.addon_kind == ChannelAdAddon.ADDON_KIND_CUSTOM]
-
-    if request.method == 'POST':
-        codes = list(request.POST.getlist('addon_codes'))
-        n = len(app.selected_slot_ids or [])
-
-        pin_hours = 0
-        if pin_addon:
-            pcode = (pin_addon.code or '').strip()
-            pin_checked = pcode in codes
-            if not pin_checked:
-                codes = [c for c in codes if str(c) != pcode]
-                pin_hours = 0
-            else:
-                raw = (request.POST.get('ad_pin_hours') or '0').strip()
-                pin_hours = int(raw) if raw.isdigit() else 0
-                max_h = int(pin_addon.max_pin_hours or 72)
-                pin_hours = min(max(0, pin_hours), max_h)
-                if pin_hours < 1:
-                    messages.error(
-                        request,
-                        'Для закрепа с почасовой оплатой укажите число часов не меньше 1 '
-                        f'(максимум {max_h}).',
-                    )
-                    return render(
-                        request,
-                        'advertisers/campaign_review.html',
-                        {
-                            'app': app,
-                            'pin_addon': pin_addon,
-                            'top_addons': top_addons,
-                            'custom_addons': custom_addons,
-                        },
-                    )
-
-        save_pricing_to_application(
-            app,
-            slot_count=max(1, n),
-            addon_codes=codes,
-            pin_hours=pin_hours,
-        )
-        app.refresh_from_db()
-        messages.success(request, 'Параметры обновлены.')
-        return redirect('advertisers:campaign_contract', pk=app.pk)
+    addon_rows = _addon_display_rows(app)
 
     return render(
         request,
         'advertisers/campaign_review.html',
         {
             'app': app,
-            'pin_addon': pin_addon,
-            'top_addons': top_addons,
-            'custom_addons': custom_addons,
+            'addon_rows': addon_rows,
         },
     )
 
