@@ -571,7 +571,7 @@ def import_media_from_suggestion_task(self, post_id: int):
     return imported
 
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+@shared_task(bind=True, max_retries=8, default_retry_delay=60)
 def publish_post_task(self, post_id: int, force: bool = False):
     """Публикует пост во все подключённые каналы."""
     from channels.models import Channel
@@ -606,6 +606,8 @@ def publish_post_task(self, post_id: int, force: bool = False):
     success_count = 0
     fail_count = 0
 
+    from telegram.error import RetryAfter
+
     for channel in post.channels.all():
         try:
             result = _publish_to_channel(post, channel)
@@ -617,6 +619,24 @@ def publish_post_task(self, post_id: int, force: bool = False):
             )
             success_count += 1
             logger.info(f'Пост #{post_id} опубликован в {channel.name}')
+        except RetryAfter as exc:
+            # Лимит запросов к Bot API; при пачке задач — 429. Не пишем FAIL, если ещё ни в один канал не ушли.
+            wait = max(int(getattr(exc, 'retry_after', 1) or 1), 1) + 1
+            if success_count == 0:
+                logger.info(
+                    'Пост #%s: лимит Telegram (flood), повтор задачи через %s с',
+                    post_id,
+                    wait,
+                )
+                raise publish_post_task.retry(exc=exc, countdown=wait)
+            PublishResult.objects.create(
+                post=post,
+                channel=channel,
+                status=PublishResult.STATUS_FAIL,
+                error_message=str(exc),
+            )
+            fail_count += 1
+            logger.error(f'Ошибка публикации поста #{post_id} в {channel.name}: {exc}')
         except Exception as exc:
             PublishResult.objects.create(
                 post=post,
@@ -1039,7 +1059,7 @@ def _prepare_telegram_publish_bundle(post, channel):
 async def _publish_telegram_async_send(bundle: dict):
     """Только HTTP через PTB: без ORM и без обращений к Django."""
     from telegram import Bot
-    from telegram.error import TelegramError
+    from telegram.error import RetryAfter, TelegramError
     from telegram.request import HTTPXRequest
 
     bot_token = bundle['bot_token']
@@ -1101,6 +1121,8 @@ async def _publish_telegram_async_send(bundle: dict):
                 await bot.pin_chat_message(chat_id=chat_id, message_id=msg_id)
 
             return {'message_id': msg_id or ''}
+    except RetryAfter:
+        raise
     except TelegramError as exc:
         raise ValueError(f'Telegram API error: {exc}') from exc
 
