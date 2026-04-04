@@ -1,0 +1,40 @@
+# Git / IDE
+.git
+.gitignore
+.cursor
+.idea
+.vscode
+
+# Локальные виртуальные окружения (в образе ставятся из requirements.txt)
+.venv
+.venv-*
+venv
+env
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov
+.coverage
+coverage.xml
+
+# Секреты и локальная БД (в контейнер — через .env / compose, не через слой образа)
+.env
+.env.*
+!.env.example
+db_dev.sqlite3
+*.sqlite3
+
+# Медиа и статика с хоста (в проде — volume / collectstatic)
+media
+staticfiles
+
+# Прочее
+*.log
+node_modules
