@@ -182,6 +182,10 @@ CELERY_TASK_ROUTES = {
     # Раз в минуту: не должна стоять в хвосте за тысячами execute_parse_task в «celery».
     'content.tasks.check_scheduled_posts': {'queue': 'prio'},
     'content.tasks.publish_post_task': {'queue': 'prio'},
+    # Тики дайджеста/фактов: узкое окно по локальному времени; в очереди «celery» задача
+    # могла бы выполниться с опозданием и пропустить слот (см. is_digest_due_now).
+    'channels.tasks.channel_morning_digest_tick': {'queue': 'prio'},
+    'channels.tasks.channel_interesting_facts_tick': {'queue': 'prio'},
     # Отдельная очередь: иначе импорт TG→MAX висит в «Ожидание воркера» за сотнями publish_post_task в prio.
     'channels.tasks.import_tg_history_to_max_task': {'queue': CELERY_IMPORT_HISTORY_QUEUE},
     # Парсинг ленты (ParseTask): отдельная очередь «parse» — последняя в списке воркера (см. docker-compose),
@@ -201,6 +205,9 @@ TELEGRAM_WEBHOOK_USE_CELERY = config('TELEGRAM_WEBHOOK_USE_CELERY', default=Fals
 
 # Пост в «Публикуется» без завершения Celery (рестарт воркера): снова поставить publish_post_task через N минут
 STUCK_PUBLISHING_RECOVER_MINUTES = config('STUCK_PUBLISHING_RECOVER_MINUTES', default=15, cast=int)
+
+# Утренний дайджест: сколько секунд после send_time считать «пора слать» (было жёстко 360).
+MORNING_DIGEST_DUE_WINDOW_SEC = config('MORNING_DIGEST_DUE_WINDOW_SEC', default=900, cast=int)
 
 # ─── Cache ────────────────────────────────────────────────────────────────────
 # Общий для web + Celery (буфер альбомов Telegram). Без Redis все воркеры не видят одни данные.

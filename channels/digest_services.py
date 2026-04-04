@@ -18,6 +18,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import requests
+from django.conf import settings
 from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.utils import timezone
@@ -343,7 +344,12 @@ def download_digest_image_bytes(seed: str) -> bytes | None:
 
 
 def is_digest_due_now(cfg, local_now: dt.datetime) -> bool:
-    """Окно отправки: [send_time; send_time + 6 минут], раз в сутки по локальной дате."""
+    """
+    Окно отправки: [send_time; send_time + N сек], раз в сутки по локальной дате.
+
+    N задаётся MORNING_DIGEST_DUE_WINDOW_SEC (по умолчанию 900 с ≈ 15 мин): если тик Celery
+    отстаёт в общей очереди, 6 минут было недостаточно.
+    """
     if not cfg.is_enabled:
         return False
     wd = local_now.weekday()
@@ -362,7 +368,9 @@ def is_digest_due_now(cfg, local_now: dt.datetime) -> bool:
     st = cfg.send_time
     cur = local_now.hour * 3600 + local_now.minute * 60 + local_now.second
     start = st.hour * 3600 + st.minute * 60 + st.second
-    end = start + 360
+    window = int(getattr(settings, 'MORNING_DIGEST_DUE_WINDOW_SEC', 900) or 900)
+    window = max(300, min(window, 7200))
+    end = start + window
     return start <= cur <= end
 
 
