@@ -343,6 +343,30 @@ def download_digest_image_bytes(seed: str) -> bytes | None:
         return None
 
 
+def _local_seconds_since_midnight(when: dt.datetime) -> int:
+    return when.hour * 3600 + when.minute * 60 + when.second
+
+
+def _send_time_to_seconds(t: dt.time) -> int:
+    return t.hour * 3600 + t.minute * 60 + t.second
+
+
+def _digest_local_time_in_window(local_now: dt.datetime, send_time: dt.time, window_sec: int) -> bool:
+    """
+    True, если локальное время попало в [send_time; send_time + window], с учётом перехода через полночь.
+
+    Для окон, которые переходят на следующий календарный день, теоретически возможен второй проход
+    после полуночи (last_sent_on по датам). Для утреннего слота (например 05:00–05:15) это не применимо.
+    """
+    cur = _local_seconds_since_midnight(local_now)
+    start = _send_time_to_seconds(send_time)
+    end = start + window_sec
+    if end < 86400:
+        return start <= cur <= end
+    spill_end = end - 86400
+    return cur >= start or cur <= spill_end
+
+
 def is_digest_due_now(cfg, local_now: dt.datetime) -> bool:
     """
     Окно отправки: [send_time; send_time + N сек], раз в сутки по локальной дате.
@@ -353,7 +377,7 @@ def is_digest_due_now(cfg, local_now: dt.datetime) -> bool:
     if not cfg.is_enabled:
         return False
     wd = local_now.weekday()
-    days = cfg.weekdays or []
+    days = cfg.weekdays if isinstance(cfg.weekdays, list) else []
     if days:
         wanted = []
         for x in days:
@@ -366,12 +390,9 @@ def is_digest_due_now(cfg, local_now: dt.datetime) -> bool:
     if cfg.last_sent_on == local_now.date():
         return False
     st = cfg.send_time
-    cur = local_now.hour * 3600 + local_now.minute * 60 + local_now.second
-    start = st.hour * 3600 + st.minute * 60 + st.second
     window = int(getattr(settings, 'MORNING_DIGEST_DUE_WINDOW_SEC', 900) or 900)
     window = max(300, min(window, 7200))
-    end = start + window
-    return start <= cur <= end
+    return _digest_local_time_in_window(local_now, st, window)
 
 
 def compose_digest_text(cfg, *, local_now: dt.datetime, day: dt.date, lat: float, lon: float) -> tuple[str, str]:
@@ -600,52 +621,82 @@ def create_morning_digest_draft_now(cfg_id: int) -> tuple[bool, str]:
         cache.delete(lock_key)
 
 
-def publish_morning_digest(cfg_id: int) -> None:
+def publish_morning_digest(cfg_id: int) -> bool:
+    """
+    Один раз за локальные сутки: блокировка строки ChannelMorningDigest (select_for_update),
+    без Redis-ключа до успеха. Раньше cache.add до создания поста мог «залипнуть» на сутки при обрыве
+    воркера — тогда слот не повторялся и last_sent_on не обновлялся.
+
+    Возвращает True, если создан черновик и обновлён last_sent_on.
+    """
+    from django.db import transaction
+
     from content.tasks import publish_post_task
 
     from .models import ChannelMorningDigest
 
-    cfg = ChannelMorningDigest.objects.select_related('channel', 'channel__owner').get(pk=cfg_id)
-    if not cfg.is_enabled:
-        return
-    channel = cfg.channel
-    tz = ZoneInfo(cfg.timezone_name or 'Europe/Moscow')
-    local_now = timezone.now().astimezone(tz)
-    day = local_now.date()
+    with transaction.atomic():
+        cfg = (
+            ChannelMorningDigest.objects.select_related('channel', 'channel__owner')
+            .select_for_update()
+            .get(pk=cfg_id)
+        )
+        if not cfg.is_enabled:
+            return False
 
-    if not is_digest_due_now(cfg, local_now):
-        return
+        channel = cfg.channel
+        tz = ZoneInfo(cfg.timezone_name or 'Europe/Moscow')
+        local_now = timezone.now().astimezone(tz)
+        day = local_now.date()
 
-    cache_key = f'morning_digest:{cfg_id}:{day.isoformat()}'
-    if not cache.add(cache_key, '1', timeout=86400):
-        return
-
-    try:
+        if not is_digest_due_now(cfg, local_now):
+            return False
         if not channel.is_active:
-            cache.delete(cache_key)
-            return
+            logger.info('morning digest cfg=%s: канал неактивен — пропуск', cfg_id)
+            return False
 
         post = _create_morning_digest_draft_post(cfg, day=day, local_now=local_now)
 
-        if channel.token_configured:
-            publish_post_task.delay(post.pk)
-
         cfg.last_sent_on = day
         cfg.save(update_fields=['last_sent_on', 'updated_at'])
-    except Exception:
-        cache.delete(cache_key)
-        raise
+
+        if channel.token_configured:
+            pid = post.pk
+
+            def _enqueue():
+                publish_post_task.delay(pid)
+
+            transaction.on_commit(_enqueue)
+        else:
+            logger.info(
+                'morning digest cfg=%s: черновик #%s без автопубликации (канал без токена)',
+                cfg_id,
+                post.pk,
+            )
+
+        logger.info(
+            'morning digest cfg=%s: черновик #%s для канала %s, publish=%s',
+            cfg_id,
+            post.pk,
+            channel.pk,
+            bool(channel.token_configured),
+        )
+        return True
 
 
 def tick_morning_digests() -> None:
     from .models import ChannelMorningDigest
 
+    fired = 0
     for cfg in ChannelMorningDigest.objects.filter(is_enabled=True).select_related('channel'):
         try:
             tz = ZoneInfo(cfg.timezone_name or 'Europe/Moscow')
             local_now = timezone.now().astimezone(tz)
             if not is_digest_due_now(cfg, local_now):
                 continue
-            publish_morning_digest(cfg.pk)
+            if publish_morning_digest(cfg.pk):
+                fired += 1
         except Exception:
             logger.exception('morning digest cfg=%s', cfg.pk)
+    if fired:
+        logger.info('morning_digest_tick: обработано конфигов в окне времени: %s', fired)
