@@ -20,11 +20,16 @@ except ImportError:  # pragma: no cover
 
 
 def _tg_postmedia_type_from_path(file_path: str, suggestion_content_type: str) -> str:
-    """Тип вложения по расширению пути Telegram file_path (document как «фото»)."""
+    """Тип вложения по пути Telegram getFile (каталог + расширение). Для mixed не падать в «документ» без причины."""
     from .models import PostMedia
     from bots.models import Suggestion
 
-    fp = (file_path or '').lower()
+    fp = (file_path or '').lower().replace('\\', '/')
+    # Сжатые фото в Bot API лежат в photos/ даже при content_type=mixed
+    if '/photos/' in fp:
+        return PostMedia.TYPE_PHOTO
+    if '/videos/' in fp or '/video_notes/' in fp:
+        return PostMedia.TYPE_VIDEO
     for ext in ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic', '.tiff'):
         if fp.endswith(ext):
             return PostMedia.TYPE_PHOTO
@@ -38,6 +43,25 @@ def _tg_postmedia_type_from_path(file_path: str, suggestion_content_type: str) -
     if suggestion_content_type == Suggestion.CONTENT_DOCUMENT:
         return PostMedia.TYPE_DOCUMENT
     return PostMedia.TYPE_DOCUMENT
+
+
+def _fix_telegram_postmedia_mislabeled_as_document(post) -> None:
+    """Совпадает с content.views._fix_mislabeled_post_media — без циклического импорта."""
+    from .models import PostMedia
+
+    IMAGE_EXT = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic', '.tiff')
+    VIDEO_EXT = ('.mp4', '.mov', '.webm', '.mkv', '.m4v')
+    to_update = []
+    for m in PostMedia.objects.filter(post=post, media_type=PostMedia.TYPE_DOCUMENT):
+        name = (m.file.name or '').lower()
+        if any(name.endswith(e) for e in IMAGE_EXT):
+            m.media_type = PostMedia.TYPE_PHOTO
+            to_update.append(m)
+        elif any(name.endswith(e) for e in VIDEO_EXT):
+            m.media_type = PostMedia.TYPE_VIDEO
+            to_update.append(m)
+    if to_update:
+        PostMedia.objects.bulk_update(to_update, ['media_type'])
 
 
 def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
@@ -97,6 +121,8 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
                 imported += 1
             except Exception as e:
                 warnings.append(f'TG: failed file_id={file_id}: {e}')
+        if imported:
+            _fix_telegram_postmedia_mislabeled_as_document(post)
 
     # MAX: копируем файлы с диска (сохранены при приёме предложки), без повторного скачивания с CDN
     if bot.platform == bot.PLATFORM_MAX:
@@ -952,6 +978,24 @@ def _tg_preserve_spaces_telegram_html(html: str) -> str:
     return ''.join(out)
 
 
+def _html_structural_breaks_to_plain(html_fragment: str) -> str:
+    """
+    HTML из редактора (только <br>, <p>, <div>) → plain с сохранением абзацев.
+    Нужно, чтобы не подменять text_html урезанным post.text.
+    """
+    import html as html_module
+    import re
+
+    s = (html_fragment or '').replace('\r\n', '\n').replace('\r', '\n')
+    s = re.sub(r'<br\s*/?>', '\n', s, flags=re.IGNORECASE)
+    s = re.sub(r'</p>\s*<p\b[^>]*>', '\n\n', s, flags=re.IGNORECASE)
+    s = re.sub(r'</?p\b[^>]*>', '\n', s, flags=re.IGNORECASE)
+    s = re.sub(r'</div>\s*<div\b[^>]*>', '\n', s, flags=re.IGNORECASE)
+    s = re.sub(r'</?div\b[^>]*>', '\n', s, flags=re.IGNORECASE)
+    s = re.sub(r'<[^>]+>', '', s)
+    return html_module.unescape(s).strip()
+
+
 def _tg_plain_to_html_caption(plain: str) -> str:
     """
     Plain → безопасный фрагмент для Telegram HTML: экранирование <>&.
@@ -992,13 +1036,17 @@ def _build_text(post, channel):
     from html import escape
 
     if channel.platform == Ch.PLATFORM_TELEGRAM:
+        import re as _re
+
         th_raw = post.text_html or ''
         th = th_raw.strip()
         if th:
             if not _tg_html_has_rich_formatting(th_raw) and '<pre' not in th_raw.lower():
-                # Раньше сюда клали <pre>: в Telegram это выглядело как «код» для обычного текста.
-                # Редактор часто сохраняет только <br> без b/i/a — это не повод для моноширинного блока.
-                text = _tg_plain_to_html_caption(post.text or '')
+                # Раньше брали только post.text — при этом терялись абзацы, если в text_html были <br>/<p>.
+                if _re.search(r'<(?:br|p|div)\b', th_raw, _re.I):
+                    text = _tg_plain_to_html_caption(_html_structural_breaks_to_plain(th_raw))
+                else:
+                    text = _tg_plain_to_html_caption(post.text or '')
             else:
                 text = post.text_html
                 if '<pre' not in text.lower():

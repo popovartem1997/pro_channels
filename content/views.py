@@ -375,10 +375,16 @@ def post_create_from_suggestion(request, tracking_id):
         return redirect('content:edit', pk=existing.pk)
 
     text = (suggestion.text or '').strip() or '📩 Пост из предложки (проверьте медиа).'
+    from html import escape as _html_esc
+
+    text_html = ''
+    if '\n' in text:
+        text_html = _html_esc(text, quote=False).replace('\n', '<br>')
 
     post = Post.objects.create(
         author=bot.owner,
         text=text,
+        text_html=text_html,
         status=Post.STATUS_DRAFT,
         suggestion=suggestion,
     )

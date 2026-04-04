@@ -16,6 +16,7 @@ Callback data формат (не более 64 байт — ограничени
 import asyncio
 import html
 import logging
+import re
 import time
 import uuid as uuid_module
 
@@ -29,6 +30,95 @@ from telegram.ext import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Подпись к медиа в Telegram ≤ 1024 символа; иначе Bot API отклоняет — модераторы не видят карточку.
+TG_MODERATION_CAPTION_LIMIT = 1024
+
+
+def _clip_telegram_html_caption(caption: str, limit: int = TG_MODERATION_CAPTION_LIMIT) -> str:
+    if len(caption) <= limit:
+        return caption
+    return caption[: max(0, limit - 1)] + '…'
+
+
+async def _send_moderation_opening_message(
+    bot,
+    dest,
+    caption: str,
+    keyboard: InlineKeyboardMarkup,
+    *,
+    media_ids: list,
+    message,
+) -> object | None:
+    """
+    Одно сообщение модераторам с кнопками. Сначала пробуем подходящий тип медиа:
+    send_photo не принимает document file_id и наоборот — иначе карточка не уходила.
+    """
+    caption = _clip_telegram_html_caption(caption)
+    if media_ids:
+        first = media_ids[0]
+        attempts = [
+            lambda: bot.send_photo(
+                chat_id=dest, photo=first, caption=caption, reply_markup=keyboard, parse_mode='HTML'
+            ),
+            lambda: bot.send_video(
+                chat_id=dest, video=first, caption=caption, reply_markup=keyboard, parse_mode='HTML'
+            ),
+            lambda: bot.send_document(
+                chat_id=dest, document=first, caption=caption, reply_markup=keyboard, parse_mode='HTML'
+            ),
+        ]
+        for fn in attempts:
+            try:
+                return await fn()
+            except TelegramError as e:
+                logger.debug('moderation opening media try failed: %s', e)
+        return await bot.send_message(
+            chat_id=dest, text=caption, reply_markup=keyboard, parse_mode='HTML'
+        )
+    if message and message.photo:
+        try:
+            return await bot.send_photo(
+                chat_id=dest, photo=message.photo[-1].file_id,
+                caption=caption, reply_markup=keyboard, parse_mode='HTML',
+            )
+        except TelegramError:
+            pass
+    if message and message.video:
+        try:
+            return await bot.send_video(
+                chat_id=dest, video=message.video.file_id,
+                caption=caption, reply_markup=keyboard, parse_mode='HTML',
+            )
+        except TelegramError:
+            pass
+    if message and message.document:
+        try:
+            return await bot.send_document(
+                chat_id=dest, document=message.document.file_id,
+                caption=caption, reply_markup=keyboard, parse_mode='HTML',
+            )
+        except TelegramError:
+            pass
+    if message and message.audio:
+        try:
+            return await bot.send_audio(
+                chat_id=dest, audio=message.audio.file_id,
+                caption=caption, reply_markup=keyboard, parse_mode='HTML',
+            )
+        except TelegramError:
+            pass
+    if message and message.voice:
+        try:
+            return await bot.send_voice(
+                chat_id=dest, voice=message.voice.file_id,
+                caption=caption, reply_markup=keyboard, parse_mode='HTML',
+            )
+        except TelegramError:
+            pass
+    return await bot.send_message(
+        chat_id=dest, text=caption, reply_markup=keyboard, parse_mode='HTML'
+    )
 
 
 def _moderation_telegram_chat_ids_sync(bot_config) -> list:
@@ -614,7 +704,7 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for admin_chat_id in admin_chat_ids:
                 try:
                     await context.bot.send_message(
-                        chat_id=admin_chat_id,
+                        chat_id=_tg_moderation_chat_id(str(admin_chat_id)),
                         text=caption,
                         parse_mode='HTML',
                     )
@@ -908,6 +998,19 @@ def _build_display_name(user) -> str:
     return name or user.username or str(user.id)
 
 
+def _tg_moderation_chat_id(raw: str) -> int | str:
+    """
+    Chat id для Telegram Bot API: числовые user/group/supergroup — int (в т.ч. отрицательные),
+    иначе строка (@username и т.п.).
+    """
+    s = (raw or '').strip()
+    if not s:
+        return s
+    if re.fullmatch(r'-?\d+', s):
+        return int(s)
+    return s
+
+
 async def _forward_to_admin(update, context, suggestion, admin_chat_id: str):
     """Переслать заявку в чат модерации с кнопками одобрить/отклонить."""
     user = update.effective_user
@@ -942,58 +1045,29 @@ async def _forward_to_admin(update, context, suggestion, admin_chat_id: str):
 
     dest = _tg_moderation_chat_id(admin_chat_id)
     try:
-        # Prefer using saved suggestion media ids (for albums and merged messages).
         media_ids = list(getattr(suggestion, 'media_file_ids', None) or [])
-        if media_ids:
-            # Send first media with caption + buttons, remaining media as separate messages (no buttons).
-            first = media_ids[0]
-            sent = await context.bot.send_photo(
-                chat_id=dest,
-                photo=first,
-                caption=caption,
-                reply_markup=keyboard,
-                parse_mode='HTML',
-            )
+        sent = await _send_moderation_opening_message(
+            context.bot, dest, caption, keyboard, media_ids=media_ids, message=message
+        )
+        if media_ids and sent and getattr(sent, 'message_id', None):
             for fid in media_ids[1:10]:
                 try:
-                    await context.bot.send_photo(chat_id=dest, photo=fid, reply_to_message_id=sent.message_id)
-                except Exception:
+                    await context.bot.send_photo(
+                        chat_id=dest, photo=fid, reply_to_message_id=sent.message_id
+                    )
+                except TelegramError:
                     try:
-                        await context.bot.send_photo(chat_id=dest, photo=fid)
-                    except Exception:
-                        pass
-        else:
-            # Fallback: use the actual incoming message payload
-            if message.photo:
-                await context.bot.send_photo(
-                    chat_id=dest, photo=message.photo[-1].file_id,
-                    caption=caption, reply_markup=keyboard, parse_mode='HTML',
-                )
-            elif message.video:
-                await context.bot.send_video(
-                    chat_id=dest, video=message.video.file_id,
-                    caption=caption, reply_markup=keyboard, parse_mode='HTML',
-                )
-            elif message.document:
-                await context.bot.send_document(
-                    chat_id=dest, document=message.document.file_id,
-                    caption=caption, reply_markup=keyboard, parse_mode='HTML',
-                )
-            elif message.audio:
-                await context.bot.send_audio(
-                    chat_id=dest, audio=message.audio.file_id,
-                    caption=caption, reply_markup=keyboard, parse_mode='HTML',
-                )
-            elif message.voice:
-                await context.bot.send_voice(
-                    chat_id=dest, voice=message.voice.file_id,
-                    caption=caption, reply_markup=keyboard, parse_mode='HTML',
-                )
-            else:
-                await context.bot.send_message(
-                    chat_id=dest, text=caption,
-                    reply_markup=keyboard, parse_mode='HTML',
-                )
+                        await context.bot.send_document(
+                            chat_id=dest, document=fid, reply_to_message_id=sent.message_id
+                        )
+                    except TelegramError:
+                        try:
+                            await context.bot.send_photo(chat_id=dest, photo=fid)
+                        except TelegramError:
+                            try:
+                                await context.bot.send_document(chat_id=dest, document=fid)
+                            except TelegramError:
+                                pass
     except TelegramError as e:
         logger.warning(
             'Модерация → chat_id=%s: %s (часто: пользователь не нажимал /start у бота или неверный user ID).',
@@ -1196,7 +1270,7 @@ async def flush_collected_telegram_album(
         sender_line = f'👤 {_hx(disp)} (@{_hx(uname)})'
 
     for cid in admin_chat_ids:
-        dest = str(cid).strip()
+        dest = _tg_moderation_chat_id(str(cid))
         try:
             uuid_str = str(suggestion.tracking_id)
             keyboard = InlineKeyboardMarkup([[
@@ -1214,24 +1288,26 @@ async def flush_collected_telegram_album(
                 preview = suggestion.text[:300] + ('…' if len(suggestion.text) > 300 else '')
                 cap += f'\n\n📝 {_hx(preview)}'
             mids = list(suggestion.media_file_ids or [])
-            if mids:
-                sent = await bot.send_photo(
-                    chat_id=dest,
-                    photo=mids[0],
-                    caption=cap,
-                    reply_markup=keyboard,
-                    parse_mode='HTML',
-                )
+            sent = await _send_moderation_opening_message(
+                bot, dest, cap, keyboard, media_ids=mids, message=None
+            )
+            if mids and sent and getattr(sent, 'message_id', None):
                 for fid in mids[1:10]:
                     try:
                         await bot.send_photo(chat_id=dest, photo=fid, reply_to_message_id=sent.message_id)
-                    except Exception:
+                    except TelegramError:
                         try:
-                            await bot.send_photo(chat_id=dest, photo=fid)
-                        except Exception:
-                            pass
-            else:
-                await bot.send_message(chat_id=dest, text=cap, reply_markup=keyboard, parse_mode='HTML')
+                            await bot.send_document(
+                                chat_id=dest, document=fid, reply_to_message_id=sent.message_id
+                            )
+                        except TelegramError:
+                            try:
+                                await bot.send_photo(chat_id=dest, photo=fid)
+                            except TelegramError:
+                                try:
+                                    await bot.send_document(chat_id=dest, document=fid)
+                                except TelegramError:
+                                    pass
         except TelegramError as e:
             logger.warning(
                 '[TG] album forward to admin chat_id=%s: %s (часто: нет /start у бота или неверный ID).',
@@ -1576,7 +1652,9 @@ def _get_suggestion(bot_config, uuid_str: str):
 async def _notify_user(bot, user_id: str, text: str, reply_markup=None):
     """Отправить уведомление пользователю (молча, если не получилось)."""
     try:
-        kwargs = {'chat_id': user_id, 'text': text}
+        uid = (user_id or '').strip()
+        chat_id: int | str = int(uid) if uid.lstrip('-').isdigit() else uid
+        kwargs = {'chat_id': chat_id, 'text': text}
         if reply_markup is not None:
             kwargs['reply_markup'] = reply_markup
         await bot.send_message(**kwargs)
