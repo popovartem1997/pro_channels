@@ -130,6 +130,61 @@ def execute_after_running(
         except Exception:
             pass
 
+    async def _journal(message: str, *, step: int | None = None, step_total: int | None = None) -> None:
+        """Журнал импорта из async — только через поток (иначе Django: async context)."""
+
+        def _do():
+            _append_import_journal(run_id, message, step=step, step_total=step_total)
+
+        await asyncio.to_thread(_do)
+
+    async def _run_cancelled_checks() -> tuple[bool, bool]:
+        def _do():
+            return (
+                HistoryImportRun.objects.filter(pk=run_id, cancel_requested=True).exists(),
+                HistoryImportRun.objects.filter(pk=run_id, status=HistoryImportRun.STATUS_CANCELLED).exists(),
+            )
+
+        return await asyncio.to_thread(_do)
+
+    def _finalize_run_sync() -> None:
+        fresh = HistoryImportRun.objects.get(pk=run_id)
+        final_progress = {
+            'sent': st['sent'],
+            'errors': st['errors'],
+            'last_tg_message_id': st['last_tg_message_id'],
+        }
+        now = timezone.now()
+        if fresh.cancel_requested or fresh.status == HistoryImportRun.STATUS_CANCELLED:
+            _append_import_journal(run_id, 'Импорт остановлен по вашей команде.', step=7, step_total=7)
+            fresh = HistoryImportRun.objects.get(pk=run_id)
+            pj = dict(fresh.progress_json or {})
+            log = list(pj.get('journal') or [])
+            pj.update(final_progress)
+            pj['journal'] = log[-50:]
+            fresh.status = HistoryImportRun.STATUS_CANCELLED
+            fresh.finished_at = now
+            fresh.progress_json = pj
+            fresh.updated_at = now
+            fresh.save(update_fields=['status', 'finished_at', 'progress_json', 'updated_at'])
+        else:
+            _append_import_journal(
+                run_id,
+                'Импорт завершён: сообщения обработаны, статус «Готово».',
+                step=7,
+                step_total=7,
+            )
+            fresh = HistoryImportRun.objects.get(pk=run_id)
+            pj = dict(fresh.progress_json or {})
+            log = list(pj.get('journal') or [])
+            pj.update(final_progress)
+            pj['journal'] = log[-50:]
+            fresh.status = HistoryImportRun.STATUS_DONE
+            fresh.finished_at = now
+            fresh.progress_json = pj
+            fresh.updated_at = now
+            fresh.save(update_fields=['status', 'finished_at', 'progress_json', 'updated_at'])
+
     async def _ensure_client_connected(client):
         if client is None:
             return
@@ -344,8 +399,7 @@ def execute_after_running(
                 await asyncio.to_thread(lambda pid=post_id: _set_post_status_sync(pid, status='failed'))
                 logger.error('Import run=%s tg_msg=%s publish failed: %s', run_id, msg_id, last_exc)
                 err_txt = str(last_exc) if last_exc else ''
-                _append_import_journal(
-                    run_id,
+                await _journal(
                     f'Ошибка публикации в MAX (TG msg {msg_id}): {err_txt[:400]}',
                     step=6,
                     step_total=7,
@@ -402,14 +456,12 @@ def execute_after_running(
                 _close()
 
         while not channel_done:
-            if HistoryImportRun.objects.filter(pk=run_id, cancel_requested=True).exists():
-                raise asyncio.CancelledError()
-            if HistoryImportRun.objects.filter(pk=run_id, status=HistoryImportRun.STATUS_CANCELLED).exists():
+            cancelled, run_is_cancelled = await _run_cancelled_checks()
+            if cancelled or run_is_cancelled:
                 raise asyncio.CancelledError()
 
             if not j4['logged']:
-                _append_import_journal(
-                    run_id,
+                await _journal(
                     'Шаг 4: ожидаю доступ к сессии Telegram (тот же замок, что и у парсинга). '
                     'Импорт читает канал порциями — между порциями lock отпускается. Долгое ожидание: активный парсинг, '
                     'зависший воркер или «осиротевший» Redis-ключ (см. TELETHON_REDIS_LOCK_TTL, clear_telethon_session_locks).',
@@ -426,12 +478,13 @@ def execute_after_running(
                     lock_attempt += 1
                     if lock_attempt >= 12:
                         raise
-                    _set_run_error_message(
-                        'Ожидаю освобождения Telegram-сессии (импорт истории или парсинг того же файла сессии). '
-                        f'Повтор через 45с. Детали: {msg}'
+                    await asyncio.to_thread(
+                        lambda m=msg: _set_run_error_message(
+                            'Ожидаю освобождения Telegram-сессии (импорт истории или парсинг того же файла сессии). '
+                            f'Повтор через 45с. Детали: {m}'
+                        ),
                     )
-                    _append_import_journal(
-                        run_id,
+                    await _journal(
                         f'Сессия занята другой задачей (парсинг или импорт). Пауза 45 с, попытка {lock_attempt} из 12.',
                         step=4,
                         step_total=7,
@@ -443,8 +496,7 @@ def execute_after_running(
             lock_attempt = 0
             posts_in_batch = sum(1 for x in batch if x.get('kind') == 'post')
             skips_in_batch = sum(1 for x in batch if x.get('kind') == 'skip')
-            _append_import_journal(
-                run_id,
+            await _journal(
                 f'Шаг 5: из Telegram прочитано {len(batch)} позиций (к публикации: {posts_in_batch}, пропуски: {skips_in_batch}). '
                 f'Уже в MAX: {st["sent"]}, ошибок: {st["errors"]}.',
                 step=5,
@@ -457,8 +509,7 @@ def execute_after_running(
                 continue
 
             await _process_import_batch(batch)
-            _append_import_journal(
-                run_id,
+            await _journal(
                 f'Шаг 6: порция обработана; всего опубликовано в MAX: {st["sent"]}, ошибок: {st["errors"]}, '
                 f'последний TG id: {st["last_tg_message_id"]}.',
                 step=6,
@@ -467,44 +518,9 @@ def execute_after_running(
 
             if exhausted:
                 channel_done = True
-            close_old_connections()
+            await asyncio.to_thread(close_old_connections)
 
-        fresh = HistoryImportRun.objects.get(pk=run_id)
-        final_progress = {
-            'sent': st['sent'],
-            'errors': st['errors'],
-            'last_tg_message_id': st['last_tg_message_id'],
-        }
-        now = timezone.now()
-        if fresh.cancel_requested or fresh.status == HistoryImportRun.STATUS_CANCELLED:
-            _append_import_journal(run_id, 'Импорт остановлен по вашей команде.', step=7, step_total=7)
-            fresh = HistoryImportRun.objects.get(pk=run_id)
-            pj = dict(fresh.progress_json or {})
-            log = list(pj.get('journal') or [])
-            pj.update(final_progress)
-            pj['journal'] = log[-50:]
-            fresh.status = HistoryImportRun.STATUS_CANCELLED
-            fresh.finished_at = now
-            fresh.progress_json = pj
-            fresh.updated_at = now
-            fresh.save(update_fields=['status', 'finished_at', 'progress_json', 'updated_at'])
-        else:
-            _append_import_journal(
-                run_id,
-                'Импорт завершён: сообщения обработаны, статус «Готово».',
-                step=7,
-                step_total=7,
-            )
-            fresh = HistoryImportRun.objects.get(pk=run_id)
-            pj = dict(fresh.progress_json or {})
-            log = list(pj.get('journal') or [])
-            pj.update(final_progress)
-            pj['journal'] = log[-50:]
-            fresh.status = HistoryImportRun.STATUS_DONE
-            fresh.finished_at = now
-            fresh.progress_json = pj
-            fresh.updated_at = now
-            fresh.save(update_fields=['status', 'finished_at', 'progress_json', 'updated_at'])
+        await asyncio.to_thread(_finalize_run_sync)
 
     try:
         asyncio.run(_async_main())
