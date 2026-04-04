@@ -2,6 +2,7 @@
 Управление каналами и пабликами.
 """
 import json
+import re
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
@@ -1106,26 +1107,49 @@ def import_history_stop(request, pk: int):
     }})
 
 
-def _apply_morning_digest_from_post(request, digest) -> Optional[str]:
-    """Заполняет экземпляр ChannelMorningDigest из POST. Ошибка валидации — строка, иначе None."""
+def _parse_digest_send_time(raw: str):
+    """Разбор времени из формы: datetime.time, None если пусто, ValueError если мусор."""
     import datetime as pydt
 
+    s = (raw or '').strip().replace('.', ':')
+    if not s:
+        return None
+    # «12:30:45.123» от части клиентов
+    if '.' in s and s.count(':') >= 1:
+        s = s.split('.', 1)[0]
+    for fmt in ('%H:%M:%S', '%H:%M'):
+        try:
+            return pydt.datetime.strptime(s, fmt).time()
+        except ValueError:
+            continue
+    m = re.fullmatch(r'(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?', s)
+    if not m:
+        raise ValueError(s)
+    h, mi, sec = int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)
+    if not (0 <= h <= 23 and 0 <= mi <= 59 and 0 <= sec <= 59):
+        raise ValueError(s)
+    return pydt.time(h, mi, sec)
+
+
+def _apply_morning_digest_from_post(request, digest) -> Optional[str]:
+    """Заполняет экземпляр ChannelMorningDigest из POST. Ошибка валидации — строка, иначе None."""
     digest.is_enabled = request.POST.get('is_enabled') == 'on'
     tz_raw = (request.POST.get('timezone_name') or '').strip()
     if tz_raw:
         digest.timezone_name = tz_raw[:64]
-    raw_time = (request.POST.get('send_time') or '').strip().replace('.', ':')
-    if raw_time:
-        parsed_tm = None
-        for fmt in ('%H:%M:%S', '%H:%M'):
-            try:
-                parsed_tm = pydt.datetime.strptime(raw_time, fmt).time()
-                break
-            except ValueError:
-                continue
-        if parsed_tm is None:
-            return 'Некорректное время в поле «Время (локальное)». Укажите часы и минуты.'
-        digest.send_time = parsed_tm
+    # type=time часто не попадает в POST у части WebView/браузеров; дублируем в send_time_backup (+ JS).
+    raw_time = (
+        (request.POST.get('send_time') or request.POST.get('send_time_backup') or '').strip().replace('.', ':')
+    )
+    if not raw_time:
+        return 'Не удалось прочитать время. Укажите «Время (локальное)» и нажмите «Сохранить» ещё раз.'
+    try:
+        parsed_tm = _parse_digest_send_time(raw_time)
+    except ValueError:
+        return 'Некорректное время в поле «Время (локальное)». Укажите часы и минуты (например 08:30).'
+    if parsed_tm is None:
+        return 'Не удалось прочитать время. Укажите «Время (локальное)» и нажмите «Сохранить» ещё раз.'
+    digest.send_time = parsed_tm
     digest.weekdays = sorted(
         {int(x) for x in request.POST.getlist('weekdays') if str(x).isdigit() and 0 <= int(x) <= 6}
     )

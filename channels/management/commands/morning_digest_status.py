@@ -13,7 +13,15 @@ from channels.models import ChannelMorningDigest
 class Command(BaseCommand):
     help = 'Показать, почему дайджест мог не сработать по расписанию'
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--all',
+            action='store_true',
+            help='Показать все записи ChannelMorningDigest (в т.ч. выключенные), не только is_enabled=True',
+        )
+
     def handle(self, *args, **options):
+        show_all = options.get('all')
         try:
             from django_celery_beat.models import PeriodicTask
         except Exception as exc:
@@ -41,17 +49,23 @@ class Command(BaseCommand):
         )
         self.stdout.write('')
 
-        cfgs = list(
-            ChannelMorningDigest.objects.filter(is_enabled=True).select_related('channel', 'channel__owner')
-        )
+        base_qs = ChannelMorningDigest.objects.select_related('channel', 'channel__owner').order_by('pk')
+        cfgs = list(base_qs.filter(is_enabled=True)) if not show_all else list(base_qs)
         if not cfgs:
             self.stdout.write(
                 self.style.WARNING(
-                    'Нет включённых записей ChannelMorningDigest (is_enabled=True). '
-                    'Включите дайджест в настройках канала.'
+                    'Нет записей ChannelMorningDigest в БД.'
+                    if show_all
+                    else (
+                        'Нет включённых записей ChannelMorningDigest (is_enabled=True). '
+                        'Включите дайджест в настройках канала или запустите с --all.'
+                    )
                 )
             )
             return
+        if show_all:
+            self.stdout.write(self.style.NOTICE('Режим --all: все дайджесты в БД (включая выключенные).'))
+            self.stdout.write('')
 
         server_now = timezone.now()
         self.stdout.write(f'Server now (Django): {server_now.isoformat()}')
@@ -69,7 +83,8 @@ class Command(BaseCommand):
             due = is_digest_due_now(cfg, local_now)
             token_ok = getattr(ch, 'token_configured', False)
 
-            self.stdout.write(f'--- Дайджест id={cfg.pk} · канал «{ch.name}» (pk={ch.pk}) ---')
+            en = 'вкл' if cfg.is_enabled else 'ВЫКЛ'
+            self.stdout.write(f'--- Дайджест id={cfg.pk} · канал «{ch.name}» (pk={ch.pk}) · is_enabled={en} ---')
             self.stdout.write(f'  Локальное время: {local_now.strftime("%Y-%m-%d %H:%M:%S %Z")}')
             self.stdout.write(f'  send_time: {cfg.send_time} · TZ: {tz_name}')
             self.stdout.write(f'  weekdays: {cfg.weekdays!r} (пусто = каждый день)')
@@ -87,4 +102,9 @@ class Command(BaseCommand):
             'Если due=False: подождите окна после send_time (до MORNING_DIGEST_DUE_WINDOW_SEC с) '
             'или сбросьте last_sent_on для теста. Идемпотентность — в БД (last_sent_on + блокировка строки), '
             'Redis для слота больше не используется.'
+        )
+        self.stdout.write('')
+        self.stdout.write(
+            'Если send_time в форме и здесь не совпадают: в docker-compose код не смонтирован с хоста — '
+            'нужен пересбор образа: docker compose build web && docker compose up -d web'
         )

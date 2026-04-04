@@ -24,6 +24,8 @@
 
 <form method="post" class="card border-0 shadow-sm">
   {% csrf_token %}
+  {# Первый submit в форме: Enter в полях не должен активировать «Найти координаты» (name=action=geocode). #}
+  <button type="submit" class="visually-hidden" tabindex="-1" aria-hidden="true">​</button>
   <div class="card-body">
     <div class="form-check form-switch mb-3">
       <input class="form-check-input" type="checkbox" name="is_enabled" id="id_is_enabled" {% if digest.is_enabled %}checked{% endif %}>
@@ -33,7 +35,10 @@
     <div class="row g-3 mb-3">
       <div class="col-md-4">
         <label class="form-label small fw-semibold" for="id_send_time">Время (локальное)</label>
-        <input type="time" class="form-control" name="send_time" id="id_send_time"
+        <input type="time" class="form-control" name="send_time" id="id_send_time" step="60" required
+               value="{{ digest.send_time|time:'H:i' }}">
+        {# Резерв: часть клиентов не кладёт type=time в POST — копируем значение в hidden (см. скрипт внизу формы). #}
+        <input type="hidden" name="send_time_backup" id="id_send_time_backup"
                value="{{ digest.send_time|time:'H:i' }}">
       </div>
       <div class="col-md-8">
@@ -189,5 +194,16 @@
       <a href="{% url 'channels:detail' channel.pk %}" class="btn btn-outline-secondary">Назад</a>
     </div>
   </div>
+<script>
+(function () {
+  var t = document.getElementById('id_send_time');
+  var b = document.getElementById('id_send_time_backup');
+  if (!t || !b) return;
+  function sync() { b.value = (t.value || '').trim(); }
+  t.addEventListener('input', sync);
+  t.addEventListener('change', sync);
+  sync();
+})();
+</script>
 </form>
 {% endblock %}
