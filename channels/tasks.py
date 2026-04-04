@@ -274,12 +274,6 @@ def import_tg_history_to_max_task(self, run_id: int):
         run_id,
         source=source,
         target=target,
-    from .history_import_worker import execute_after_running
-
-    execute_after_running(
-        run_id,
-        source=source,
-        target=target,
         api_id=api_id,
         api_hash=api_hash,
         _append_import_journal=_append_import_journal,
@@ -289,3 +283,18 @@ def import_tg_history_to_max_task(self, run_id: int):
         _publish_max=_publish_max,
     )
 
+
+@shared_task(ignore_result=True)
+def channel_morning_digest_tick():
+    """Периодически (Celery Beat): проверка утренних дайджестов по расписанию."""
+    from channels.digest_services import tick_morning_digests
+
+    tick_morning_digests()
+
+
+@shared_task(ignore_result=True)
+def channel_interesting_facts_tick():
+    """Периодически: генерация черновиков «интересные факты» по расписанию."""
+    from channels.facts_services import tick_interesting_facts
+
+    tick_interesting_facts()
