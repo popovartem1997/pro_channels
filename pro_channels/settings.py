@@ -260,6 +260,11 @@ TELETHON_REDIS_LOCK_WAIT_CHUNK = config('TELETHON_REDIS_LOCK_WAIT_CHUNK', defaul
 TG_HISTORY_IMPORT_TELETHON_BATCH = config('TG_HISTORY_IMPORT_TELETHON_BATCH', default=25, cast=int)
 # Один захват lock + чтение порции Telethon (сек.); при превышении — ошибка с возможностью повторить импорт.
 TG_HISTORY_IMPORT_FETCH_TIMEOUT_SEC = config('TG_HISTORY_IMPORT_FETCH_TIMEOUT_SEC', default=900, cast=int)
+# Ожидание одного шага iter_messages / connect (сек.): иначе при «немой» сети внешний fetch-timeout может не прервать recv.
+TG_HISTORY_IMPORT_ITER_STEP_TIMEOUT_SEC = config('TG_HISTORY_IMPORT_ITER_STEP_TIMEOUT_SEC', default=180, cast=int)
+TG_HISTORY_IMPORT_CONNECT_TIMEOUT_SEC = config('TG_HISTORY_IMPORT_CONNECT_TIMEOUT_SEC', default=90, cast=int)
+# Запись в журнал «ещё читаю…» каждые N секунд на шаге 5 (0 — отключить).
+TG_HISTORY_IMPORT_HEARTBEAT_SEC = config('TG_HISTORY_IMPORT_HEARTBEAT_SEC', default=45, cast=int)
 # Сколько последних сообщений канала смотреть за один проход (дедуп по msg id в БД).
 PARSE_TELEGRAM_MESSAGE_LIMIT = config('PARSE_TELEGRAM_MESSAGE_LIMIT', default=20, cast=int)
 

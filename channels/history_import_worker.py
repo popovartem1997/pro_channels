@@ -3,11 +3,17 @@
 
 Один внешний asyncio.run; Django/HTTP через asyncio.to_thread; чтение Telethon под lock —
 в отдельном потоке с вложенным asyncio.run (отдельный цикл только для Telethon).
+
+У Telethon таймаут клиента в основном про установление TCP; зависание на отдельном RPC
+не всегда обрывается внешним wait_for — поэтому чтение канала идёт через wait_for на
+каждый шаг iter_messages (TG_HISTORY_IMPORT_ITER_STEP_TIMEOUT_SEC) и периодические
+записи в журнал (TG_HISTORY_IMPORT_HEARTBEAT_SEC), receive_updates=False.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 
 from django.conf import settings
@@ -47,6 +53,11 @@ def execute_after_running(
     fetch_timeout = float(getattr(settings, 'TG_HISTORY_IMPORT_FETCH_TIMEOUT_SEC', 900) or 900)
     batch_limit = int(getattr(settings, 'TG_HISTORY_IMPORT_TELETHON_BATCH', 25) or 25)
     batch_limit = max(1, min(batch_limit, 200))
+    iter_step_timeout = float(getattr(settings, 'TG_HISTORY_IMPORT_ITER_STEP_TIMEOUT_SEC', 180) or 180)
+    iter_step_timeout = max(30.0, min(iter_step_timeout, float(fetch_timeout)))
+    connect_timeout = float(getattr(settings, 'TG_HISTORY_IMPORT_CONNECT_TIMEOUT_SEC', 90) or 90)
+    connect_timeout = max(15.0, min(connect_timeout, 300.0))
+    heartbeat_sec = int(getattr(settings, 'TG_HISTORY_IMPORT_HEARTBEAT_SEC', 45) or 0)
 
     def _cancel_req_sync() -> bool:
         try:
@@ -220,16 +231,44 @@ def execute_after_running(
         broken_early = False
         none_id_rows = 0
         raw_count = 0
+        _last_cancel_mono = 0.0
+
+        async def _cancel_if_requested() -> bool:
+            nonlocal _last_cancel_mono
+            now = time.monotonic()
+            if now - _last_cancel_mono < 2.0:
+                return False
+            _last_cancel_mono = now
+            return await asyncio.to_thread(_cancel_req_sync)
+
+        # receive_updates=False — меньше фоновых задач; timeout/ретраи — чтобы не зависать бесконечно
+        # (см. документацию Telethon: timeout касается connect, не каждого RPC — поэтому wait_for на шаги iter).
+        _tc_kw = dict(
+            connection_retries=5,
+            request_retries=5,
+            timeout=int(connect_timeout),
+            receive_updates=False,
+        )
         try:
-            client = TelegramClient(session_path, int(api_id), api_hash)
-            await client.connect()
+            client = TelegramClient(session_path, int(api_id), api_hash, **_tc_kw)
+            try:
+                await asyncio.wait_for(client.connect(), timeout=connect_timeout)
+            except asyncio.TimeoutError as exc:
+                raise ValueError(
+                    f'Таймаут подключения к Telegram ({int(connect_timeout)} с). Проверьте сеть и прокси.'
+                ) from exc
             if not await client.is_user_authorized():
                 try:
                     await client.disconnect()
                 except Exception:
                     pass
-                client = TelegramClient(str(session_dir / 'user_default'), int(api_id), api_hash)
-                await client.connect()
+                client = TelegramClient(str(session_dir / 'user_default'), int(api_id), api_hash, **_tc_kw)
+                try:
+                    await asyncio.wait_for(client.connect(), timeout=connect_timeout)
+                except asyncio.TimeoutError as exc:
+                    raise ValueError(
+                        f'Таймаут подключения к Telegram ({int(connect_timeout)} с). Проверьте сеть и прокси.'
+                    ) from exc
                 if not await client.is_user_authorized():
                     raise ValueError(
                         'Telethon session не авторизована. '
@@ -250,75 +289,118 @@ def execute_after_running(
                 except (TypeError, ValueError):
                     min_msg_id = 0
 
-            async for msg in client.iter_messages(entity, reverse=True, min_id=min_msg_id, limit=take):
-                if await asyncio.to_thread(_cancel_req_sync):
-                    raise asyncio.CancelledError()
-                await _ensure_client_connected(client)
-                raw_count += 1
+            it = client.iter_messages(entity, reverse=True, min_id=min_msg_id, limit=take)
+            stop_beat = asyncio.Event()
+            batch_start = time.monotonic()
 
-                msg_id = getattr(msg, 'id', None)
-                if msg_id is None:
-                    none_id_rows += 1
-                    if none_id_rows > 200:
-                        logger.warning(
-                            'TG import run=%s: слишком много сообщений без id — завершаю чтение канала.',
-                            run_id,
-                        )
-                        iterator_exhausted = True
-                        broken_early = True
+            async def _heartbeat_loop():
+                while not stop_beat.is_set():
+                    try:
+                        await asyncio.wait_for(stop_beat.wait(), timeout=float(heartbeat_sec))
                         break
-                    continue
-
-                text = ''
-                try:
-                    text = (msg.text or '').strip()
-                except Exception:
-                    text = ''
-                if not text:
-                    try:
-                        raw_txt = getattr(msg, 'raw_text', None)
-                        if raw_txt is not None:
-                            text = str(raw_txt).strip()
-                    except Exception:
-                        pass
-
-                has_media = bool(getattr(msg, 'media', None))
-                if not text and not has_media:
-                    items.append({'kind': 'skip', 'msg_id': int(msg_id)})
-                    continue
-
-                downloaded_paths: list[str] = []
-                if has_media:
-                    try:
-                        await _ensure_client_connected(client)
-                        media_root = Path(getattr(settings, 'MEDIA_ROOT', settings.BASE_DIR / 'media'))
-                        rel_dir = Path('imports') / 'tg_to_max' / f'run_{run_id}' / f'msg_{msg_id}'
-                        abs_dir = media_root / rel_dir
-                        abs_dir.mkdir(parents=True, exist_ok=True)
-                        base = abs_dir / 'media'
-                        saved_path = await asyncio.wait_for(
-                            client.download_media(msg, file=str(base)),
-                            timeout=300.0,
+                    except asyncio.TimeoutError:
+                        await asyncio.to_thread(
+                            lambda: _append_import_journal(
+                                run_id,
+                                f'Шаг 5: чтение Telegram (порция)… {int(time.monotonic() - batch_start)} с, '
+                                f'получено сырых: {raw_count}, в буфере: {len(items)}.',
+                                step=5,
+                                step_total=7,
+                            )
                         )
-                        if saved_path:
-                            downloaded_paths.append(str(saved_path))
-                    except Exception as exc:
-                        st['errors'] += 1
-                        logger.warning('Import run=%s tg_msg=%s download_media error: %s', run_id, msg_id, exc)
 
-                if not text and not downloaded_paths:
-                    items.append({'kind': 'skip', 'msg_id': int(msg_id)})
-                    continue
+            beat_task: asyncio.Task | None = None
+            if heartbeat_sec > 0:
+                beat_task = asyncio.create_task(_heartbeat_loop())
 
-                items.append(
-                    {
-                        'kind': 'post',
-                        'msg_id': int(msg_id),
-                        'text': text,
-                        'paths': downloaded_paths[:10],
-                        'media_type': cht._guess_media_type(msg),
-                    }
-                )
+            try:
+                while True:
+                    try:
+                        msg = await asyncio.wait_for(it.__anext__(), timeout=iter_step_timeout)
+                    except StopAsyncIteration:
+                        break
+                    except asyncio.TimeoutError as exc:
+                        raise ValueError(
+                            f'Таймаут ожидания ответа Telegram при чтении канала ({int(iter_step_timeout)} с). '
+                            'Проверьте сеть и доступ к каналу.'
+                        ) from exc
+
+                    if await _cancel_if_requested():
+                        raise asyncio.CancelledError()
+                    await _ensure_client_connected(client)
+                    raw_count += 1
+
+                    msg_id = getattr(msg, 'id', None)
+                    if msg_id is None:
+                        none_id_rows += 1
+                        if none_id_rows > 200:
+                            logger.warning(
+                                'TG import run=%s: слишком много сообщений без id — завершаю чтение канала.',
+                                run_id,
+                            )
+                            iterator_exhausted = True
+                            broken_early = True
+                            break
+                        continue
+
+                    text = ''
+                    try:
+                        text = (msg.text or '').strip()
+                    except Exception:
+                        text = ''
+                    if not text:
+                        try:
+                            raw_txt = getattr(msg, 'raw_text', None)
+                            if raw_txt is not None:
+                                text = str(raw_txt).strip()
+                        except Exception:
+                            pass
+
+                    has_media = bool(getattr(msg, 'media', None))
+                    if not text and not has_media:
+                        items.append({'kind': 'skip', 'msg_id': int(msg_id)})
+                        continue
+
+                    downloaded_paths: list[str] = []
+                    if has_media:
+                        try:
+                            await _ensure_client_connected(client)
+                            media_root = Path(getattr(settings, 'MEDIA_ROOT', settings.BASE_DIR / 'media'))
+                            rel_dir = Path('imports') / 'tg_to_max' / f'run_{run_id}' / f'msg_{msg_id}'
+                            abs_dir = media_root / rel_dir
+                            abs_dir.mkdir(parents=True, exist_ok=True)
+                            base = abs_dir / 'media'
+                            saved_path = await asyncio.wait_for(
+                                client.download_media(msg, file=str(base)),
+                                timeout=300.0,
+                            )
+                            if saved_path:
+                                downloaded_paths.append(str(saved_path))
+                        except Exception as exc:
+                            st['errors'] += 1
+                            logger.warning('Import run=%s tg_msg=%s download_media error: %s', run_id, msg_id, exc)
+
+                    if not text and not downloaded_paths:
+                        items.append({'kind': 'skip', 'msg_id': int(msg_id)})
+                        continue
+
+                    items.append(
+                        {
+                            'kind': 'post',
+                            'msg_id': int(msg_id),
+                            'text': text,
+                            'paths': downloaded_paths[:10],
+                            'media_type': cht._guess_media_type(msg),
+                        }
+                    )
+            finally:
+                stop_beat.set()
+                if beat_task is not None:
+                    beat_task.cancel()
+                    try:
+                        await beat_task
+                    except asyncio.CancelledError:
+                        pass
 
             if not broken_early:
                 iterator_exhausted = raw_count < take
