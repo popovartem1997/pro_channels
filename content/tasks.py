@@ -1079,9 +1079,13 @@ def _tg_plain_to_html_caption(plain: str) -> str:
     Plain → безопасный фрагмент для Telegram HTML: экранирование <>&.
     Переносы — через \\n (тег <br> в Telegram Bot API не поддерживается).
     """
+    import re
     from html import escape
 
-    s = _tg_plain_preserve_spaces(plain or '')
+    s = (plain or '').replace('\r\n', '\n').replace('\r', '\n')
+    s = s.replace('\u00a0', ' ')
+    s = re.sub(r'(?i)&nbsp;|&#0*160;|&#x0*a0;|&amp;nbsp;|&amp;#0*160;|&amp;#x0*a0;', ' ', s)
+    s = _tg_plain_preserve_spaces(s)
     return escape(s, quote=False)
 
 
@@ -1092,6 +1096,28 @@ def _tg_strip_br_for_telegram_api(html: str) -> str:
     if not (html or '').strip():
         return html or ''
     return re.sub(r'<br\s*/?>', '\n', html, flags=re.IGNORECASE)
+
+
+def _tg_sanitize_entities_for_telegram_html(text: str) -> str:
+    """
+    В HTML-режиме Bot API поддерживается узкий набор тегов; сущности вроде &nbsp; не разбираются
+    и отображаются буквально. То же с &amp;nbsp; после экранирования редактора.
+    Неразрывные пробелы Unicode заменяем на обычный пробел.
+    """
+    import re
+
+    s = text or ''
+    s = s.replace('\ufeff', '')
+    for ch in ('\u00a0', '\u2007', '\u202f'):
+        s = s.replace(ch, ' ')
+    # Сначала «двойное экранирование», потом обычные entity
+    s = re.sub(r'(?i)&amp;#0*160;', ' ', s)
+    s = re.sub(r'(?i)&amp;#x0*a0;', ' ', s)
+    s = re.sub(r'(?i)&amp;nbsp;', ' ', s)
+    s = re.sub(r'(?i)&#0*160;', ' ', s)
+    s = re.sub(r'(?i)&#x0*a0;', ' ', s)
+    s = re.sub(r'(?i)&nbsp;', ' ', s)
+    return s
 
 
 def _tg_html_has_rich_formatting(html: str) -> bool:
@@ -1141,7 +1167,8 @@ def _build_text(post, channel):
             if footer:
                 text = f'{text}\n\n{footer}'
         # Редактор и старые посты могут содержать <br>; API Telegram HTML их не принимает.
-        return _tg_strip_br_for_telegram_api(text)
+        text = _tg_strip_br_for_telegram_api(text)
+        return _tg_sanitize_entities_for_telegram_html(text)
 
     # MAX / VK / прочие — как раньше (plain + \n)
     text = post.text or ''

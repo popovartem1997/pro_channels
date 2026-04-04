@@ -124,6 +124,12 @@ async def _send_moderation_opening_message(
 def _moderation_telegram_chat_ids_sync(bot_config) -> list:
     """Список chat_id для рассылки модерации (только из sync или через sync_to_async)."""
     try:
+        from bots.models import SuggestionBot
+
+        pk = getattr(bot_config, 'pk', None) or getattr(bot_config, 'id', None)
+        if pk:
+            # Свежая строка из БД: иначе после смены модераторов/TG id вебхук мог держать устаревший ORM-объект.
+            bot_config = SuggestionBot.objects.select_related('owner').prefetch_related('moderators').get(pk=pk)
         return list(bot_config.get_moderation_chat_ids())
     except Exception:
         logger.exception(
@@ -708,8 +714,13 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         text=caption,
                         parse_mode='HTML',
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        '[TG] contact_mode → chat_id=%s: %s',
+                        admin_chat_id,
+                        e,
+                        exc_info=True,
+                    )
 
             context.user_data['contact_mode'] = False
             await message.reply_text(
@@ -958,6 +969,12 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 getattr(bot_config, 'pk', None),
                 len(admin_chat_ids),
             )
+            if not admin_chat_ids:
+                logger.warning(
+                    '[TG] модерация: пустой список получателей (бот id=%s). Укажите Telegram user ID '
+                    'в профиле или «Команда → доступы», поле «чат модерации», либо /start у этого бота в личке.',
+                    getattr(bot_config, 'pk', None),
+                )
             for admin_chat_id in admin_chat_ids:
                 await _forward_to_admin(update, context, suggestion, admin_chat_id)
         except Exception as e:
@@ -1070,12 +1087,13 @@ async def _forward_to_admin(update, context, suggestion, admin_chat_id: str):
                                 pass
     except TelegramError as e:
         logger.warning(
-            'Модерация → chat_id=%s: %s (часто: пользователь не нажимал /start у бота или неверный user ID).',
+            'Модерация → chat_id=%s: %s (часто: не нажат /start у этого бота, неверный ID или бот не в группе).',
             admin_chat_id,
             e,
+            exc_info=True,
         )
     except Exception as e:
-        logger.error('Ошибка при пересылке в чат модерации %s: %s', admin_chat_id, e)
+        logger.exception('Ошибка при пересылке в чат модерации %s: %s', admin_chat_id, e)
 
 
 def _album_items_to_media_and_text(items: list) -> tuple[list[str], str]:
@@ -1313,9 +1331,10 @@ async def flush_collected_telegram_album(
                 '[TG] album forward to admin chat_id=%s: %s (часто: нет /start у бота или неверный ID).',
                 cid,
                 e,
+                exc_info=True,
             )
         except Exception as e:
-            logger.error('[TG] album forward to admin %s: %s', cid, e)
+            logger.exception('[TG] album forward to admin %s: %s', cid, e)
 
 # ─── Callback-обработчик кнопок модерации ─────────────────────────────────────
 
