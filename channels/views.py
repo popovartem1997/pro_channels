@@ -1114,11 +1114,18 @@ def _apply_morning_digest_from_post(request, digest) -> Optional[str]:
     tz_raw = (request.POST.get('timezone_name') or '').strip()
     if tz_raw:
         digest.timezone_name = tz_raw[:64]
-    st = (request.POST.get('send_time') or '05:00').strip().replace('.', ':')[:5]
-    try:
-        digest.send_time = pydt.datetime.strptime(st, '%H:%M').time()
-    except ValueError:
-        pass
+    raw_time = (request.POST.get('send_time') or '').strip().replace('.', ':')
+    if raw_time:
+        parsed_tm = None
+        for fmt in ('%H:%M:%S', '%H:%M'):
+            try:
+                parsed_tm = pydt.datetime.strptime(raw_time, fmt).time()
+                break
+            except ValueError:
+                continue
+        if parsed_tm is None:
+            return 'Некорректное время в поле «Время (локальное)». Укажите часы и минуты.'
+        digest.send_time = parsed_tm
     digest.weekdays = sorted(
         {int(x) for x in request.POST.getlist('weekdays') if str(x).isdigit() and 0 <= int(x) <= 6}
     )
@@ -1161,6 +1168,12 @@ def channel_digest_edit(request, pk):
 
     if request.method == 'POST':
         action = (request.POST.get('action') or '').strip()
+
+        err = _apply_morning_digest_from_post(request, digest)
+        if err:
+            messages.error(request, err)
+            return redirect('channels:digest_edit', pk=pk)
+
         if action == 'geocode':
             from .digest_services import geocode_place_label
 
@@ -1170,21 +1183,18 @@ def channel_digest_edit(request, pk):
                 digest.location_label = label or digest.location_label
                 digest.latitude = Decimal(str(lat))
                 digest.longitude = Decimal(str(lon))
-                digest.save(update_fields=['location_label', 'latitude', 'longitude', 'updated_at'])
+                digest.save()
                 messages.success(
                     request,
-                    f'Координаты обновлены: {digest.latitude}, {digest.longitude}.',
+                    f'Координаты обновлены: {digest.latitude}, {digest.longitude}. Остальные поля формы тоже сохранены.',
                 )
             else:
+                digest.save()
                 messages.warning(
                     request,
-                    'Не удалось найти место. Уточните запрос или введите широту и долготу вручную.',
+                    'Не удалось найти место. Уточните запрос или введите широту и долготу вручную. '
+                    'Остальные настройки (время, блоки и т.д.) сохранены.',
                 )
-            return redirect('channels:digest_edit', pk=pk)
-
-        err = _apply_morning_digest_from_post(request, digest)
-        if err:
-            messages.error(request, err)
             return redirect('channels:digest_edit', pk=pk)
 
         if action == 'generate_now':
