@@ -192,6 +192,7 @@ CELERY_TASK_ROUTES = {
     # чтобы после перезапуска и при фоне импорта в MAX воркер сначала разбирал import_history → prio → celery.
     'parsing.tasks.execute_parse_task': {'queue': 'parse'},
     'parsing.tasks.check_parse_tasks': {'queue': 'parse'},
+    'parsing.tasks.purge_parse_media_retention': {'queue': 'parse'},
 }
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 # Долгие задачи (парсинг, импорт истории): не отбирать несколько сообщений в один процесс.
@@ -281,6 +282,8 @@ TG_HISTORY_IMPORT_HEARTBEAT_SEC = config('TG_HISTORY_IMPORT_HEARTBEAT_SEC', defa
 TG_HISTORY_IMPORT_DOWNLOAD_MEDIA = config('TG_HISTORY_IMPORT_DOWNLOAD_MEDIA', default=False, cast=bool)
 # Сколько последних сообщений канала смотреть за один проход (дедуп по msg id в БД).
 PARSE_TELEGRAM_MESSAGE_LIMIT = config('PARSE_TELEGRAM_MESSAGE_LIMIT', default=20, cast=int)
+# Локальные файлы медиа парсинга (media/parsed_items/…): хранить не дольше N дней (Celery + manage.py purge_parse_media).
+PARSE_MEDIA_RETENTION_DAYS = config('PARSE_MEDIA_RETENTION_DAYS', default=3, cast=int)
 
 # ─── VK Парсинг ──────────────────────────────────────────────────────────────
 VK_PARSE_ACCESS_TOKEN = config('VK_PARSE_ACCESS_TOKEN', default='')

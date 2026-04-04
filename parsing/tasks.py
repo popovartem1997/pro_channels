@@ -1018,3 +1018,15 @@ def _cron_to_interval(cron_expr):
         return timedelta(minutes=int(match.group(1)))
 
     return timedelta(hours=6)
+
+
+@shared_task(ignore_result=True)
+def purge_parse_media_retention():
+    """Удалить файлы media/parsed_items старше PARSE_MEDIA_RETENTION_DAYS и обнулить media у старых ParsedItem."""
+    from django.conf import settings
+
+    from parsing.media_retention import purge_parse_media_older_than
+
+    days = int(getattr(settings, 'PARSE_MEDIA_RETENTION_DAYS', 3) or 3)
+    days = max(1, min(days, 365))
+    return purge_parse_media_older_than(retention_days=days)

@@ -25,6 +25,12 @@ TASKS = [
         'interval_period': IntervalSchedule.MINUTES,
     },
     {
+        'name': 'Парсинг: очистка старых медиа (parsed_items, раз в сутки)',
+        'task': 'parsing.tasks.purge_parse_media_retention',
+        'interval_every': 24,
+        'interval_period': IntervalSchedule.HOURS,
+    },
+    {
         'name': 'Сбор статистики каналов (каждые 6 часов)',
         'task': 'stats.tasks.sync_channel_stats',
         'interval_every': 6,
