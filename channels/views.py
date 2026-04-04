@@ -19,7 +19,7 @@ from .fixed_ad_options import get_fixed_ad_options_state, sync_fixed_ad_options
 from .models import Channel, ChannelGroup, ChannelInterestingFacts, ChannelMorningDigest, HistoryImportRun
 
 # См. management command morning_digest_status: после деплоя должно быть ≥2 (иначе в контейнере старый код).
-MORNING_DIGEST_FORM_HANDLER_VERSION = 2
+MORNING_DIGEST_FORM_HANDLER_VERSION = 3
 
 
 def _team_channel_editor_user(user) -> bool:
@@ -1140,10 +1140,8 @@ def _apply_morning_digest_from_post(request, digest) -> Optional[str]:
     tz_raw = (request.POST.get('timezone_name') or '').strip()
     if tz_raw:
         digest.timezone_name = tz_raw[:64]
-    # type=time часто не попадает в POST у части WebView/браузеров; дублируем в send_time_backup (+ JS).
-    raw_time = (
-        (request.POST.get('send_time') or request.POST.get('send_time_backup') or '').strip().replace('.', ':')
-    )
+    # В шаблоне в POST уходит hidden send_time (копия с виджета time при submit — см. digest_edit.html).
+    raw_time = (request.POST.get('send_time') or '').strip().replace('.', ':')
     if not raw_time:
         return 'Не удалось прочитать время. Укажите «Время (локальное)» и нажмите «Сохранить» ещё раз.'
     try:

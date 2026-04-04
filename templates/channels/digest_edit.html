@@ -22,7 +22,7 @@
   <p class="mb-0 mt-2 small">Если токен канала ещё не настроен, по расписанию всё равно создаётся <strong>черновик</strong>; в очередь на публикацию пост попадёт только при настроенном токене.</p>
 </div>
 
-<form method="post" class="card border-0 shadow-sm">
+<form method="post" class="card border-0 shadow-sm" id="digest-settings-form">
   {% csrf_token %}
   {# Первый submit в форме: Enter в полях не должен активировать «Найти координаты» (name=action=geocode). #}
   <button type="submit" class="visually-hidden" tabindex="-1" aria-hidden="true">​</button>
@@ -35,10 +35,10 @@
     <div class="row g-3 mb-3">
       <div class="col-md-4">
         <label class="form-label small fw-semibold" for="id_send_time">Время (локальное)</label>
-        <input type="time" class="form-control" name="send_time" id="id_send_time" step="60" required
+        {# Без name: часть браузеров шлёт устаревший send_time; в POST идёт только hidden (копия при отправке). #}
+        <input type="time" class="form-control" id="id_send_time" step="60" required
                value="{{ digest.send_time|time:'H:i' }}">
-        {# Резерв: часть клиентов не кладёт type=time в POST — копируем значение в hidden (см. скрипт внизу формы). #}
-        <input type="hidden" name="send_time_backup" id="id_send_time_backup"
+        <input type="hidden" name="send_time" id="id_send_time_post"
                value="{{ digest.send_time|time:'H:i' }}">
       </div>
       <div class="col-md-8">
@@ -196,12 +196,14 @@
   </div>
 <script>
 (function () {
+  var form = document.getElementById('digest-settings-form');
   var t = document.getElementById('id_send_time');
-  var b = document.getElementById('id_send_time_backup');
-  if (!t || !b) return;
-  function sync() { b.value = (t.value || '').trim(); }
+  var h = document.getElementById('id_send_time_post');
+  if (!form || !t || !h) return;
+  function sync() { h.value = (t.value || '').trim(); }
   t.addEventListener('input', sync);
   t.addEventListener('change', sync);
+  form.addEventListener('submit', sync);
   sync();
 })();
 </script>

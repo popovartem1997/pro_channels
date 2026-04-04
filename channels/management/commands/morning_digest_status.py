@@ -51,17 +51,24 @@ class Command(BaseCommand):
         self.stdout.write('')
 
         form_ver = getattr(channels_views, 'MORNING_DIGEST_FORM_HANDLER_VERSION', 0)
-        if form_ver >= 2:
+        if form_ver >= 3:
             self.stdout.write(
                 self.style.SUCCESS(
                     f'Код web (форма дайджеста): MORNING_DIGEST_FORM_HANDLER_VERSION={form_ver} — актуально.'
+                )
+            )
+        elif form_ver >= 2:
+            self.stdout.write(
+                self.style.WARNING(
+                    f'Код web (форма дайджеста): MORNING_DIGEST_FORM_HANDLER_VERSION={form_ver} — '
+                    f'лучше обновить до ≥3 (один hidden send_time, без конфликта со старым полем time).'
                 )
             )
         else:
             self.stdout.write(
                 self.style.ERROR(
                     f'Код web (форма дайджеста): MORNING_DIGEST_FORM_HANDLER_VERSION={form_ver} '
-                    f'(ожидается ≥2). В образе старый код или слой COPY . /app взят из кэша Docker без новых файлов.'
+                    f'(ожидается ≥3). В образе старый код или слой COPY . /app взят из кэша Docker без новых файлов.'
                 )
             )
         self.stdout.write('')
@@ -124,5 +131,5 @@ class Command(BaseCommand):
         self.stdout.write(
             'Если send_time не меняется: на сервере сделайте git pull, затем пересбор БЕЗ кэша слоя COPY: '
             'docker compose build --no-cache web && docker compose up -d web. '
-            'Если выше VERSION=0 — в контейнере точно не тот код.'
+            'Если выше VERSION<3 — в контейнере не последняя правка формы времени.'
         )
