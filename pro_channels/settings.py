@@ -265,6 +265,8 @@ TG_HISTORY_IMPORT_ITER_STEP_TIMEOUT_SEC = config('TG_HISTORY_IMPORT_ITER_STEP_TI
 TG_HISTORY_IMPORT_CONNECT_TIMEOUT_SEC = config('TG_HISTORY_IMPORT_CONNECT_TIMEOUT_SEC', default=90, cast=int)
 # Запись в журнал «ещё читаю…» каждые N секунд на шаге 5 (0 — отключить).
 TG_HISTORY_IMPORT_HEARTBEAT_SEC = config('TG_HISTORY_IMPORT_HEARTBEAT_SEC', default=45, cast=int)
+# Скачивать файлы/фото из Telegram в порции (True) или только текст (False — сильно быстрее, короче держим session lock).
+TG_HISTORY_IMPORT_DOWNLOAD_MEDIA = config('TG_HISTORY_IMPORT_DOWNLOAD_MEDIA', default=False, cast=bool)
 # Сколько последних сообщений канала смотреть за один проход (дедуп по msg id в БД).
 PARSE_TELEGRAM_MESSAGE_LIMIT = config('PARSE_TELEGRAM_MESSAGE_LIMIT', default=20, cast=int)
 
@@ -289,6 +291,11 @@ LOGGING = {
             'style': '{',
         },
     },
+    'filters': {
+        'skip_webhook_404': {
+            '()': 'core.logging_filters.SkipWebhookNotFoundFilter',
+        },
+    },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
@@ -300,6 +307,12 @@ LOGGING = {
         'level': 'INFO',
     },
     'loggers': {
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'filters': ['skip_webhook_404'],
+            'propagate': False,
+        },
         'bots': {'handlers': ['console'], 'level': 'DEBUG', 'propagate': False},
         'content': {'handlers': ['console'], 'level': 'DEBUG', 'propagate': False},
         'billing': {'handlers': ['console'], 'level': 'DEBUG', 'propagate': False},

@@ -58,6 +58,7 @@ def execute_after_running(
     connect_timeout = float(getattr(settings, 'TG_HISTORY_IMPORT_CONNECT_TIMEOUT_SEC', 90) or 90)
     connect_timeout = max(15.0, min(connect_timeout, 300.0))
     heartbeat_sec = int(getattr(settings, 'TG_HISTORY_IMPORT_HEARTBEAT_SEC', 45) or 0)
+    download_media = bool(getattr(settings, 'TG_HISTORY_IMPORT_DOWNLOAD_MEDIA', True))
 
     def _cancel_req_sync() -> bool:
         try:
@@ -282,6 +283,12 @@ def execute_after_running(
                 client.get_entity(cht._tg_entity_id_from_channel(source)),
                 timeout=120.0,
             )
+            if not download_media:
+                logger.info(
+                    'TG import run=%s: TG_HISTORY_IMPORT_DOWNLOAD_MEDIA=false — медиа не качаем, '
+                    'только текст; lock Telethon будет короче (посты только с вложениями без текста — пропуск).',
+                    run_id,
+                )
             min_msg_id = 0
             if resume_after_id is not None:
                 try:
@@ -362,7 +369,13 @@ def execute_after_running(
                         continue
 
                     downloaded_paths: list[str] = []
-                    if has_media:
+                    if has_media and download_media:
+                        logger.info(
+                            'TG import run=%s: качаю медиа из Telegram (msg_id=%s); пока идёт загрузка, '
+                            'держится session lock — парсинг ленты с тем же owner_id ждёт.',
+                            run_id,
+                            msg_id,
+                        )
                         try:
                             await _ensure_client_connected(client)
                             media_root = Path(getattr(settings, 'MEDIA_ROOT', settings.BASE_DIR / 'media'))
