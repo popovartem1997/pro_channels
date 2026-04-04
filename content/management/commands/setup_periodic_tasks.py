@@ -42,6 +42,18 @@ TASKS = [
         'interval_every': 15,
         'interval_period': IntervalSchedule.MINUTES,
     },
+    {
+        'name': 'Утренний дайджест: тик (каждые 2 мин)',
+        'task': 'channels.tasks.channel_morning_digest_tick',
+        'interval_every': 2,
+        'interval_period': IntervalSchedule.MINUTES,
+    },
+    {
+        'name': 'Интересные факты: тик (каждые 5 мин)',
+        'task': 'channels.tasks.channel_interesting_facts_tick',
+        'interval_every': 5,
+        'interval_period': IntervalSchedule.MINUTES,
+    },
 ]
 
 
