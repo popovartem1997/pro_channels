@@ -818,24 +818,27 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text('Не удалось принять новость. Попробуйте ещё раз через минуту.')
             return
 
-        # Уведомления после сохранения: не должны приводить к «Произошла ошибка» — заявка уже в БД.
+        # Уведомления после сохранения: заявка уже в БД. Подтверждение подписчику и модерация — раздельно:
+        # сбой пересылки модераторам или меню не должен слать текст «как будто не было подтверждения».
+        confirm = bot_config.success_message.replace('{tracking_id}', suggestion.short_tracking_id)
+        tracking_tag = f'#{suggestion.short_tracking_id}'
+        if tracking_tag not in confirm:
+            confirm = f'{tracking_tag}\n' + confirm
+        if send_mode:
+            confirm = '✅ Новость получена!\n\n' + confirm
         try:
-            # Подтверждение пользователю
-            confirm = bot_config.success_message.replace('{tracking_id}', suggestion.short_tracking_id)
-            tracking_tag = f'#{suggestion.short_tracking_id}'
-            if tracking_tag not in confirm:
-                confirm = f'{tracking_tag}\n' + confirm
-            if send_mode:
-                confirm = '✅ Новость получена!\n\n' + confirm
-            try:
-                logger.info(
-                    "[TG] replying confirm: chat_id=%s tracking=%s",
-                    chat_id_dbg,
-                    suggestion.short_tracking_id,
-                )
-            except Exception:
-                pass
+            logger.info(
+                "[TG] replying confirm: chat_id=%s tracking=%s",
+                chat_id_dbg,
+                suggestion.short_tracking_id,
+            )
+        except Exception:
+            pass
+
+        subscriber_confirmed = False
+        try:
             await message.reply_text(confirm)
+            subscriber_confirmed = True
             try:
                 logger.info(
                     "[TG] replied confirm OK: chat_id=%s tracking=%s",
@@ -844,31 +847,46 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception:
                 pass
+        except Exception as e:
+            logger.exception(
+                'TG subscriber confirm failed suggestion_pk=%s: %s',
+                getattr(suggestion, 'pk', None),
+                e,
+            )
+            try:
+                await message.reply_text(
+                    f'✅ Заявка #{suggestion.short_tracking_id} принята. Спасибо!'
+                )
+                subscriber_confirmed = True
+            except Exception as e2:
+                logger.exception('TG subscriber short confirm failed: %s', e2)
 
-            # Пересылаем в чат модерации (если настроен)
+        try:
             admin_chat_ids = await _moderation_telegram_chat_ids(bot_config)
             logger.info(
                 '[TG] moderation forward bot_id=%s targets=%s',
                 getattr(bot_config, 'pk', None),
                 len(admin_chat_ids),
             )
-
             for admin_chat_id in admin_chat_ids:
                 await _forward_to_admin(update, context, suggestion, admin_chat_id)
-            try:
-                await _send_menu(update, context, text='Готово. Хотите сделать что-то ещё?')
-            except Exception:
-                pass
         except Exception as e:
             logger.exception(
-                'После сохранения предложения #%s (подтверждение/модерация): %s',
+                'TG moderation forward failed (заявка #%s уже в БД): %s',
                 getattr(suggestion, 'pk', None),
                 e,
             )
+
+        try:
+            await _send_menu(update, context, text='Готово. Хотите сделать что-то ещё?')
+        except Exception as e:
+            logger.exception('TG menu after suggestion: %s', e)
+
+        if not subscriber_confirmed:
             try:
                 await message.reply_text(
-                    f'Заявка #{suggestion.short_tracking_id} сохранена. '
-                    'Если не пришло обычное подтверждение — она учтена, свяжитесь с администратором канала.'
+                    f'Заявка #{suggestion.short_tracking_id} сохранена, но Telegram не доставил обычное подтверждение. '
+                    'Заявка учтена — при необходимости свяжитесь с администратором канала.'
                 )
             except Exception:
                 pass
