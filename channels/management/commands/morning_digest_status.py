@@ -6,6 +6,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 from zoneinfo import ZoneInfo
 
+from channels import views as channels_views
 from channels.digest_services import is_digest_due_now
 from channels.models import ChannelMorningDigest
 
@@ -47,6 +48,22 @@ class Command(BaseCommand):
         self.stdout.write(
             'Убедитесь, что запущены контейнеры celery-beat и celery (воркер с очередью prio).'
         )
+        self.stdout.write('')
+
+        form_ver = getattr(channels_views, 'MORNING_DIGEST_FORM_HANDLER_VERSION', 0)
+        if form_ver >= 2:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f'Код web (форма дайджеста): MORNING_DIGEST_FORM_HANDLER_VERSION={form_ver} — актуально.'
+                )
+            )
+        else:
+            self.stdout.write(
+                self.style.ERROR(
+                    f'Код web (форма дайджеста): MORNING_DIGEST_FORM_HANDLER_VERSION={form_ver} '
+                    f'(ожидается ≥2). В образе старый код или слой COPY . /app взят из кэша Docker без новых файлов.'
+                )
+            )
         self.stdout.write('')
 
         base_qs = ChannelMorningDigest.objects.select_related('channel', 'channel__owner').order_by('pk')
@@ -105,6 +122,7 @@ class Command(BaseCommand):
         )
         self.stdout.write('')
         self.stdout.write(
-            'Если send_time в форме и здесь не совпадают: в docker-compose код не смонтирован с хоста — '
-            'нужен пересбор образа: docker compose build web && docker compose up -d web'
+            'Если send_time не меняется: на сервере сделайте git pull, затем пересбор БЕЗ кэша слоя COPY: '
+            'docker compose build --no-cache web && docker compose up -d web. '
+            'Если выше VERSION=0 — в контейнере точно не тот код.'
         )

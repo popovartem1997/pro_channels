@@ -18,6 +18,9 @@ from django.utils import timezone
 from .fixed_ad_options import get_fixed_ad_options_state, sync_fixed_ad_options
 from .models import Channel, ChannelGroup, ChannelInterestingFacts, ChannelMorningDigest, HistoryImportRun
 
+# См. management command morning_digest_status: после деплоя должно быть ≥2 (иначе в контейнере старый код).
+MORNING_DIGEST_FORM_HANDLER_VERSION = 2
+
 
 def _team_channel_editor_user(user) -> bool:
     """Менеджер / помощник админа (не staff): доступ к каналам команды с ограниченным редактированием."""
