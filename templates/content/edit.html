@@ -72,20 +72,40 @@
                 {% for m in post.media_files.all %}
                 <div class="list-group-item d-flex flex-wrap align-items-center gap-3 py-3">
                   <input class="form-check-input mt-0 flex-shrink-0" type="checkbox" name="keep_media" value="{{ m.pk }}" checked title="Публиковать этот файл">
-                  {% if m.media_type == 'photo' and m.file %}
+                  {% if m.media_type == 'photo' %}
+                  {% if m.file_is_available %}
                   <a href="{{ m.file.url }}" class="flex-shrink-0 js-media-open" data-media-kind="photo" data-media-caption="Пост #{{ post.pk }}">
                     <img src="{{ m.file.url }}" alt="" class="media-preview-thumb">
                   </a>
-                  {% elif m.media_type == 'video' and m.file %}
+                  {% else %}
+                  <div class="d-flex align-items-center justify-content-center media-preview-thumb bg-light text-muted border small text-center p-2">Файл удалён</div>
+                  {% endif %}
+                  {% elif m.media_type == 'video' %}
+                  {% if m.file_is_available %}
                   <a href="{{ m.file.url }}" class="d-flex align-items-center justify-content-center media-preview-thumb bg-dark text-white text-decoration-none js-media-open" data-media-kind="video" data-media-caption="Пост #{{ post.pk }}">
                     <i class="bi bi-play-circle fs-2"></i>
                   </a>
+                  {% else %}
+                  <div class="d-flex align-items-center justify-content-center media-preview-thumb bg-light text-muted border small text-center p-2">Файл удалён</div>
+                  {% endif %}
+                  {% else %}
+                  {% if m.file_is_available %}
+                  <a href="{{ m.file.url }}" class="d-flex align-items-center justify-content-center media-preview-thumb bg-body-secondary text-body text-decoration-none js-media-open" data-media-kind="document" data-media-caption="Пост #{{ post.pk }}">
+                    <i class="bi bi-file-earmark fs-2"></i>
+                  </a>
+                  {% else %}
+                  <div class="d-flex align-items-center justify-content-center media-preview-thumb bg-light text-muted border small text-center p-2">Файл удалён</div>
+                  {% endif %}
                   {% endif %}
                   <div class="flex-grow-1 min-w-0">
                     <div class="fw-semibold small">{{ m.get_media_type_display }}</div>
+                    {% if m.file_is_available %}
                     <a class="small text-muted text-break js-media-open" href="{{ m.file.url }}" data-media-kind="{{ m.media_type }}" data-media-caption="Пост #{{ post.pk }}">
                       {{ m.file.name }}
                     </a>
+                    {% else %}
+                    <div class="small text-muted">Файл на диске отсутствует — можно снять галочку и сохранить, чтобы убрать вложение из поста.</div>
+                    {% endif %}
                   </div>
                   <div style="width:110px;" class="flex-shrink-0">
                     <label class="form-label small text-muted mb-1">Порядок</label>

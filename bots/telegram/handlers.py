@@ -31,8 +31,8 @@ from telegram.ext import (
 logger = logging.getLogger(__name__)
 
 
-def _moderation_telegram_chat_ids(bot_config) -> list:
-    """Список chat_id для рассылки модерации; при ошибке сборки — лог и запасной admin_chat_id."""
+def _moderation_telegram_chat_ids_sync(bot_config) -> list:
+    """Список chat_id для рассылки модерации (только из sync или через sync_to_async)."""
     try:
         return list(bot_config.get_moderation_chat_ids())
     except Exception:
@@ -42,6 +42,11 @@ def _moderation_telegram_chat_ids(bot_config) -> list:
         )
         ac = (getattr(bot_config, 'admin_chat_id', None) or '').strip()
         return [ac] if ac else []
+
+
+async def _moderation_telegram_chat_ids(bot_config) -> list:
+    """То же для async-хендлеров PTB (иначе Django: SynchronousOnlyOperation)."""
+    return await sync_to_async(_moderation_telegram_chat_ids_sync, thread_sensitive=True)(bot_config)
 
 
 # Альбомы копятся в Django cache + flush через Celery: в webhook-режиме JobQueue PTB не обрабатывает run_once.
@@ -604,7 +609,7 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f'📝 {body}'
             )
 
-            admin_chat_ids = _moderation_telegram_chat_ids(bot_config)
+            admin_chat_ids = await _moderation_telegram_chat_ids(bot_config)
 
             for admin_chat_id in admin_chat_ids:
                 try:
@@ -841,7 +846,7 @@ async def handle_suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
             # Пересылаем в чат модерации (если настроен)
-            admin_chat_ids = _moderation_telegram_chat_ids(bot_config)
+            admin_chat_ids = await _moderation_telegram_chat_ids(bot_config)
             logger.info(
                 '[TG] moderation forward bot_id=%s targets=%s',
                 getattr(bot_config, 'pk', None),
@@ -1163,7 +1168,7 @@ async def flush_collected_telegram_album(
     except Exception:
         logger.exception('[TG] album user confirm failed')
 
-    admin_chat_ids = _moderation_telegram_chat_ids(bot_config)
+    admin_chat_ids = await _moderation_telegram_chat_ids(bot_config)
 
     def _hx(s) -> str:
         return html.escape(str(s or ''), quote=False)
@@ -1574,7 +1579,7 @@ def build_application(bot_config) -> Application:
     # Сохраняем конфиг в bot_data — доступен во всех хендлерах
     app.bot_data['bot_config'] = bot_config
     # Кешируем чаты модерации (для распознавания "ответа менеджера")
-    app.bot_data['admin_chat_ids'] = _moderation_telegram_chat_ids(bot_config)
+    app.bot_data['admin_chat_ids'] = _moderation_telegram_chat_ids_sync(bot_config)
 
     app.add_handler(CommandHandler('start', cmd_start))
     app.add_handler(CommandHandler('menu', cmd_menu))

@@ -197,6 +197,18 @@ class PostMedia(models.Model):
     def __str__(self):
         return f'{self.get_media_type_display()} для поста #{self.post.pk}'
 
+    @property
+    def file_is_available(self) -> bool:
+        """Файл есть в хранилище (после ручного удаления с диска — False, в UI показываем заглушку)."""
+        try:
+            f = self.file
+            name = getattr(f, 'name', None) if f else None
+            if not name:
+                return False
+            return bool(f.storage.exists(name))
+        except Exception:
+            return False
+
 
 def normalize_post_media_orders(post):
     """Порядок медиа подряд: 1, 2, 3 … (сортировка по текущему order, затем pk)."""

@@ -159,19 +159,30 @@
               <div class="mt-3 d-flex gap-2 flex-wrap js-media-gallery">
                 {% for m in it.media %}
                   {% if m.media_type == 'photo' %}
+                    {% if m.file_is_available %}
                     <a href="{{ m.file.url }}" class="d-inline-block js-media-open" data-media-kind="photo" data-media-caption="{{ it.title }}">
                       <img src="{{ m.file.url }}" alt="" style="width:96px;height:96px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;">
                     </a>
+                    {% else %}
+                    <div class="d-inline-flex align-items-center justify-content-center text-muted border rounded bg-light small px-1 text-center" style="width:96px;height:96px;border-radius:10px;">Файл удалён</div>
+                    {% endif %}
                   {% elif m.media_type == 'video' %}
+                    {% if m.file_is_available %}
                     <a href="{{ m.file.url }}" class="d-inline-flex align-items-center justify-content-center js-media-open" data-media-kind="video" data-media-caption="{{ it.title }}"
-                       class="d-inline-flex align-items-center justify-content-center"
                        style="width:96px;height:96px;border-radius:10px;border:1px solid #e2e8f0;background:#0b1220;color:#fff;text-decoration:none;">
                       <i class="bi bi-play-circle fs-3"></i>
                     </a>
+                    {% else %}
+                    <div class="d-inline-flex align-items-center justify-content-center text-muted border rounded bg-light small px-1 text-center" style="width:96px;height:96px;border-radius:10px;">Файл удалён</div>
+                    {% endif %}
                   {% else %}
+                    {% if m.file_is_available %}
                     <a href="{{ m.file.url }}" class="badge bg-light text-dark border text-decoration-none js-media-open" data-media-kind="document" data-media-caption="{{ it.title }}">
                       <i class="bi bi-paperclip me-1"></i>Файл
                     </a>
+                    {% else %}
+                    <span class="badge bg-secondary-subtle text-secondary border">Файл удалён</span>
+                    {% endif %}
                   {% endif %}
                 {% endfor %}
               </div>

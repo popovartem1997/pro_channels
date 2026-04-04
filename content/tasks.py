@@ -1106,7 +1106,7 @@ def _prepare_telegram_publish_bundle(post, channel):
     text = _build_text(post, channel)
     parse_mode = ParseMode.HTML
 
-    media_rows = list(post.media_files.order_by('order', 'pk'))[:10]
+    media_rows = [mf for mf in post.media_files.order_by('order', 'pk') if mf.file_is_available][:10]
     use_attach = len(media_rows) > 1
     media_payload = []
     for mf in media_rows:
@@ -1241,6 +1241,8 @@ def _publish_vk(post, channel):
 
     attachments = []
     for mf in post.media_files.order_by('order', 'pk')[:10]:
+        if not mf.file_is_available:
+            continue
         if mf.media_type == 'photo':
             with open(mf.file.path, 'rb') as f:
                 upload = vk_api.upload.VkUpload(session)
@@ -1419,7 +1421,7 @@ def _publish_max(post, channel):
     if not bot_token or not channel_id:
         raise ValueError('Не настроен токен или channel_id для MAX')
 
-    media_files = list(post.media_files.order_by('order', 'pk'))
+    media_files = [mf for mf in post.media_files.order_by('order', 'pk') if mf.file_is_available]
 
     def _upload_attachment(mf):
         """
@@ -1650,7 +1652,7 @@ def _publish_instagram(post, channel):
     if not token or not account_id:
         raise ValueError('Не настроен токен или Account ID для Instagram')
 
-    media_files = list(post.media_files.order_by('order', 'pk'))
+    media_files = [mf for mf in post.media_files.order_by('order', 'pk') if mf.file_is_available]
     if not media_files:
         raise ValueError('Instagram не поддерживает публикации без медиафайлов. '
                          'Добавьте хотя бы одно фото или видео.')
