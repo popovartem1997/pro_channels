@@ -41,7 +41,8 @@
           <div class="form-text small text-muted">
             Если снять галочку — в MAX уходит только текст (быстрее, короче держится сессия Telethon).
             Посты только с вложением без текста будут пропущены. Значение по умолчанию на сервере: переменная
-            <code>TG_HISTORY_IMPORT_DOWNLOAD_MEDIA</code>.
+            <code>TG_HISTORY_IMPORT_DOWNLOAD_MEDIA</code>. При включённом скачивании порции чтения меньше
+            (<code>TG_HISTORY_IMPORT_TELETHON_BATCH_WITH_MEDIA</code>), чтобы реже блокировать парсинг ленты.
           </div>
         </div>
 

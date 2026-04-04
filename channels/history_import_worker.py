@@ -8,6 +8,8 @@
 не всегда обрывается внешним wait_for — поэтому чтение канала идёт через wait_for на
 каждый шаг iter_messages (TG_HISTORY_IMPORT_ITER_STEP_TIMEOUT_SEC) и периодические
 записи в журнал (TG_HISTORY_IMPORT_HEARTBEAT_SEC), receive_updates=False.
+При скачивании медиа размер порции ограничивается TG_HISTORY_IMPORT_TELETHON_BATCH_WITH_MEDIA;
+ожидание lock — TG_HISTORY_IMPORT_TELETHON_LOCK_WAIT_SEC (0 = как TELETHON_REDIS_LOCK_WAIT).
 """
 from __future__ import annotations
 
@@ -53,12 +55,21 @@ def execute_after_running(
     fetch_timeout = float(getattr(settings, 'TG_HISTORY_IMPORT_FETCH_TIMEOUT_SEC', 900) or 900)
     batch_limit = int(getattr(settings, 'TG_HISTORY_IMPORT_TELETHON_BATCH', 25) or 25)
     batch_limit = max(1, min(batch_limit, 200))
+    download_media = bool(run.download_tg_media)
+    if download_media:
+        cap_media = int(getattr(settings, 'TG_HISTORY_IMPORT_TELETHON_BATCH_WITH_MEDIA', 10) or 10)
+        cap_media = max(1, min(cap_media, 200))
+        if cap_media < batch_limit:
+            batch_limit = cap_media
+    lock_wait_override = int(getattr(settings, 'TG_HISTORY_IMPORT_TELETHON_LOCK_WAIT_SEC', 0) or 0)
+    telethon_lock_kwargs: dict = {}
+    if lock_wait_override > 0:
+        telethon_lock_kwargs['wait'] = float(lock_wait_override)
     iter_step_timeout = float(getattr(settings, 'TG_HISTORY_IMPORT_ITER_STEP_TIMEOUT_SEC', 180) or 180)
     iter_step_timeout = max(30.0, min(iter_step_timeout, float(fetch_timeout)))
     connect_timeout = float(getattr(settings, 'TG_HISTORY_IMPORT_CONNECT_TIMEOUT_SEC', 90) or 90)
     connect_timeout = max(15.0, min(connect_timeout, 300.0))
     heartbeat_sec = int(getattr(settings, 'TG_HISTORY_IMPORT_HEARTBEAT_SEC', 45) or 0)
-    download_media = bool(run.download_tg_media)
 
     def _cancel_req_sync() -> bool:
         try:
@@ -522,7 +533,7 @@ def execute_after_running(
 
             try:
                 tick = _on_telethon_lock_wait if not ph['batch_phase_started'] else None
-                with _telethon_session_lock(source.owner_id, on_lock_wait_tick=tick):
+                with _telethon_session_lock(source.owner_id, on_lock_wait_tick=tick, **telethon_lock_kwargs):
                     if not ph['batch_phase_started']:
                         _append_import_journal(
                             run_id,
