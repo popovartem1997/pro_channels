@@ -729,15 +729,17 @@ def import_history_start(request):
         async_result = import_tg_history_to_max_task.delay(run.pk)
         j = dict(run.progress_json or {})
         log = list(j.get('journal') or [])
+        _iq = (getattr(settings, 'CELERY_IMPORT_HISTORY_QUEUE', None) or 'import_history').strip() or 'import_history'
         log.append(
             {
                 't': timezone.now().isoformat(timespec='seconds'),
                 'step': 0,
                 'step_total': 7,
                 'msg': (
-                    f'Задача записана в Redis-очередь «import_history» (id Celery: {async_result.id}). '
-                    'Шаг 0 из 7: ждём, пока воркер заберёт задачу. Если так висит долго — откройте '
-                    '«Настройки → Фоновые задачи» и проверьте длину очереди и список active.'
+                    f'Задача записана в Redis-очередь «{_iq}» (id Celery: {async_result.id}). '
+                    'Шаг 0 из 7: ждём, пока воркер заберёт задачу. Если так висит долго — у контейнера celery в command '
+                    f'должен быть -Q ...,{_iq},... (как в docker-compose) или задайте CELERY_IMPORT_HISTORY_QUEUE=prio '
+                    'в .env, если воркер слушает только prio. Диагностика: страница импорта / «Фоновые задачи».'
                 ),
             }
         )
@@ -788,7 +790,11 @@ def _redis_broker_queue_lengths(broker_url: str):
 
         r = redis.from_url(broker_url, socket_connect_timeout=2, socket_timeout=2)
         out = {}
-        for q in ('import_history', 'prio', 'celery'):
+        names = ['import_history', 'prio', 'celery', 'parse']
+        hist_q = (getattr(settings, 'CELERY_IMPORT_HISTORY_QUEUE', None) or 'import_history').strip() or 'import_history'
+        if hist_q not in names:
+            names.append(hist_q)
+        for q in names:
             try:
                 out[q] = int(r.llen(q))
             except Exception:
@@ -919,10 +925,24 @@ def import_history_diagnostics(request):
             orphan_pending_ids.append(r.pk)
         pending_payload.append(_run_short(r, orphan_no_task_id=orphan))
 
+    _hist_q = (getattr(settings, 'CELERY_IMPORT_HISTORY_QUEUE', None) or 'import_history').strip() or 'import_history'
+
     hints = [
         'Если pending не пустой, а workers пустой — контейнер celery не запущен или другой CELERY_BROKER_URL, чем у web.',
         'Команда: python manage.py requeue_pending_history_imports',
     ]
+    if _hist_q != 'import_history':
+        hints.insert(
+            0,
+            f'Импорт истории маршрутизируется в очередь «{_hist_q}» (CELERY_IMPORT_HISTORY_QUEUE). '
+            'Воркер обязан слушать эту очередь в -Q.',
+        )
+    else:
+        hints.insert(
+            1,
+            'Шаг 0 не сдвигается: чаще всего воркер без очереди import_history (нужен -Q import_history,prio,celery,parse '
+            'или CELERY_IMPORT_HISTORY_QUEUE=prio при упрощённом воркере).',
+        )
     if orphan_pending_ids:
         hints.insert(
             0,
@@ -945,11 +965,11 @@ def import_history_diagnostics(request):
             f'В Redis в очереди «celery» сейчас ~{redis_celery_len} сообщ. Если воркер живой, но active пустой — '
             'перезапустите celery (command с -Q import_history,prio,celery,parse) или проверьте зависшие процессы.',
         )
-    redis_import_len = redis_qlens.get('import_history') if isinstance(redis_qlens, dict) else None
+    redis_import_len = redis_qlens.get(_hist_q) if isinstance(redis_qlens, dict) else None
     if redis_import_len is not None and redis_import_len > 0:
         hints.append(
-            f'В очереди «import_history» ~{redis_import_len} задач(и) импорта. '
-            'Если число не убывает — проверьте, что воркер запущен с -Q import_history,... и concurrency ≥ 1.',
+            f'В очереди «{_hist_q}» ~{redis_import_len} задач(и) импорта. '
+            'Если число не убывает — воркер не слушает эту очередь, все слоты заняты, или зависли процессы.',
         )
     if redis_prio_len is not None and redis_prio_len > 50:
         hints.append(
@@ -986,6 +1006,7 @@ def import_history_diagnostics(request):
             'settings': {
                 'CELERY_TASK_ALWAYS_EAGER': getattr(settings, 'CELERY_TASK_ALWAYS_EAGER', False),
                 'CELERY_TASK_DEFAULT_QUEUE': getattr(settings, 'CELERY_TASK_DEFAULT_QUEUE', 'celery'),
+                'CELERY_IMPORT_HISTORY_QUEUE': _hist_q,
                 'CELERY_TASK_ROUTES': getattr(settings, 'CELERY_TASK_ROUTES', None),
                 'CELERY_WORKER_PREFETCH_MULTIPLIER': getattr(
                     settings, 'CELERY_WORKER_PREFETCH_MULTIPLIER', 1

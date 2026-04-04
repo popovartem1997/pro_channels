@@ -175,12 +175,15 @@ CELERY_ACCEPT_CONTENT = ['json']
 # из execute_parse_task посты и TG→MAX могут часами не доходить до воркера (один Redis-список «celery»).
 CELERY_TASK_DEFAULT_QUEUE = 'celery'
 CELERY_TASK_CREATE_MISSING_QUEUES = True
+# Очередь для import_tg_history_to_max_task. По умолчанию import_history (см. docker-compose -Q).
+# Если воркер запущен без этой очереди (только -Q prio,celery), задайте CELERY_IMPORT_HISTORY_QUEUE=prio и перезапустите web+celery.
+CELERY_IMPORT_HISTORY_QUEUE = (config('CELERY_IMPORT_HISTORY_QUEUE', default='import_history') or 'import_history').strip()
 CELERY_TASK_ROUTES = {
     # Раз в минуту: не должна стоять в хвосте за тысячами execute_parse_task в «celery».
     'content.tasks.check_scheduled_posts': {'queue': 'prio'},
     'content.tasks.publish_post_task': {'queue': 'prio'},
     # Отдельная очередь: иначе импорт TG→MAX висит в «Ожидание воркера» за сотнями publish_post_task в prio.
-    'channels.tasks.import_tg_history_to_max_task': {'queue': 'import_history'},
+    'channels.tasks.import_tg_history_to_max_task': {'queue': CELERY_IMPORT_HISTORY_QUEUE},
     # Парсинг ленты (ParseTask): отдельная очередь «parse» — последняя в списке воркера (см. docker-compose),
     # чтобы после перезапуска и при фоне импорта в MAX воркер сначала разбирал import_history → prio → celery.
     'parsing.tasks.execute_parse_task': {'queue': 'parse'},
