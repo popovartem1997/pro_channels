@@ -32,6 +32,19 @@
           {% endif %}
         </div>
 
+        <div class="form-check mb-3">
+          <input class="form-check-input" type="checkbox" value="1" id="pcDownloadTgMedia" name="download_tg_media"
+            {% if download_media_default %}checked{% endif %}>
+          <label class="form-check-label small" for="pcDownloadTgMedia">
+            Скачивать фото и файлы из Telegram
+          </label>
+          <div class="form-text small text-muted">
+            Если снять галочку — в MAX уходит только текст (быстрее, короче держится сессия Telethon).
+            Посты только с вложением без текста будут пропущены. Значение по умолчанию на сервере: переменная
+            <code>TG_HISTORY_IMPORT_DOWNLOAD_MEDIA</code>.
+          </div>
+        </div>
+
         <div class="d-flex gap-2 flex-wrap align-items-center">
           <button id="pcStartBtn" class="btn btn-brand" type="button" {% if not tg_channels %}disabled{% endif %}>
             <i class="bi bi-play-fill me-1"></i> Начать импорт
@@ -86,6 +99,10 @@
         <div class="d-flex justify-content-between mt-2">
           <div class="small text-muted">Сообщений: <span id="pcSent">0</span></div>
           <div class="small text-muted">Ошибок: <span id="pcErrors">0</span></div>
+        </div>
+
+        <div class="mt-2 small text-muted">
+          Медиа в этом запуске: <span id="pcDownloadMode" class="text-body">—</span>
         </div>
 
         <div class="mt-3">
@@ -158,6 +175,7 @@
 
   const els = {
     source: document.getElementById('pcSourceChannel'),
+    downloadMedia: document.getElementById('pcDownloadTgMedia'),
     start: document.getElementById('pcStartBtn'),
     stop: document.getElementById('pcStopBtn'),
     requeue: document.getElementById('pcRequeueBtn'),
@@ -166,6 +184,7 @@
     sent: document.getElementById('pcSent'),
     errors: document.getElementById('pcErrors'),
     lastTg: document.getElementById('pcLastTg'),
+    downloadMode: document.getElementById('pcDownloadMode'),
     err: document.getElementById('pcError'),
     journal: document.getElementById('pcJournal'),
     diag: document.getElementById('pcDiag'),
@@ -233,6 +252,9 @@
     els.sent.textContent = String(p.sent || 0);
     els.errors.textContent = String(p.errors || 0);
     els.lastTg.textContent = (p.last_tg_message_id == null) ? '—' : String(p.last_tg_message_id);
+    if (els.downloadMode && typeof run.download_tg_media !== 'undefined') {
+      els.downloadMode.textContent = run.download_tg_media ? 'да (фото/файлы)' : 'нет (только текст)';
+    }
     els.err.textContent = run.error_message || '';
     const jn = run.progress && run.progress.journal;
     if (els.journal) {
@@ -294,6 +316,9 @@
     body.set('csrfmiddlewaretoken', csrf);
     body.set('source_channel_id', sourceId);
     body.set('target_channel_id', targetChannelId);
+    if (els.downloadMedia && els.downloadMedia.checked) {
+      body.set('download_tg_media', '1');
+    }
     fetch('{% url "channels:import_history_start" %}', {
       method: 'POST',
       headers: {'X-Requested-With': 'XMLHttpRequest'},

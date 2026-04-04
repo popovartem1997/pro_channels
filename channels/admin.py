@@ -66,6 +66,7 @@ class HistoryImportRunAdmin(admin.ModelAdmin):
         'status',
         'source_channel',
         'target_channel',
+        'download_tg_media',
         'created_by',
         'celery_task_id_short',
         'started_at',

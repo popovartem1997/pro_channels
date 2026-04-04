@@ -261,9 +261,11 @@ def import_tg_history_to_max_task(self, run_id: int):
         run.error_message = ''
         run.save(update_fields=['status', 'started_at', 'error_message'])
 
+    _media_mode = 'включено (фото/файлы качаются из Telegram)' if run.download_tg_media else 'выключено (только текст, быстрее)'
     _append_import_journal(
         run_id,
-        'Проверки пройдены. Статус запуска: «В работе». Следующий шаг — занять общую сессию Telegram (как у парсинга) и читать сообщения.',
+        'Проверки пройдены. Статус запуска: «В работе». Следующий шаг — занять общую сессию Telegram (как у парсинга) и читать сообщения. '
+        f'Скачивание медиа: {_media_mode}.',
         step=3,
         step_total=7,
     )

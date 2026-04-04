@@ -515,6 +515,12 @@ class HistoryImportRun(models.Model):
 
     cancel_requested = models.BooleanField(default=False, db_index=True)
 
+    download_tg_media = models.BooleanField(
+        'Скачивать медиа из Telegram',
+        default=True,
+        help_text='Выключите для ускорения: в MAX только текст; посты только с файлами без подписи пропускаются.',
+    )
+
     celery_task_id = models.CharField(
         'ID задачи Celery',
         max_length=255,

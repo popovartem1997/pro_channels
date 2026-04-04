@@ -58,7 +58,7 @@ def execute_after_running(
     connect_timeout = float(getattr(settings, 'TG_HISTORY_IMPORT_CONNECT_TIMEOUT_SEC', 90) or 90)
     connect_timeout = max(15.0, min(connect_timeout, 300.0))
     heartbeat_sec = int(getattr(settings, 'TG_HISTORY_IMPORT_HEARTBEAT_SEC', 45) or 0)
-    download_media = bool(getattr(settings, 'TG_HISTORY_IMPORT_DOWNLOAD_MEDIA', True))
+    download_media = bool(run.download_tg_media)
 
     def _cancel_req_sync() -> bool:
         try:

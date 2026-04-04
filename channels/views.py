@@ -665,6 +665,7 @@ def channel_import_history(request, pk: int):
         'tg_channels': tg_channels,
         'recent_runs': recent_runs,
         'active_import_run_id': active_run.pk if active_run else None,
+        'download_media_default': bool(getattr(settings, 'TG_HISTORY_IMPORT_DOWNLOAD_MEDIA', True)),
     })
 
 
@@ -715,11 +716,14 @@ def import_history_start(request):
         except Exception:
             prev_last_id = None
 
+        download_tg_media = request.POST.get('download_tg_media') == '1'
+
         run = HistoryImportRun.objects.create(
             created_by=request.user,
             source_channel=source,
             target_channel=target,
             status=HistoryImportRun.STATUS_PENDING,
+            download_tg_media=download_tg_media,
             progress_json={'sent': 0, 'errors': 0, 'last_tg_message_id': prev_last_id},
         )
 
@@ -777,6 +781,7 @@ def import_history_status(request, pk: int):
             'source_channel': {'id': run.source_channel_id, 'name': run.source_channel.name},
             'target_channel': {'id': run.target_channel_id, 'name': run.target_channel.name},
             'cancel_requested': bool(run.cancel_requested),
+            'download_tg_media': bool(run.download_tg_media),
         }
     })
 
