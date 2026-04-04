@@ -515,11 +515,8 @@ class HistoryImportRun(models.Model):
 
     cancel_requested = models.BooleanField(default=False, db_index=True)
 
-    download_tg_media = models.BooleanField(
-        'Скачивать медиа из Telegram',
-        default=True,
-        help_text='Выключите для ускорения: в MAX только текст; посты только с файлами без подписи пропускаются.',
-    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     celery_task_id = models.CharField(
         'ID задачи Celery',
@@ -529,8 +526,11 @@ class HistoryImportRun(models.Model):
         help_text='Идентификатор задачи в брокере (для диагностики очереди).',
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    download_tg_media = models.BooleanField(
+        'Скачивать медиа из Telegram',
+        default=True,
+        help_text='Выключите для ускорения: в MAX только текст; посты только с файлами без подписи пропускаются.',
+    )
 
     class Meta:
         verbose_name = 'Импорт истории TG→MAX'

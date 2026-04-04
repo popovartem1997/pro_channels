@@ -270,12 +270,11 @@ class AdApplication(models.Model):
         upload_to='ad_transfer_proofs/%Y/%m/',
         blank=True,
     )
-    invoice = models.ForeignKey(
+    invoice = models.OneToOneField(
         'billing.Invoice',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        unique=True,
         related_name='ad_application',
         verbose_name='Счёт',
     )
