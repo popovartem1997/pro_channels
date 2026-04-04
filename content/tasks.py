@@ -1567,12 +1567,16 @@ def _publish_max(post, channel):
     if len(max_text) > 4000:
         max_text = max_text[:3997] + '…'
 
-    payload = {'text': max_text}
-
     # Медиа: загружаем в MAX и добавляем attachments (до 10)
     attachments = []
     for mf in media_files[:10]:
         attachments.append(_upload_attachment(mf))
+    if attachments:
+        # API MAX может отклонять пустой text при вложениях — минимальная подпись.
+        if not (max_text or '').strip():
+            max_text = '\u2060'
+
+    payload = {'text': max_text}
     if attachments:
         payload['attachments'] = attachments
 

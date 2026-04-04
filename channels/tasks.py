@@ -279,11 +279,13 @@ def import_tg_history_to_max_task(self, run_id: int):
     errors = int((run.progress_json or {}).get('errors') or 0)
     last_tg_message_id = (run.progress_json or {}).get('last_tg_message_id') or None
 
-    @sync_to_async(thread_sensitive=True)
+    # thread_sensitive=False: задача крутится в asyncio.run() внутри Celery — при True возможен вечный
+    # стопор (ожидание того же потока, что и event loop). ORM/requests уходят в пул потоков.
+    @sync_to_async(thread_sensitive=False)
     def _update_progress_async(*, sent=None, errors=None, last_tg_message_id=None):
         _update_progress(run_id, sent=sent, errors=errors, last_tg_message_id=last_tg_message_id)
 
-    @sync_to_async(thread_sensitive=True)
+    @sync_to_async(thread_sensitive=False)
     def _cancel_requested() -> bool:
         try:
             rr = HistoryImportRun.objects.only('cancel_requested').get(pk=run_id)
@@ -291,7 +293,7 @@ def import_tg_history_to_max_task(self, run_id: int):
         except Exception:
             return False
 
-    @sync_to_async(thread_sensitive=True)
+    @sync_to_async(thread_sensitive=False)
     def _create_post_for_target(text_value: str):
         from content.models import Post
         post = Post.objects.create(
@@ -304,7 +306,7 @@ def import_tg_history_to_max_task(self, run_id: int):
         post.channels.add(target)
         return post.pk
 
-    @sync_to_async(thread_sensitive=True)
+    @sync_to_async(thread_sensitive=False)
     def _attach_file_to_post(post_id: int, file_path: str, order: int, media_type: str) -> bool:
         from content.models import PostMedia, Post
         pth = Path(file_path)
@@ -323,7 +325,7 @@ def import_tg_history_to_max_task(self, run_id: int):
             )
         return True
 
-    @sync_to_async(thread_sensitive=True)
+    @sync_to_async(thread_sensitive=False)
     def _normalize_media(post_id: int):
         from content.models import Post, normalize_post_media_orders
         try:
@@ -332,7 +334,7 @@ def import_tg_history_to_max_task(self, run_id: int):
             return
         normalize_post_media_orders(post)
 
-    @sync_to_async(thread_sensitive=True)
+    @sync_to_async(thread_sensitive=False)
     def _create_publish_result(post_id: int, ok: bool, platform_message_id: str = '', error_message: str = ''):
         from content.models import Post, PublishResult
         try:
@@ -347,7 +349,7 @@ def import_tg_history_to_max_task(self, run_id: int):
             error_message=error_message or '',
         )
 
-    @sync_to_async(thread_sensitive=True)
+    @sync_to_async(thread_sensitive=False)
     def _set_post_status(post_id: int, *, status: str, published_at=None):
         from content.models import Post
         try:
@@ -361,7 +363,7 @@ def import_tg_history_to_max_task(self, run_id: int):
         else:
             post.save(update_fields=['status'])
 
-    @sync_to_async(thread_sensitive=True)
+    @sync_to_async(thread_sensitive=False)
     def _publish_max_sync(post_id: int):
         from content.models import Post
         try:
@@ -440,6 +442,7 @@ def import_tg_history_to_max_task(self, run_id: int):
                 except (TypeError, ValueError):
                     min_msg_id = 0
             n = 0
+            none_id_rows = 0
             async for msg in client.iter_messages(entity, reverse=True, min_id=min_msg_id):
                 if n >= take:
                     break
@@ -449,6 +452,14 @@ def import_tg_history_to_max_task(self, run_id: int):
 
                 msg_id = getattr(msg, 'id', None)
                 if msg_id is None:
+                    none_id_rows += 1
+                    if none_id_rows > 200:
+                        logger.warning(
+                            'TG import run=%s: слишком много сообщений без id — завершаю чтение канала.',
+                            run_id,
+                        )
+                        iterator_exhausted = True
+                        break
                     continue
 
                 text = ''
@@ -485,6 +496,11 @@ def import_tg_history_to_max_task(self, run_id: int):
                     except Exception as exc:
                         errors += 1
                         logger.warning('Import run=%s tg_msg=%s download_media error: %s', run_id, msg_id, exc)
+
+                if not text and not downloaded_paths:
+                    items.append({'kind': 'skip', 'msg_id': int(msg_id)})
+                    n += 1
+                    continue
 
                 items.append(
                     {
@@ -557,6 +573,13 @@ def import_tg_history_to_max_task(self, run_id: int):
             else:
                 await _set_post_status(post_id, status='failed')
                 logger.error('Import run=%s tg_msg=%s publish failed: %s', run_id, msg_id, last_exc)
+                err_txt = str(last_exc) if last_exc else ''
+                _append_import_journal(
+                    run_id,
+                    f'Ошибка публикации в MAX (TG msg {msg_id}): {err_txt[:400]}',
+                    step=6,
+                    step_total=7,
+                )
 
             last_tg_message_id = msg_id
             await _update_progress_async(sent=sent, errors=errors, last_tg_message_id=last_tg_message_id)
@@ -608,6 +631,15 @@ def import_tg_history_to_max_task(self, run_id: int):
                     batch, exhausted = asyncio.run(
                         _fetch_tg_import_batch(resume_after_id=last_tg_message_id, take=batch_limit)
                     )
+                    posts_in_batch = sum(1 for x in batch if x.get('kind') == 'post')
+                    skips_in_batch = sum(1 for x in batch if x.get('kind') == 'skip')
+                    _append_import_journal(
+                        run_id,
+                        f'Шаг 5: из Telegram прочитано {len(batch)} позиций (к публикации: {posts_in_batch}, пропуски: {skips_in_batch}). '
+                        f'Уже в MAX: {sent}, ошибок: {errors}.',
+                        step=5,
+                        step_total=7,
+                    )
                 lock_attempt = 0
                 lock_last_err = None
             except RuntimeError as exc:
@@ -637,6 +669,12 @@ def import_tg_history_to_max_task(self, run_id: int):
                 continue
 
             asyncio.run(_process_import_batch(batch))
+            _append_import_journal(
+                run_id,
+                f'Шаг 6: порция обработана; всего опубликовано в MAX: {sent}, ошибок: {errors}, последний TG id: {last_tg_message_id}.',
+                step=6,
+                step_total=7,
+            )
 
             if exhausted:
                 channel_done = True
