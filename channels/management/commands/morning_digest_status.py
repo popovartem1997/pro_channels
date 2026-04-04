@@ -74,6 +74,16 @@ class Command(BaseCommand):
         self.stdout.write('')
 
         base_qs = ChannelMorningDigest.objects.select_related('channel', 'channel__owner').order_by('pk')
+        total_rows = base_qs.count()
+        enabled_rows = base_qs.filter(is_enabled=True).count()
+        self.stdout.write(
+            f'ChannelMorningDigest в БД: всего записей {total_rows}, из них включённых '
+            f'(is_enabled=True, их обрабатывает Beat): {enabled_rows}. '
+            f'По умолчанию ниже выводятся только включённые; полный список каналов: '
+            f'python manage.py morning_digest_status --all'
+        )
+        self.stdout.write('')
+
         cfgs = list(base_qs.filter(is_enabled=True)) if not show_all else list(base_qs)
         if not cfgs:
             self.stdout.write(
@@ -81,14 +91,15 @@ class Command(BaseCommand):
                     'Нет записей ChannelMorningDigest в БД.'
                     if show_all
                     else (
-                        'Нет включённых записей ChannelMorningDigest (is_enabled=True). '
-                        'Включите дайджест в настройках канала или запустите с --all.'
+                        'Нет включённых записей (is_enabled=True). '
+                        'Включите переключатель «Включить автоматическую отправку» в настройках утреннего дайджеста '
+                        'нужного канала или выполните команду с --all, чтобы увидеть выключенные конфиги.'
                     )
                 )
             )
             return
         if show_all:
-            self.stdout.write(self.style.NOTICE('Режим --all: все дайджесты в БД (включая выключенные).'))
+            self.stdout.write(self.style.NOTICE('Режим --all: подробно по всем записям (включая выключенные).'))
             self.stdout.write('')
 
         server_now = timezone.now()
