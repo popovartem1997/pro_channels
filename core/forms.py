@@ -31,10 +31,16 @@ class GlobalApiKeysForm(forms.ModelForm):
             'vk_ord_contract_sum_from_campaign_total',
             'vk_ord_contract_amount_fixed',
             'telegram_api_id',
+            'parse_media_retention_days',
         ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        pm = self.fields.get('parse_media_retention_days')
+        if pm is not None:
+            pm.widget.attrs.setdefault('min', 1)
+            pm.widget.attrs.setdefault('max', 365)
+            pm.widget.attrs.setdefault('step', 1)
         # Bootstrap classes
         for name, field in self.fields.items():
             widget = field.widget

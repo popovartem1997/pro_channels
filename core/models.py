@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from core.crypto import encrypt_token, decrypt_token
@@ -75,6 +76,13 @@ class GlobalApiKeys(models.Model):
     # VK parsing
     vk_parse_access_token_enc = models.TextField(blank=True, verbose_name='VK_PARSE_ACCESS_TOKEN (enc)')
 
+    parse_media_retention_days = models.PositiveSmallIntegerField(
+        default=3,
+        validators=[MinValueValidator(1), MaxValueValidator(365)],
+        verbose_name='Парсинг: хранить локальные медиа (дней)',
+        help_text='Файлы в media/parsed_items/ старше этого срока удаляются (Celery раз в сутки); у старых записей парсинга поле «медиа» обнуляется.',
+    )
+
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -135,6 +143,20 @@ def get_global_api_keys() -> GlobalApiKeys:
     """Singleton accessor (creates row if missing)."""
     obj, _ = GlobalApiKeys.objects.get_or_create(pk=1)
     return obj
+
+
+def effective_parse_media_retention_days() -> int:
+    """Дней хранения media/parsed_items: из GlobalApiKeys, иначе settings.PARSE_MEDIA_RETENTION_DAYS."""
+    from django.conf import settings
+
+    gk = get_global_api_keys()
+    try:
+        d = int(gk.parse_media_retention_days)
+    except (TypeError, ValueError):
+        d = 0
+    if 1 <= d <= 365:
+        return d
+    return max(1, min(int(getattr(settings, 'PARSE_MEDIA_RETENTION_DAYS', 3) or 3), 365))
 
 
 class PageVisit(models.Model):

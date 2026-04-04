@@ -1022,11 +1022,8 @@ def _cron_to_interval(cron_expr):
 
 @shared_task(ignore_result=True)
 def purge_parse_media_retention():
-    """Удалить файлы media/parsed_items старше PARSE_MEDIA_RETENTION_DAYS и обнулить media у старых ParsedItem."""
-    from django.conf import settings
-
+    """Удалить файлы media/parsed_items старше срока из «Ключи API» → парсинг, иначе PARSE_MEDIA_RETENTION_DAYS."""
+    from core.models import effective_parse_media_retention_days
     from parsing.media_retention import purge_parse_media_older_than
 
-    days = int(getattr(settings, 'PARSE_MEDIA_RETENTION_DAYS', 3) or 3)
-    days = max(1, min(days, 365))
-    return purge_parse_media_older_than(retention_days=days)
+    return purge_parse_media_older_than(retention_days=effective_parse_media_retention_days())

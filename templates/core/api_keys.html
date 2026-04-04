@@ -156,6 +156,18 @@
               </div>
             {% endif %}
           </div>
+          <div class="mb-4">
+            <label class="form-label fw-semibold" for="{{ form.parse_media_retention_days.id_for_label }}">
+              {{ form.parse_media_retention_days.label }}
+            </label>
+            {{ form.parse_media_retention_days }}
+            {% if form.parse_media_retention_days.help_text %}
+              <div class="form-text">{{ form.parse_media_retention_days.help_text }}</div>
+            {% endif %}
+            <div class="form-text text-muted">
+              Автоочистка раз в сутки (Celery). Переменная <code>PARSE_MEDIA_RETENTION_DAYS</code> в .env — только запасной вариант.
+            </div>
+          </div>
 
           <hr class="my-4">
 

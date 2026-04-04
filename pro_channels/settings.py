@@ -282,7 +282,7 @@ TG_HISTORY_IMPORT_HEARTBEAT_SEC = config('TG_HISTORY_IMPORT_HEARTBEAT_SEC', defa
 TG_HISTORY_IMPORT_DOWNLOAD_MEDIA = config('TG_HISTORY_IMPORT_DOWNLOAD_MEDIA', default=False, cast=bool)
 # Сколько последних сообщений канала смотреть за один проход (дедуп по msg id в БД).
 PARSE_TELEGRAM_MESSAGE_LIMIT = config('PARSE_TELEGRAM_MESSAGE_LIMIT', default=20, cast=int)
-# Локальные файлы медиа парсинга (media/parsed_items/…): хранить не дольше N дней (Celery + manage.py purge_parse_media).
+# Запасной срок хранения media/parsed_items, если в GlobalApiKeys некорректное значение (основное — в «Ключи API»).
 PARSE_MEDIA_RETENTION_DAYS = config('PARSE_MEDIA_RETENTION_DAYS', default=3, cast=int)
 
 # ─── VK Парсинг ──────────────────────────────────────────────────────────────
