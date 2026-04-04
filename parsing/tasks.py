@@ -14,6 +14,7 @@ import hashlib
 import logging
 import re
 import secrets
+import threading
 import time
 import traceback
 from contextlib import contextmanager
@@ -67,6 +68,14 @@ def _telethon_flock_lock_path(owner_id: int) -> Path:
 _REDIS_UNLOCK_LUA = """
 if redis.call("get", KEYS[1]) == ARGV[1] then
   return redis.call("del", KEYS[1])
+else
+  return 0
+end
+"""
+
+_REDIS_EXTEND_LUA = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("expire", KEYS[1], tonumber(ARGV[2]))
 else
   return 0
 end
@@ -178,6 +187,40 @@ def _telethon_session_lock_redis_impl(
     deadline = wait_start + wait
     poll_interval = max(0.25, min(4.0, float(wait_chunk)))
     last_tick: list[float] = [wait_start]
+    renew_interval = getattr(settings, 'TELETHON_REDIS_LOCK_RENEW_INTERVAL', None)
+    if renew_interval is None:
+        renew_interval = max(20.0, min(float(hold) * 0.28, 300.0))
+    else:
+        renew_interval = float(renew_interval)
+    stop_renew = threading.Event()
+    renew_thread: Optional[threading.Thread] = None
+
+    def _renew_loop():
+        """Продлевает TTL, пока воркер жив; после kill -9 ключ сам истечёт (см. TELETHON_REDIS_LOCK_TTL)."""
+        try:
+            r_local = redis.from_url(
+                url,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+                health_check_interval=30,
+            )
+        except Exception as exc:
+            logger.warning('Telethon lock renew: redis connect owner_id=%s: %s', owner_id, exc)
+            return
+        hold_sec = int(hold)
+        while not stop_renew.wait(timeout=renew_interval):
+            try:
+                n = r_local.eval(_REDIS_EXTEND_LUA, 1, lock_name, token, str(hold_sec))
+                if not n:
+                    break
+            except Exception as exc:
+                logger.warning(
+                    'Telethon lock renew failed owner_id=%s key=%s: %s',
+                    owner_id,
+                    lock_name,
+                    exc,
+                )
+
     try:
         while True:
             now = time.monotonic()
@@ -219,8 +262,17 @@ def _telethon_session_lock_redis_impl(
                 lock_name,
                 waited,
             )
+        renew_thread = threading.Thread(
+            target=_renew_loop,
+            name=f'telethon-lock-renew-{owner_id}',
+            daemon=True,
+        )
+        renew_thread.start()
         yield
     finally:
+        stop_renew.set()
+        if renew_thread is not None and renew_thread.is_alive():
+            renew_thread.join(timeout=3.0)
         if acquired:
             try:
                 r.eval(_REDIS_UNLOCK_LUA, 1, lock_name, token)
@@ -240,8 +292,9 @@ def _telethon_session_lock(
     Один процесс Celery на один файл сессии Telethon: иначе SQLite database is locked
     и при loop.close() рвутся фоновые задачи MTProto.
 
-    По умолчанию TELETHON_SESSION_LOCK_BACKEND=file — fcntl на общем volume (Docker),
-    без «вечных» ключей в Redis. Для нескольких хостов без общего media — redis или both.
+    По умолчанию TELETHON_SESSION_LOCK_BACKEND=file — fcntl на общем volume (Docker).
+    Режим redis: SET NX с TELETHON_REDIS_LOCK_TTL и фоновым продлением, пока держатель жив;
+    после kill -9 воркера ключ сам истечёт (не держать TTL сутками).
 
     wait / wait_chunk — переопределение таймаутов ожидания (например короткое ожидание в веб-запросе).
     """

@@ -165,9 +165,9 @@ def import_tg_history_to_max_task(self, run_id: int):
         _append_import_journal(
             run_id,
             f'Шаг 4: всё ещё жду доступ к сессии Telegram (~{int(elapsed_sec)} с). '
-            'Параллельно тот же файл сессии может использовать парсинг или другой импорт. '
-            'Если так бесконечно — откройте диагностику импорта / «Фоновые задачи» (active_parse_tasks, telethon_lock) '
-            'или снимите зависшие блокировки (админка парсинга / clear_telethon_session_locks).',
+            'Параллельно сессию может держать парсинг ленты или другой импорт; при Redis-режиме зависший ключ '
+            'истекает сам (TELETHON_REDIS_LOCK_TTL), либо снимите вручную: clear_telethon_session_locks / админка парсинга. '
+            'При backend=file зависший процесс на сервере нужно остановить или перезапустить воркер.',
             step=4,
             step_total=7,
         )
@@ -586,9 +586,9 @@ def import_tg_history_to_max_task(self, run_id: int):
             if not journal_step4_logged:
                 _append_import_journal(
                     run_id,
-                    'Шаг 4: ожидаю доступ к файлу сессии Telegram (тот же замок, что и у парсинга). '
-                    'Импорт читает канал порциями — между порциями сессия может использоваться парсингом. '
-                    'Если долго — см. «Фоновые задачи» (active_parse_tasks, telethon_lock) или clear_telethon_session_locks.',
+                    'Шаг 4: ожидаю доступ к сессии Telegram (тот же замок, что и у парсинга). '
+                    'Импорт читает канал порциями — между порциями lock отпускается. Долгое ожидание: активный парсинг, '
+                    'зависший воркер или «осиротевший» Redis-ключ (см. TELETHON_REDIS_LOCK_TTL, clear_telethon_session_locks).',
                     step=4,
                     step_total=7,
                 )
