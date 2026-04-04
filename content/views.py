@@ -70,20 +70,10 @@ def _ctx_post_edit(post, user_channels, selected_channels, **extra):
 
 
 def _fix_mislabeled_post_media(post):
-    """JPEG/PNG, сохранённые как «документ», показываем как фото/видео."""
-    IMAGE_EXT = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic', '.tiff')
-    VIDEO_EXT = ('.mp4', '.mov', '.webm', '.mkv', '.m4v')
-    to_update = []
-    for m in PostMedia.objects.filter(post=post, media_type=PostMedia.TYPE_DOCUMENT):
-        name = (m.file.name or '').lower()
-        if any(name.endswith(e) for e in IMAGE_EXT):
-            m.media_type = PostMedia.TYPE_PHOTO
-            to_update.append(m)
-        elif any(name.endswith(e) for e in VIDEO_EXT):
-            m.media_type = PostMedia.TYPE_VIDEO
-            to_update.append(m)
-    if to_update:
-        PostMedia.objects.bulk_update(to_update, ['media_type'])
+    """JPEG/PNG и др., ошибочно сохранённые как «документ» (расширение + сигнатура файла)."""
+    from .tasks import _fix_telegram_postmedia_mislabeled_as_document
+
+    _fix_telegram_postmedia_mislabeled_as_document(post)
 
 
 def _extract_first_http_url(text: str) -> str:
@@ -580,12 +570,10 @@ def post_edit(request, pk):
         # Upload new media (порядок с 1)
         max_order = PostMedia.objects.filter(post=post).aggregate(m=Max('order'))['m']
         base_order = int(max_order) if max_order is not None else 0
+        from .tasks import _media_type_for_uploaded_file
+
         for idx, f in enumerate(request.FILES.getlist('media_files')):
-            media_type = PostMedia.TYPE_PHOTO
-            if f.content_type.startswith('video'):
-                media_type = PostMedia.TYPE_VIDEO
-            elif not f.content_type.startswith('image'):
-                media_type = PostMedia.TYPE_DOCUMENT
+            media_type = _media_type_for_uploaded_file(f)
             PostMedia.objects.create(post=post, file=f, media_type=media_type, order=base_order + idx + 1)
 
         normalize_post_media_orders(post)

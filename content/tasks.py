@@ -19,6 +19,75 @@ except ImportError:  # pragma: no cover
     RetryAfter = None  # type: ignore
 
 
+def _sniff_postmedia_kind_from_bytes(head: bytes) -> str | None:
+    """
+    JPEG/PNG/GIF/WebP/BMP и распространённые видео-контейнеры по первым байтам.
+    Нужен, когда браузер шлёт application/octet-stream или имя без расширения.
+    """
+    from .models import PostMedia
+
+    h = head or b''
+    if len(h) < 12:
+        return None
+    if h[:3] == b'\xff\xd8\xff':
+        return PostMedia.TYPE_PHOTO
+    if h[:8] == b'\x89PNG\r\n\x1a\n':
+        return PostMedia.TYPE_PHOTO
+    if h[:6] in (b'GIF87a', b'GIF89a'):
+        return PostMedia.TYPE_PHOTO
+    if len(h) >= 12 and h[:4] == b'RIFF' and h[8:12] == b'WEBP':
+        return PostMedia.TYPE_PHOTO
+    if h[:2] == b'BM':
+        return PostMedia.TYPE_PHOTO
+    # ISO BMFF: mp4/mov/m4v; часть HEIC тоже (отправляем как фото)
+    if len(h) >= 12 and h[4:8] == b'ftyp':
+        brand = h[8:12]
+        if brand in (b'heic', b'heix', b'mif1', b'msf1', b'hevc', b'avif'):
+            return PostMedia.TYPE_PHOTO
+        return PostMedia.TYPE_VIDEO
+    # WebM / Matroska (EBML)
+    if h[:4] == b'\x1a\x45\xdf\xa3':
+        return PostMedia.TYPE_VIDEO
+    return None
+
+
+def _media_type_for_uploaded_file(f) -> str:
+    """Тип вложения для multipart-загрузки: MIME, имя файла, затем сигнатура."""
+    from .models import PostMedia
+
+    ct = (getattr(f, 'content_type', None) or '').strip().lower()
+    if ct.startswith('video/'):
+        return PostMedia.TYPE_VIDEO
+    if ct.startswith('image/'):
+        return PostMedia.TYPE_PHOTO
+    name = (getattr(f, 'name', '') or '').lower()
+    image_ext = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic', '.tiff')
+    video_ext = ('.mp4', '.mov', '.webm', '.mkv', '.m4v')
+    if any(name.endswith(e) for e in image_ext):
+        return PostMedia.TYPE_PHOTO
+    if any(name.endswith(e) for e in video_ext):
+        return PostMedia.TYPE_VIDEO
+    head = b''
+    try:
+        if hasattr(f, 'read') and hasattr(f, 'seek'):
+            pos = f.tell() if hasattr(f, 'tell') else None
+            f.seek(0)
+            head = f.read(64) or b''
+            try:
+                if pos is not None:
+                    f.seek(pos)
+                else:
+                    f.seek(0)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    kind = _sniff_postmedia_kind_from_bytes(head)
+    if kind:
+        return kind
+    return PostMedia.TYPE_DOCUMENT
+
+
 def _tg_postmedia_type_from_path(file_path: str, suggestion_content_type: str) -> str:
     """Тип вложения по пути Telegram getFile (каталог + расширение). Для mixed не падать в «документ» без причины."""
     from .models import PostMedia
@@ -54,11 +123,20 @@ def _fix_telegram_postmedia_mislabeled_as_document(post) -> None:
     to_update = []
     for m in PostMedia.objects.filter(post=post, media_type=PostMedia.TYPE_DOCUMENT):
         name = (m.file.name or '').lower()
+        new_type = None
         if any(name.endswith(e) for e in IMAGE_EXT):
-            m.media_type = PostMedia.TYPE_PHOTO
-            to_update.append(m)
+            new_type = PostMedia.TYPE_PHOTO
         elif any(name.endswith(e) for e in VIDEO_EXT):
-            m.media_type = PostMedia.TYPE_VIDEO
+            new_type = PostMedia.TYPE_VIDEO
+        else:
+            try:
+                with m.file.open('rb') as fh:
+                    head = fh.read(64) or b''
+            except Exception:
+                head = b''
+            new_type = _sniff_postmedia_kind_from_bytes(head)
+        if new_type:
+            m.media_type = new_type
             to_update.append(m)
     if to_update:
         PostMedia.objects.bulk_update(to_update, ['media_type'])
@@ -1146,6 +1224,8 @@ def _prepare_telegram_publish_bundle(post, channel):
     if channel.platform != Ch.PLATFORM_TELEGRAM:
         raise ValueError('Не Telegram-канал')
 
+    _fix_telegram_postmedia_mislabeled_as_document(post)
+
     bot_token = channel.get_tg_token()
     chat_id = channel.tg_chat_id
     if not bot_token or not chat_id:
@@ -1154,7 +1234,11 @@ def _prepare_telegram_publish_bundle(post, channel):
     text = _build_text(post, channel)
     parse_mode = ParseMode.HTML
 
-    media_rows = [mf for mf in post.media_files.order_by('order', 'pk') if mf.file_is_available][:10]
+    media_rows = [
+        mf
+        for mf in PostMedia.objects.filter(post=post).order_by('order', 'pk')[:10]
+        if mf.file_is_available
+    ]
     use_attach = len(media_rows) > 1
     media_payload = []
     for mf in media_rows:
