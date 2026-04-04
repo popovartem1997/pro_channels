@@ -6,7 +6,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
-from .models import TeamInvite, TeamMember
+from .models import TeamInvite, TeamMember, sync_team_member_platform_ids_from_user
 
 
 def _require_owner(request):
@@ -207,11 +207,17 @@ def member_access(request, pk: int):
         member.can_moderate = request.POST.get('can_moderate') == 'on'
         member.can_view_stats = request.POST.get('can_view_stats') == 'on'
         member.can_manage_bots = request.POST.get('can_manage_bots') == 'on'
-        # Platform IDs for bots
+        # Telegram / MAX — в профиле пользователя (ЛК); дублируем в TeamMember для совместимости.
         tg_raw = (request.POST.get('telegram_user_id') or '').strip()
-        member.telegram_user_id = int(tg_raw) if tg_raw.lstrip('-').isdigit() else None
-        member.max_user_id = (request.POST.get('max_user_id') or '').strip()
-        member.save(update_fields=['can_publish', 'can_moderate', 'can_view_stats', 'can_manage_bots', 'telegram_user_id', 'max_user_id'])
+        tg_id = int(tg_raw) if tg_raw.lstrip('-').isdigit() else None
+        max_val = (request.POST.get('max_user_id') or '').strip()
+        u = member.member
+        u.telegram_user_id = tg_id
+        u.max_user_id = max_val
+        u.save(update_fields=['telegram_user_id', 'max_user_id'])
+        sync_team_member_platform_ids_from_user(u)
+
+        member.save(update_fields=['can_publish', 'can_moderate', 'can_view_stats', 'can_manage_bots'])
 
         messages.success(request, 'Доступы обновлены.')
         return redirect('managers:list')

@@ -124,4 +124,7 @@ class ProfileForm(forms.ModelForm):
         user.max_user_id = self.cleaned_data.get('max_user_id') or ''
         if commit:
             user.save()
+            from managers.models import sync_team_member_platform_ids_from_user
+
+            sync_team_member_platform_ids_from_user(user)
         return user

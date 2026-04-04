@@ -98,3 +98,14 @@ class TeamMember(models.Model):
 
     def __str__(self):
         return f'{self.member} → {self.owner} ({self.get_role_display()})'
+
+
+def sync_team_member_platform_ids_from_user(user):
+    """
+    Копирует Telegram / MAX ID из профиля пользователя во все строки TeamMember,
+    где он указан как member. Так экран «Команда» и личный кабинет показывают одно и то же.
+    """
+    TeamMember.objects.filter(member_id=user.pk).update(
+        telegram_user_id=user.telegram_user_id,
+        max_user_id=user.max_user_id or '',
+    )
