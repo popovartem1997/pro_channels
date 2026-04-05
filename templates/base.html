@@ -312,9 +312,10 @@
       <div class="modal-header border-0">
         <div class="small" id="pcMediaCaption" style="color:#cbd5e1;"></div>
         <div class="ms-auto d-flex gap-2">
-          <a id="pcMediaDownload" class="btn btn-outline-light btn-sm" href="#" download>
-            <i class="bi bi-download me-1"></i> Скачать
-          </a>
+          <button type="button" id="pcMediaShare" class="btn btn-outline-light btn-sm"
+                  title="Системное меню «Поделиться» (на iPhone — сохранить в Фото, Файлы и т.д.)">
+            <i class="bi bi-share me-1"></i> Поделиться
+          </button>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
       </div>
@@ -381,7 +382,7 @@
     return /\.[a-z0-9]{2,6}$/i.test((name || '').trim());
   }
 
-  /** Имя для атрибута download, если с URL пришло «file_158» без суффикса. */
+  /** Имя файла для шаринга/скачивания, если с URL пришло «file_158» без суффикса. */
   function coerceDownloadFilename(name, kind, url) {
     var base = (name || '').trim() || guessFilename(url);
     if (hasLikelyFileExtension(base)) return base;
@@ -391,12 +392,25 @@
     return base + '.jpg';
   }
 
+  function guessMimeFromName(name) {
+    var n = (name || '').toLowerCase();
+    if (n.endsWith('.png')) return 'image/png';
+    if (n.endsWith('.jpg') || n.endsWith('.jpeg')) return 'image/jpeg';
+    if (n.endsWith('.webp')) return 'image/webp';
+    if (n.endsWith('.gif')) return 'image/gif';
+    if (n.endsWith('.mp4')) return 'video/mp4';
+    if (n.endsWith('.mov')) return 'video/quicktime';
+    if (n.endsWith('.webm')) return 'video/webm';
+    if (n.endsWith('.pdf')) return 'application/pdf';
+    return 'application/octet-stream';
+  }
+
   var modalEl = document.getElementById('pcMediaModal');
   if (!modalEl) return;
   var modal = new bootstrap.Modal(modalEl);
   var inner = document.getElementById('pcMediaCarouselInner');
   var captionEl = document.getElementById('pcMediaCaption');
-  var dl = document.getElementById('pcMediaDownload');
+  var shareBtn = document.getElementById('pcMediaShare');
   var carouselEl = document.getElementById('pcMediaCarousel');
   var carousel = null;
 
@@ -415,13 +429,86 @@
     var total = items.length || 0;
     captionEl.textContent = (it.caption ? it.caption + ' · ' : '') + (total ? (idx + 1) + '/' + total : '');
     var previewUrl = it.url;
-    var dlUrl = it.downloadUrl || it.url;
-    dl.href = dlUrl;
-    var dlName = it.downloadName;
-    if (!dlName) {
-      dlName = coerceDownloadFilename('', it.kind, previewUrl);
+    var shareUrl = it.downloadUrl || it.url;
+    var shareName = it.downloadName;
+    if (!shareName) {
+      shareName = coerceDownloadFilename('', it.kind, previewUrl);
     }
-    dl.setAttribute('download', dlName);
+    if (shareBtn) {
+      shareBtn.dataset.pcShareUrl = shareUrl;
+      shareBtn.dataset.pcShareName = shareName;
+      shareBtn.dataset.pcShareTitle = (it.caption || '').trim() || shareName;
+    }
+  }
+
+  if (shareBtn) {
+    shareBtn.addEventListener('click', function () {
+      var rawUrl = (shareBtn.dataset.pcShareUrl || '').trim();
+      var name = (shareBtn.dataset.pcShareName || '').trim() || 'media';
+      var title = (shareBtn.dataset.pcShareTitle || '').trim();
+      if (!rawUrl || shareBtn.disabled) return;
+
+      function fallbackGetFile() {
+        window.location.href = rawUrl;
+      }
+
+      if (!navigator.share) {
+        fallbackGetFile();
+        return;
+      }
+
+      shareBtn.disabled = true;
+      var absUrl = (function () {
+        try {
+          return new URL(rawUrl, window.location.href).href;
+        } catch (e) {
+          return rawUrl;
+        }
+      })();
+
+      fetch(rawUrl, { credentials: 'same-origin' })
+        .then(function (r) {
+          if (!r.ok) throw new Error('http');
+          return r.blob().then(function (blob) {
+            return { blob: blob, ct: (r.headers.get('Content-Type') || '').split(';')[0].trim() };
+          });
+        })
+        .then(function (o) {
+          var blob = o.blob;
+          var ct = o.ct || blob.type || guessMimeFromName(name);
+          if (!ct || ct === 'application/octet-stream') {
+            ct = guessMimeFromName(name);
+          }
+          var file = new File([blob], name, { type: ct });
+          var payload = { files: [file] };
+          if (title) payload.title = title;
+          function shareFiles() {
+            return navigator.share(payload);
+          }
+          if (!navigator.canShare) {
+            return shareFiles();
+          }
+          if (navigator.canShare(payload)) {
+            return shareFiles();
+          }
+          if (navigator.canShare({ url: absUrl })) {
+            return navigator.share({ title: title || name, url: absUrl });
+          }
+          fallbackGetFile();
+        })
+        .catch(function (err) {
+          if (err && err.name === 'AbortError') return;
+          if (navigator.canShare && navigator.canShare({ url: absUrl })) {
+            return navigator.share({ title: title || name, url: absUrl }).catch(function () {
+              fallbackGetFile();
+            });
+          }
+          fallbackGetFile();
+        })
+        .finally(function () {
+          shareBtn.disabled = false;
+        });
+    });
   }
 
   function renderItems(items, startIndex) {
