@@ -89,6 +89,7 @@
 </form>
 
 {% if kind == 'parsing' %}
+{% if request.user.is_staff or request.user.is_superuser or request.user.role == 'owner' %}
 <div class="alert alert-light border mb-3 py-2 px-3 small d-flex flex-wrap align-items-center justify-content-between gap-2">
   <span class="text-muted mb-0">
     Удалить из базы <strong>все</strong> найденные материалы парсинга в текущем фильтре группы (записи в ленте исчезнут; файлы в <code>media/parsed_items/</code> удалите отдельно на сервере, если нужно освободить место).
@@ -103,6 +104,7 @@
     </button>
   </form>
 </div>
+{% endif %}
 {% endif %}
 
 {% if items %}

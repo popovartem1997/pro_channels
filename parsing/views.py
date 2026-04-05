@@ -15,6 +15,15 @@ from django.template.loader import render_to_string
 import os
 
 
+def _can_delete_parsed_items_as_owner_or_staff(user) -> bool:
+    """Удаление материалов парсинга (по одному или массово) — владелец или Django-админ, не менеджер / не помощник."""
+    return bool(
+        user.is_staff
+        or user.is_superuser
+        or getattr(user, 'role', '') == 'owner'
+    )
+
+
 def _manager_team_channel_ids(user):
     """Каналы команды с правами как у ленты постов / предложек."""
     from managers.models import TeamMember
@@ -810,6 +819,12 @@ def parsed_items_clear(request):
     scope = _get_parse_scope(request)
     if request.method != 'POST':
         return HttpResponse(status=405)
+    if not _can_delete_parsed_items_as_owner_or_staff(request.user):
+        messages.error(
+            request,
+            'Массовую очистку материалов парсинга могут выполнять только владелец аккаунта или администратор сайта.',
+        )
+        return redirect(request.META.get('HTTP_REFERER') or reverse('core:feed'))
 
     items = _parsed_items_base_qs(request.user)
     if scope.get('channel_ids') is not None:
@@ -874,6 +889,9 @@ def item_delete(request, pk):
     scope = _get_parse_scope(request)
     if request.method != 'POST':
         return HttpResponse(status=405)
+    if not _can_delete_parsed_items_as_owner_or_staff(request.user):
+        messages.error(request, 'Удаление материалов парсинга доступно только владельцу или администратору сайта.')
+        return redirect(_parse_url('parsing:items', scope))
     item.delete()
     messages.success(request, 'Материал удалён. При следующем парсинге может появиться заново.')
     return redirect(_parse_url('parsing:items', scope))
