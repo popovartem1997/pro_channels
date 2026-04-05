@@ -179,7 +179,8 @@
                 {% for m in it.media %}
                   {% if m.media_type == 'photo' %}
                     {% if m.file_is_available %}
-                    <a href="{{ m.file.url }}" class="d-inline-block js-media-open" data-media-kind="photo" data-media-caption="{{ it.title }}">
+                    <a href="{{ m.file.url }}" class="d-inline-block js-media-open" data-media-kind="photo" data-media-caption="{{ it.title }}"
+                       data-download-url="{% url 'content:media_download' it.obj.pk m.pk %}" data-download-name="{{ m.suggested_download_filename }}">
                       <img src="{{ m.file.url }}" alt="" style="width:96px;height:96px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;">
                     </a>
                     {% else %}
@@ -188,6 +189,7 @@
                   {% elif m.media_type == 'video' %}
                     {% if m.file_is_available %}
                     <a href="{{ m.file.url }}" class="d-inline-flex align-items-center justify-content-center js-media-open" data-media-kind="video" data-media-caption="{{ it.title }}"
+                       data-download-url="{% url 'content:media_download' it.obj.pk m.pk %}" data-download-name="{{ m.suggested_download_filename }}"
                        style="width:96px;height:96px;border-radius:10px;border:1px solid #e2e8f0;background:#0b1220;color:#fff;text-decoration:none;">
                       <i class="bi bi-play-circle fs-3"></i>
                     </a>
@@ -196,7 +198,8 @@
                     {% endif %}
                   {% else %}
                     {% if m.file_is_available %}
-                    <a href="{{ m.file.url }}" class="badge bg-light text-dark border text-decoration-none js-media-open" data-media-kind="document" data-media-caption="{{ it.title }}">
+                    <a href="{{ m.file.url }}" class="badge bg-light text-dark border text-decoration-none js-media-open" data-media-kind="document" data-media-caption="{{ it.title }}"
+                       data-download-url="{% url 'content:media_download' it.obj.pk m.pk %}" data-download-name="{{ m.suggested_download_filename }}">
                       <i class="bi bi-paperclip me-1"></i>Файл
                     </a>
                     {% else %}

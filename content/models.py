@@ -174,6 +174,15 @@ class Post(models.Model):
             )
 
 
+def _postmedia_basename_has_extension(basename: str) -> bool:
+    """Есть ли у имени файла нормальное расширение (не «file_158» без точки)."""
+    name = (basename or '').strip()
+    if '.' not in name:
+        return False
+    ext = name.rsplit('.', 1)[-1].lower()
+    return bool(ext) and ext.isalnum() and 1 <= len(ext) <= 6
+
+
 class PostMedia(models.Model):
     TYPE_PHOTO = 'photo'
     TYPE_VIDEO = 'video'
@@ -208,6 +217,26 @@ class PostMedia(models.Model):
             return bool(f.storage.exists(name))
         except Exception:
             return False
+
+    @property
+    def suggested_download_filename(self) -> str:
+        """Имя для скачивания (с расширением), если в хранилище лежит «file_158» без суффикса."""
+        import os
+
+        try:
+            base = os.path.basename(self.file.name)
+        except Exception:
+            base = ''
+        if not base:
+            base = f'post_{self.post_id}_media_{self.pk}'
+        if _postmedia_basename_has_extension(base):
+            return base
+        ext = {
+            self.TYPE_PHOTO: 'jpg',
+            self.TYPE_VIDEO: 'mp4',
+            self.TYPE_DOCUMENT: 'bin',
+        }.get(self.media_type, 'bin')
+        return f'{base}.{ext}'
 
 
 def normalize_post_media_orders(post):

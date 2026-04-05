@@ -377,6 +377,20 @@
     }
   }
 
+  function hasLikelyFileExtension(name) {
+    return /\.[a-z0-9]{2,6}$/i.test((name || '').trim());
+  }
+
+  /** Имя для атрибута download, если с URL пришло «file_158» без суффикса. */
+  function coerceDownloadFilename(name, kind, url) {
+    var base = (name || '').trim() || guessFilename(url);
+    if (hasLikelyFileExtension(base)) return base;
+    var k = (kind || '').toLowerCase();
+    if (k === 'video') return base + '.mp4';
+    if (k === 'document') return base + '.bin';
+    return base + '.jpg';
+  }
+
   var modalEl = document.getElementById('pcMediaModal');
   if (!modalEl) return;
   var modal = new bootstrap.Modal(modalEl);
@@ -400,8 +414,14 @@
     if (!it) return;
     var total = items.length || 0;
     captionEl.textContent = (it.caption ? it.caption + ' · ' : '') + (total ? (idx + 1) + '/' + total : '');
-    dl.href = it.url;
-    dl.setAttribute('download', guessFilename(it.url));
+    var previewUrl = it.url;
+    var dlUrl = it.downloadUrl || it.url;
+    dl.href = dlUrl;
+    var dlName = it.downloadName;
+    if (!dlName) {
+      dlName = coerceDownloadFilename('', it.kind, previewUrl);
+    }
+    dl.setAttribute('download', dlName);
   }
 
   function renderItems(items, startIndex) {
@@ -463,10 +483,14 @@
     links.forEach(function (a) {
       var url = a.getAttribute('href');
       if (!url) return;
+      var dUrl = (a.getAttribute('data-download-url') || '').trim();
+      var dName = (a.getAttribute('data-download-name') || '').trim();
       items.push({
         url: url,
         kind: a.getAttribute('data-media-kind') || (isVideo(url) ? 'video' : 'photo'),
         caption: a.getAttribute('data-media-caption') || '',
+        downloadUrl: dUrl || null,
+        downloadName: dName || null,
       });
     });
     return items;

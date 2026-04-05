@@ -8,7 +8,7 @@ from django.db import transaction
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST, require_http_methods
 from django.template.loader import render_to_string
-from django.http import JsonResponse
+from django.http import FileResponse, Http404, JsonResponse
 from django.contrib import messages
 from django.utils import timezone
 from .models import Post, PostMedia, PublishResult, normalize_post_media_orders
@@ -26,6 +26,27 @@ def _is_feed_delete_ajax(request) -> bool:
         request.POST.get('ajax') == '1'
         or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
     )
+
+
+def _get_post_for_viewer(request, pk):
+    """Пост, доступный текущему пользователю (как в post_detail / post_edit)."""
+    if request.user.is_staff or request.user.is_superuser:
+        return get_object_or_404(Post, pk=pk)
+    if request.user.role in ('manager', 'assistant_admin'):
+        allowed_channel_ids = _manager_content_channel_ids(request.user)
+        return get_object_or_404(
+            Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct(),
+            pk=pk,
+        )
+    if getattr(request.user, 'role', '') == 'advertiser':
+        ap = getattr(request.user, 'advertiser_profile', None)
+        if ap:
+            return get_object_or_404(
+                Post.objects.filter(campaign_application__advertiser_id=ap.pk),
+                pk=pk,
+            )
+        raise Http404()
+    return get_object_or_404(Post, pk=pk, author=request.user)
 
 
 def _manager_content_channel_ids(user):
@@ -505,21 +526,30 @@ def post_ai_from_suggestion(request, tracking_id):
 
 @login_required
 def post_detail(request, pk):
-    if request.user.is_staff or request.user.is_superuser:
-        post = get_object_or_404(Post, pk=pk)
-    elif request.user.role in ('manager', 'assistant_admin'):
-        allowed_channel_ids = _manager_content_channel_ids(request.user)
-        post = get_object_or_404(
-            Post.objects.filter(channels__pk__in=allowed_channel_ids).distinct(),
-            pk=pk,
-        )
-    else:
-        post = get_object_or_404(Post, pk=pk, author=request.user)
+    post = _get_post_for_viewer(request, pk)
     results = PublishResult.objects.filter(post=post).select_related('channel')
     return render(request, 'content/detail.html', {
         'post': post,
         'results': results,
     })
+
+
+@login_required
+def post_media_download(request, pk, media_pk):
+    """
+    Скачивание вложения поста с нормальным именем и Content-Disposition.
+    Нужно для Safari/iOS (атрибут download на чужом URL часто не срабатывает).
+    """
+    post = _get_post_for_viewer(request, pk)
+    media = get_object_or_404(PostMedia, pk=media_pk, post=post)
+    if not media.file_is_available:
+        raise Http404
+    f = media.file.open('rb')
+    return FileResponse(
+        f,
+        as_attachment=True,
+        filename=media.suggested_download_filename,
+    )
 
 
 @login_required

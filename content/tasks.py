@@ -114,6 +114,52 @@ def _tg_postmedia_type_from_path(file_path: str, suggestion_content_type: str) -
     return PostMedia.TYPE_DOCUMENT
 
 
+def _tg_basename_has_extension(name: str) -> bool:
+    base = os.path.basename((name or '').strip())
+    if '.' not in base:
+        return False
+    ext = base.rsplit('.', 1)[-1].lower()
+    return bool(ext) and ext.isalnum() and 1 <= len(ext) <= 6
+
+
+def _tg_extension_for_saved_file(media_type: str, content_type: str, head: bytes) -> str:
+    """Суффикс для имени вроде photos/file_158 без расширения (Telegram Bot API)."""
+    from .models import PostMedia
+
+    ct = (content_type or '').split(';')[0].strip().lower()
+    if 'jpeg' in ct or ct in ('image/jpg', 'image/pjpeg'):
+        return '.jpg'
+    if ct == 'image/png':
+        return '.png'
+    if ct == 'image/webp':
+        return '.webp'
+    if ct == 'image/gif':
+        return '.gif'
+    if ct in ('video/mp4', 'application/mp4'):
+        return '.mp4'
+    if ct in ('video/quicktime',):
+        return '.mov'
+    if ct == 'application/pdf':
+        return '.pdf'
+    if ct.startswith('audio/'):
+        return '.mp3' if 'mpeg' in ct else '.m4a'
+    h = head or b''
+    kind = _sniff_postmedia_kind_from_bytes(h)
+    if kind == PostMedia.TYPE_PHOTO:
+        if h.startswith(b'\x89PNG'):
+            return '.png'
+        if len(h) >= 12 and h[:4] == b'RIFF' and h[8:12] == b'WEBP':
+            return '.webp'
+        return '.jpg'
+    if kind == PostMedia.TYPE_VIDEO:
+        return '.mp4'
+    if media_type == PostMedia.TYPE_PHOTO:
+        return '.jpg'
+    if media_type == PostMedia.TYPE_VIDEO:
+        return '.mp4'
+    return '.bin'
+
+
 def _fix_telegram_postmedia_mislabeled_as_document(post) -> None:
     """Совпадает с content.views._fix_mislabeled_post_media — без циклического импорта."""
     from .models import PostMedia
@@ -190,6 +236,12 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
                 dl.raise_for_status()
                 filename = (file_path.split('/')[-1] or f'media_{idx}')
                 media_type = _tg_postmedia_type_from_path(file_path, suggestion.content_type)
+                if not _tg_basename_has_extension(filename):
+                    filename = filename + _tg_extension_for_saved_file(
+                        media_type,
+                        dl.headers.get('Content-Type', ''),
+                        dl.content[:64] if dl.content else b'',
+                    )
                 PostMedia.objects.create(
                     post=post,
                     file=ContentFile(dl.content, name=filename),
