@@ -1,0 +1,118 @@
+{% comment %}Состояние сервера — только для суперпользователя (контекст server_stats).{% endcomment %}
+{% if server_stats %}
+<div class="pc-server-shell mb-1">
+  <div class="pc-server-inner">
+    <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+      <div>
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="pc-server-pulse" aria-hidden="true"></span>
+          <h5 class="fw-bold mb-0 text-white">Состояние сервера</h5>
+        </div>
+        <p class="small text-secondary mb-0">
+          Хост <span class="text-info font-monospace">{{ server_stats.meta.hostname }}</span>
+          {% if server_stats.meta.uptime_human %}
+            · аптайм <span class="text-white-50">{{ server_stats.meta.uptime_human }}</span>
+          {% endif %}
+        </p>
+      </div>
+      <div class="text-end small text-secondary font-monospace">
+        Python {{ server_stats.meta.python_version }} · Django {{ server_stats.meta.django_version }}
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <!-- CPU -->
+      <div class="col-6 col-lg-3">
+        <div class="pc-metric-tile">
+          <div class="pc-metric-label"><i class="bi bi-cpu me-1"></i> CPU</div>
+          {% if server_stats.cpu.error %}
+            <div class="pc-metric-hint text-warning">{{ server_stats.cpu.error|truncatechars:48 }}</div>
+          {% elif server_stats.cpu.percent is not None %}
+            <div class="pc-metric-value">{{ server_stats.cpu.percent }}<span class="pc-metric-unit">%</span></div>
+            <div class="pc-progress-wrap mt-2">
+              <div class="pc-progress-fill pc-progress-cpu" style="width: {{ server_stats.cpu.percent|floatformat:0 }}%;"></div>
+            </div>
+            {% if server_stats.cpu.logical %}
+              <div class="pc-metric-hint mt-1">{{ server_stats.cpu.logical }} логич. ядер{% if server_stats.cpu.physical %} · {{ server_stats.cpu.physical }} физ.{% endif %}</div>
+            {% endif %}
+          {% else %}
+            <div class="pc-metric-value text-secondary small">—</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- RAM -->
+      <div class="col-6 col-lg-3">
+        <div class="pc-metric-tile">
+          <div class="pc-metric-label"><i class="bi bi-memory me-1"></i> Память</div>
+          {% if server_stats.memory.error %}
+            <div class="pc-metric-hint text-warning">{{ server_stats.memory.error|truncatechars:48 }}</div>
+          {% elif server_stats.memory.percent is not None %}
+            <div class="pc-metric-value">{{ server_stats.memory.percent }}<span class="pc-metric-unit">%</span></div>
+            <div class="pc-progress-wrap mt-2">
+              <div class="pc-progress-fill pc-progress-ram" style="width: {{ server_stats.memory.percent|floatformat:0 }}%;"></div>
+            </div>
+            <div class="pc-metric-hint mt-1">
+              {{ server_stats.memory.used_gb }} / {{ server_stats.memory.total_gb }} ГиБ · своб. {{ server_stats.memory.available_gb }} ГиБ
+            </div>
+          {% else %}
+            <div class="pc-metric-value text-secondary small">недоступно</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Disk -->
+      <div class="col-6 col-lg-3">
+        <div class="pc-metric-tile">
+          <div class="pc-metric-label"><i class="bi bi-hdd me-1"></i> Диск</div>
+          {% if server_stats.disk.error %}
+            <div class="pc-metric-hint text-warning">{{ server_stats.disk.error|truncatechars:48 }}</div>
+          {% elif server_stats.disk.percent is not None %}
+            <div class="pc-metric-value">{{ server_stats.disk.percent }}<span class="pc-metric-unit">%</span></div>
+            <div class="pc-progress-wrap mt-2">
+              <div class="pc-progress-fill pc-progress-disk" style="width: {{ server_stats.disk.percent|floatformat:0 }}%;"></div>
+            </div>
+            <div class="pc-metric-hint mt-1 text-truncate" title="{{ server_stats.disk.path }}">
+              {{ server_stats.disk.used_gb }} / {{ server_stats.disk.total_gb }} ГиБ · своб. {{ server_stats.disk.free_gb }} ГиБ
+            </div>
+          {% else %}
+            <div class="pc-metric-value text-secondary small">недоступно</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Load -->
+      <div class="col-6 col-lg-3">
+        <div class="pc-metric-tile">
+          <div class="pc-metric-label"><i class="bi bi-activity me-1"></i> Нагрузка</div>
+          {% if server_stats.load %}
+            <div class="pc-metric-value pc-metric-load font-monospace">
+              {{ server_stats.load.0|floatformat:2 }} <span class="pc-metric-unit small">1м</span>
+            </div>
+            <div class="pc-metric-hint mt-2 font-monospace">
+              5м: {{ server_stats.load.1|floatformat:2 }} · 15м: {{ server_stats.load.2|floatformat:2 }}
+            </div>
+          {% else %}
+            <div class="pc-metric-value text-secondary small">—</div>
+            <div class="pc-metric-hint mt-1">Нет данных (например Windows)</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% if server_stats.swap and server_stats.swap.percent is not None and server_stats.swap.total_gb %}
+    <div class="row g-2 mt-1">
+      <div class="col-12">
+        <div class="pc-swap-bar d-flex align-items-center gap-3 flex-wrap">
+          <span class="small text-secondary text-nowrap"><i class="bi bi-arrow-left-right me-1"></i> Swap</span>
+          <div class="flex-grow-1 pc-progress-wrap" style="min-width:120px;">
+            <div class="pc-progress-fill pc-progress-swap" style="width: {{ server_stats.swap.percent|floatformat:0 }}%;"></div>
+          </div>
+          <span class="small font-monospace text-white-50">{{ server_stats.swap.used_gb }} / {{ server_stats.swap.total_gb }} ГиБ ({{ server_stats.swap.percent }}%)</span>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}

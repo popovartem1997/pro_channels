@@ -224,7 +224,7 @@ def dashboard(request):
         author=user, created_at__date=today
     ).count()
 
-    return render(request, 'accounts/dashboard.html', {
+    ctx = {
         'bots': bots,
         'channels': channels,
         'pending_count': pending_count,
@@ -233,7 +233,12 @@ def dashboard(request):
         'channels_count': channels.count(),
         'bots_count': bots.count(),
         'posts_today': posts_today,
-    })
+    }
+    if user.is_superuser:
+        from core.server_stats import get_server_stats_for_dashboard
+
+        ctx['server_stats'] = get_server_stats_for_dashboard()
+    return render(request, 'accounts/dashboard.html', ctx)
 
 
 @login_required
