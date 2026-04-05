@@ -1,9 +1,9 @@
 """
 Хранение локальных файлов медиа парсинга (parsed_items/…) с ограничением по возрасту.
 
-По умолчанию удаляются файлы старше PARSE_MEDIA_RETENTION_DAYS (см. settings),
-очищается поле ParsedItem.media у старых записей; дополнительно — проход по диску
-для «осиротевших» файлов.
+Удаляются файлы старше срока из GlobalApiKeys / PARSE_MEDIA_RETENTION_DAYS,
+очищается ParsedItem.media у старых записей; проход по диску (mtime);
+подчищается старый staging imports/tg_to_max.
 """
 from __future__ import annotations
 
@@ -46,7 +46,8 @@ def purge_parse_media_older_than(*, retention_days: int) -> dict[str, Any]:
     """
     Удалить медиа парсинга старше retention_days:
     1) ParsedItem с found_at до cutoff: удалить файлы из media[], обнулить JSON;
-    2) обойти media/parsed_items и удалить файлы с mtime старше cutoff.
+    2) обойти media/parsed_items и удалить файлы с mtime старше cutoff;
+    3) старые файлы в media/imports/tg_to_max (хвосты после импорта).
     """
     from parsing.models import ParsedItem
 
@@ -109,11 +110,29 @@ def purge_parse_media_older_than(*, retention_days: int) -> dict[str, Any]:
                 except OSError:
                     pass
 
+    # 3) Staging импорта TG→MAX: старые файлы (после успешного импорта подчищаются в воркере; тут — хвосты/сбои).
+    imports_staging = media_root / 'imports' / 'tg_to_max'
+    stats['imports_staging_files'] = 0
+    if imports_staging.is_dir():
+        for dirpath, _dirnames, filenames in os.walk(imports_staging):
+            for name in filenames:
+                fp = Path(dirpath) / name
+                try:
+                    if not fp.is_file():
+                        continue
+                    mtime = datetime.fromtimestamp(fp.stat().st_mtime, tz=timezone.utc)
+                    if mtime < cutoff:
+                        fp.unlink(missing_ok=True)
+                        stats['imports_staging_files'] += 1
+                except OSError as e:
+                    logger.warning('parse media retention: imports staging %s: %s', fp, e)
+
     logger.info(
-        'parse media retention: days=%s items_cleared=%s files_from_db=%s files_sweep=%s',
+        'parse media retention: days=%s items_cleared=%s files_from_db=%s files_sweep=%s imports_staging=%s',
         days,
         stats['items_updated'],
         stats['files_from_db'],
         stats['files_sweep'],
+        stats['imports_staging_files'],
     )
     return stats

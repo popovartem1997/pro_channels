@@ -104,6 +104,19 @@ def execute_after_running(
                 media_type=media_type,
                 order=int(order),
             )
+        # Копия уже в post_media/ — staging в imports/tg_to_max/ только раздувает диск.
+        try:
+            parts = {p.lower() for p in pth.parts}
+            if 'imports' in parts and 'tg_to_max' in parts:
+                pth.unlink(missing_ok=True)
+                parent = pth.parent
+                if parent.is_dir() and parent.name.startswith('msg_'):
+                    try:
+                        parent.rmdir()
+                    except OSError:
+                        pass
+        except OSError:
+            pass
         return True
 
     def _normalize_media_sync(post_id: int) -> None:

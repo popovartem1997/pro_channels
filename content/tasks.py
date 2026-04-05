@@ -622,11 +622,39 @@ def _load_bytes_for_parsed_media_url(url: str) -> tuple[bytes | None, str]:
     return path.read_bytes(), path.name
 
 
+def _parsed_items_rel_from_media_url(url: str) -> str | None:
+    """Путь относительно MEDIA_ROOT, только если ссылка указывает на parsed_items/…"""
+    from pathlib import Path
+
+    from django.conf import settings
+
+    u = (url or '').strip()
+    if not u or u.startswith('http://') or u.startswith('https://'):
+        return None
+    media_url = (settings.MEDIA_URL or '/media/').strip()
+    if not media_url.startswith('/'):
+        media_url = '/' + media_url
+    media_url = media_url.rstrip('/') + '/'
+    if u.startswith(media_url):
+        rel = u[len(media_url) :].lstrip('/')
+    elif u.startswith('/media/'):
+        rel = u[len('/media/') :].lstrip('/')
+    else:
+        rel = u.lstrip('/')
+    rel = rel.replace('\\', '/')
+    if not rel.startswith('parsed_items/'):
+        return None
+    return rel
+
+
 def import_parsed_item_media_into_post(post_id: int, parsed_item) -> tuple[int, list[str]]:
     """
     Копирует медиа из ParsedItem.media в PostMedia (локальные файлы парсера или URL).
     Возвращает (число вложений, предупреждения).
     """
+    from pathlib import Path
+
+    from django.conf import settings
     from django.core.files.base import ContentFile
 
     from .models import Post, PostMedia, normalize_post_media_orders
@@ -646,11 +674,16 @@ def import_parsed_item_media_into_post(post_id: int, parsed_item) -> tuple[int, 
 
     imported = 0
     prefix = f'parsed_{parsed_item.pk}_'
+    failed_urls: list[str] = []
+    rels_to_unlink: list[str] = []
+    media_root = Path(settings.MEDIA_ROOT).resolve()
+
     for u in urls:
         try:
             data, base_name = _load_bytes_for_parsed_media_url(u)
             if not data:
                 warnings.append(f'Файл недоступен: {u[:120]}')
+                failed_urls.append(u)
                 continue
             safe_name = prefix + (base_name or 'file.bin').replace('..', '_').replace('/', '_')
             media_type = _postmedia_type_from_filename(safe_name)
@@ -658,8 +691,25 @@ def import_parsed_item_media_into_post(post_id: int, parsed_item) -> tuple[int, 
             pm = PostMedia(post=post, media_type=media_type, order=order)
             pm.file.save(safe_name, ContentFile(data), save=True)
             imported += 1
+            pr = _parsed_items_rel_from_media_url(u)
+            if pr:
+                rels_to_unlink.append(pr)
         except Exception as exc:
+            failed_urls.append(u)
             warnings.append(f'{u[:80]}: {exc}')
+
+    for rel in rels_to_unlink:
+        fp = (media_root / rel).resolve()
+        try:
+            fp.relative_to(media_root)
+            if fp.is_file():
+                fp.unlink(missing_ok=True)
+        except (ValueError, OSError) as ex:
+            logger.warning('parsed→post: не удалось удалить %s: %s', rel, ex)
+
+    if urls:
+        parsed_item.media = failed_urls
+        parsed_item.save(update_fields=['media'])
 
     if imported:
         normalize_post_media_orders(post)

@@ -613,6 +613,7 @@ def _parse_telegram(source, keywords, keyword_objects):
     from django.conf import settings
     import asyncio
     from core.models import get_global_api_keys
+    from .models import ParsedItem
     keys = get_global_api_keys()
     api_id = (keys.telegram_api_id or '').strip()
     api_hash = (keys.get_telegram_api_hash() or '').strip()
@@ -692,6 +693,20 @@ def _parse_telegram(source, keywords, keyword_objects):
                 if matched:
                     keyword_hits += 1
                     kw_obj = keyword_objects[matched[0]]
+                    # Уже есть в БД — не качаем медиа повторно (иначе каждый запуск парсинга раздувает диск).
+                    already_stored = await sync_to_async(
+                        lambda mid=message.id: ParsedItem.objects.filter(
+                            source=source,
+                            platform_id=str(mid),
+                        ).exists()
+                    )()
+                    if already_stored:
+                        logger.info(
+                            'TG parse: пропуск (уже в БД, без повторного скачивания медиа) source=%s msg_id=%s',
+                            source.pk,
+                            getattr(message, 'id', None),
+                        )
+                        continue
                     # Публичная ссылка на оригинальный пост (если source_id публичный).
                     original_url = ''
                     try:
@@ -715,17 +730,32 @@ def _parse_telegram(source, keywords, keyword_objects):
                             rel_dir = Path("parsed_items") / "telegram" / f"source_{source.pk}"
                             abs_dir = media_root / rel_dir
                             abs_dir.mkdir(parents=True, exist_ok=True)
-                            # One file per message (enough for preview); telethon will choose proper extension.
                             base = abs_dir / f"msg_{message.id}"
-                            saved_path = await client.download_media(message, file=str(base))
-                            if saved_path:
-                                p = Path(saved_path)
-                                try:
-                                    rel = p.relative_to(media_root)
-                                    media_urls = ["/media/" + str(rel).replace("\\", "/")]
-                                except Exception:
-                                    # Fallback: absolute path is not web-accessible; skip
-                                    media_urls = []
+                            skip_download = False
+                            max_bytes = int(
+                                getattr(settings, 'PARSE_TELEGRAM_MEDIA_MAX_BYTES', 0) or 0
+                            )
+                            if max_bytes > 0:
+                                doc = getattr(message, 'document', None)
+                                sz = int(getattr(doc, 'size', 0) or 0) if doc is not None else 0
+                                if doc is not None and sz > max_bytes:
+                                    logger.info(
+                                        'TG parse: медиа пропущено (документ %s байт > лимита %s) source=%s msg_id=%s',
+                                        sz,
+                                        max_bytes,
+                                        source.pk,
+                                        getattr(message, 'id', None),
+                                    )
+                                    skip_download = True
+                            if not skip_download:
+                                saved_path = await client.download_media(message, file=str(base))
+                                if saved_path:
+                                    p = Path(saved_path)
+                                    try:
+                                        rel = p.relative_to(media_root)
+                                        media_urls = ["/media/" + str(rel).replace("\\", "/")]
+                                    except Exception:
+                                        media_urls = []
                     except Exception:
                         media_urls = []
 
@@ -1022,7 +1052,7 @@ def _cron_to_interval(cron_expr):
 
 @shared_task(ignore_result=True)
 def purge_parse_media_retention():
-    """Удалить файлы media/parsed_items старше срока из «Ключи API» → парсинг, иначе PARSE_MEDIA_RETENTION_DAYS."""
+    """Удалить старые media/parsed_items и хвосты media/imports/tg_to_max по сроку из «Ключи API» / PARSE_MEDIA_RETENTION_DAYS."""
     from core.models import effective_parse_media_retention_days
     from parsing.media_retention import purge_parse_media_older_than
 

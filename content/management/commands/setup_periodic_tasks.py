@@ -25,9 +25,9 @@ TASKS = [
         'interval_period': IntervalSchedule.MINUTES,
     },
     {
-        'name': 'Парсинг: очистка старых медиа (parsed_items, раз в сутки)',
+        'name': 'Парсинг: очистка старых медиа (parsed_items, каждые 6 ч)',
         'task': 'parsing.tasks.purge_parse_media_retention',
-        'interval_every': 24,
+        'interval_every': 6,
         'interval_period': IntervalSchedule.HOURS,
     },
     {

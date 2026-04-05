@@ -165,7 +165,7 @@
               <div class="form-text">{{ form.parse_media_retention_days.help_text }}</div>
             {% endif %}
             <div class="form-text text-muted">
-              Автоочистка раз в сутки (Celery). Переменная <code>PARSE_MEDIA_RETENTION_DAYS</code> в .env — только запасной вариант.
+              Автоочистка каждые 6 ч (Celery Beat, задача «Парсинг: очистка старых медиа»). Переменная <code>PARSE_MEDIA_RETENTION_DAYS</code> в .env — только запасной вариант.
             </div>
           </div>
 
