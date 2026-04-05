@@ -1,9 +1,12 @@
 """
-Хранение локальных файлов медиа парсинга (parsed_items/…) с ограничением по возрасту.
+Хранение локальных файлов медиа парсинга (parsed_items/…) с ограничением по возрасту и квоте на диск.
 
 Удаляются файлы старше срока из GlobalApiKeys / PARSE_MEDIA_RETENTION_DAYS,
 очищается ParsedItem.media у старых записей; проход по диску (mtime);
 подчищается старый staging imports/tg_to_max.
+
+Дополнительно (PARSE_MEDIA_DISK_QUOTA_BYTES > 0): суммарный размер parsed_items + imports/tg_to_max
+не превышает квоты — лишнее удаляется с конца по самому старому mtime.
 """
 from __future__ import annotations
 
@@ -135,4 +138,158 @@ def purge_parse_media_older_than(*, retention_days: int) -> dict[str, Any]:
         stats['files_sweep'],
         stats['imports_staging_files'],
     )
+    return stats
+
+
+def _entry_urls_for_parsed_media(entry: Any) -> list[str]:
+    """Элемент ParsedItem.media → список URL/путей (как в content.tasks._parsed_media_entries)."""
+    if entry is None:
+        return []
+    if isinstance(entry, str):
+        s = entry.strip()
+        return [s] if s else []
+    if isinstance(entry, dict):
+        u = (entry.get('url') or entry.get('src') or '').strip()
+        return [u] if u else []
+    if isinstance(entry, (list, tuple)):
+        out: list[str] = []
+        for x in entry:
+            out.extend(_entry_urls_for_parsed_media(x))
+        return out
+    return []
+
+
+def strip_missing_parsed_item_local_files(*, media_root: Path | None = None) -> int:
+    """
+    Убрать из ParsedItem.media ссылки на локальные parsed_items/…, файлов которых уже нет.
+    Возвращает число обновлённых записей.
+    """
+    from parsing.models import ParsedItem
+
+    root = (media_root or Path(getattr(settings, 'MEDIA_ROOT', settings.BASE_DIR / 'media'))).resolve()
+    updated = 0
+    for item in ParsedItem.objects.exclude(media=[]).only('pk', 'media').iterator(chunk_size=200):
+        media = list(item.media or [])
+        new_media: list[Any] = []
+        changed = False
+        for entry in media:
+            ok = True
+            for u in _entry_urls_for_parsed_media(entry):
+                rel = _url_to_parsed_items_rel(str(u))
+                if not rel:
+                    continue
+                p = (root / rel).resolve()
+                try:
+                    p.relative_to(root)
+                except ValueError:
+                    continue
+                if not p.is_file():
+                    ok = False
+                    break
+            if ok:
+                new_media.append(entry)
+            else:
+                changed = True
+        if changed:
+            item.media = new_media
+            item.save(update_fields=['media'])
+            updated += 1
+    return updated
+
+
+def enforce_parse_media_disk_quota(*, quota_bytes: int) -> dict[str, Any]:
+    """
+    Лимит на сумму размеров каталогов parsed_items и imports/tg_to_max под MEDIA_ROOT.
+    Удаляет файлы в порядке возрастания mtime, пока сумма <= quota_bytes.
+    """
+    if quota_bytes <= 0:
+        return {'skipped': True, 'reason': 'quota disabled', 'quota_bytes': quota_bytes}
+
+    media_root = Path(getattr(settings, 'MEDIA_ROOT', settings.BASE_DIR / 'media')).resolve()
+    roots = [
+        media_root / 'parsed_items',
+        media_root / 'imports' / 'tg_to_max',
+    ]
+
+    files: list[tuple[Path, int, float]] = []
+    for base in roots:
+        if not base.is_dir():
+            continue
+        for dirpath, _dirnames, filenames in os.walk(base):
+            for name in filenames:
+                fp = Path(dirpath) / name
+                try:
+                    if not fp.is_file():
+                        continue
+                    st = fp.stat()
+                    files.append((fp, int(st.st_size), float(st.st_mtime)))
+                except OSError:
+                    continue
+
+    total = sum(sz for _fp, sz, _mt in files)
+    stats: dict[str, Any] = {
+        'quota_bytes': quota_bytes,
+        'total_bytes_before': total,
+        'deleted_files': 0,
+        'freed_bytes': 0,
+    }
+    if total <= quota_bytes:
+        stats['skipped'] = False
+        return stats
+
+    need_free = total - quota_bytes
+    freed = 0
+    deleted = 0
+    files.sort(key=lambda t: t[2])
+    for fp, size, _mt in files:
+        if freed >= need_free:
+            break
+        try:
+            fp.resolve().relative_to(media_root)
+        except ValueError:
+            continue
+        try:
+            fp.unlink(missing_ok=True)
+            freed += size
+            deleted += 1
+        except OSError as e:
+            logger.warning('parse media quota: unlink %s: %s', fp, e)
+
+    stats['deleted_files'] = deleted
+    stats['freed_bytes'] = freed
+    stats['parsed_items_media_fixed'] = strip_missing_parsed_item_local_files(media_root=media_root)
+
+    for base in roots:
+        if not base.is_dir():
+            continue
+        for dirpath, dirnames, _filenames in os.walk(base, topdown=False):
+            for name in dirnames:
+                dp = Path(dirpath) / name
+                try:
+                    if dp.is_dir() and not any(dp.iterdir()):
+                        dp.rmdir()
+                except OSError:
+                    pass
+
+    logger.info(
+        'parse media quota: quota=%s bytes before=%s deleted=%s freed=%s db_media_fixed=%s',
+        quota_bytes,
+        total,
+        deleted,
+        freed,
+        stats['parsed_items_media_fixed'],
+    )
+    return stats
+
+
+def run_parse_media_cleanup(*, retention_days: int) -> dict[str, Any]:
+    """Возрастная очистка + опционально квота (Ключи API → PARSE_MEDIA_DISK_QUOTA_BYTES, иначе settings)."""
+    from core.models import effective_parse_media_disk_quota_bytes
+
+    stats = purge_parse_media_older_than(retention_days=retention_days)
+    q = int(effective_parse_media_disk_quota_bytes())
+    if q > 0:
+        stats['quota'] = enforce_parse_media_disk_quota(quota_bytes=q)
+    else:
+        stats['quota'] = None
     return stats

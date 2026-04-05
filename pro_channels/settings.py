@@ -288,6 +288,10 @@ PARSE_TELEGRAM_MEDIA_MAX_BYTES = config(
 )  # 50 MiB по умолчанию
 # Запасной срок хранения media/parsed_items, если в GlobalApiKeys некорректное значение (основное — в «Ключи API»).
 PARSE_MEDIA_RETENTION_DAYS = config('PARSE_MEDIA_RETENTION_DAYS', default=3, cast=int)
+# Запасной лимит parsed_items + imports/tg_to_max (байт), если в GlobalApiKeys некорректное значение. Основное — «Ключи API».
+PARSE_MEDIA_DISK_QUOTA_BYTES = config(
+    'PARSE_MEDIA_DISK_QUOTA_BYTES', default=5368709120, cast=int
+)
 
 # ─── VK Парсинг ──────────────────────────────────────────────────────────────
 VK_PARSE_ACCESS_TOKEN = config('VK_PARSE_ACCESS_TOKEN', default='')

@@ -1052,8 +1052,8 @@ def _cron_to_interval(cron_expr):
 
 @shared_task(ignore_result=True)
 def purge_parse_media_retention():
-    """Удалить старые media/parsed_items и хвосты media/imports/tg_to_max по сроку из «Ключи API» / PARSE_MEDIA_RETENTION_DAYS."""
+    """Очистка парсинга по сроку и квоте (GlobalApiKeys; запасной вариант — .env)."""
     from core.models import effective_parse_media_retention_days
-    from parsing.media_retention import purge_parse_media_older_than
+    from parsing.media_retention import run_parse_media_cleanup
 
-    return purge_parse_media_older_than(retention_days=effective_parse_media_retention_days())
+    return run_parse_media_cleanup(retention_days=effective_parse_media_retention_days())

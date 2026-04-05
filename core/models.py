@@ -82,6 +82,12 @@ class GlobalApiKeys(models.Model):
         verbose_name='Парсинг: хранить локальные медиа (дней)',
         help_text='Файлы в media/parsed_items/ старше этого срока удаляются (Celery раз в сутки); у старых записей парсинга поле «медиа» обнуляется.',
     )
+    parse_media_disk_quota_bytes = models.PositiveBigIntegerField(
+        default=5368709120,
+        validators=[MaxValueValidator(1099511627776)],  # 1 TiB
+        verbose_name='PARSE_MEDIA_DISK_QUOTA_BYTES',
+        help_text='Суммарный лимит байт для media/parsed_items + media/imports/tg_to_max. 0 — квота отключена. post_media не входит.',
+    )
 
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -157,6 +163,26 @@ def effective_parse_media_retention_days() -> int:
     if 1 <= d <= 365:
         return d
     return max(1, min(int(getattr(settings, 'PARSE_MEDIA_RETENTION_DAYS', 3) or 3), 365))
+
+
+def effective_parse_media_disk_quota_bytes() -> int:
+    """Лимит байт parsed_items + imports/tg_to_max: GlobalApiKeys; при некорректном значении — settings."""
+    from django.conf import settings
+
+    max_b = 1099511627776  # 1 TiB
+    gk = get_global_api_keys()
+    try:
+        q = int(gk.parse_media_disk_quota_bytes)
+    except (TypeError, ValueError):
+        q = -1
+    if q == 0:
+        return 0
+    if 1 <= q <= max_b:
+        return q
+    fb = int(getattr(settings, 'PARSE_MEDIA_DISK_QUOTA_BYTES', 0) or 0)
+    if fb == 0:
+        return 0
+    return min(max(1, fb), max_b)
 
 
 class PageVisit(models.Model):

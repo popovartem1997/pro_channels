@@ -32,6 +32,7 @@ class GlobalApiKeysForm(forms.ModelForm):
             'vk_ord_contract_amount_fixed',
             'telegram_api_id',
             'parse_media_retention_days',
+            'parse_media_disk_quota_bytes',
         ]
 
     def __init__(self, *args, **kwargs):
@@ -41,6 +42,10 @@ class GlobalApiKeysForm(forms.ModelForm):
             pm.widget.attrs.setdefault('min', 1)
             pm.widget.attrs.setdefault('max', 365)
             pm.widget.attrs.setdefault('step', 1)
+        pq = self.fields.get('parse_media_disk_quota_bytes')
+        if pq is not None:
+            pq.widget.attrs.setdefault('min', 0)
+            pq.widget.attrs.setdefault('step', 1)
         # Bootstrap classes
         for name, field in self.fields.items():
             widget = field.widget

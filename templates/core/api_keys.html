@@ -156,7 +156,7 @@
               </div>
             {% endif %}
           </div>
-          <div class="mb-4">
+            <div class="mb-3">
             <label class="form-label fw-semibold" for="{{ form.parse_media_retention_days.id_for_label }}">
               {{ form.parse_media_retention_days.label }}
             </label>
@@ -165,7 +165,19 @@
               <div class="form-text">{{ form.parse_media_retention_days.help_text }}</div>
             {% endif %}
             <div class="form-text text-muted">
-              Автоочистка каждые 6 ч (Celery Beat, задача «Парсинг: очистка старых медиа»). Переменная <code>PARSE_MEDIA_RETENTION_DAYS</code> в .env — только запасной вариант.
+              Автоочистка каждые 6 ч (Celery Beat, «Парсинг: очистка старых медиа»). Запасной вариант по дням — <code>PARSE_MEDIA_RETENTION_DAYS</code> в .env.
+            </div>
+          </div>
+          <div class="mb-4">
+            <label class="form-label fw-semibold" for="{{ form.parse_media_disk_quota_bytes.id_for_label }}">
+              {{ form.parse_media_disk_quota_bytes.label }}
+            </label>
+            {{ form.parse_media_disk_quota_bytes }}
+            {% if form.parse_media_disk_quota_bytes.help_text %}
+              <div class="form-text">{{ form.parse_media_disk_quota_bytes.help_text }}</div>
+            {% endif %}
+            <div class="form-text text-muted">
+              Пример: 5368709120 ≈ 5 GiB; <code>0</code> — квота выключена. Если значение вне допустимого диапазона, берётся <code>PARSE_MEDIA_DISK_QUOTA_BYTES</code> из .env. Каталог <code>post_media</code> не ограничивается.
             </div>
           </div>
 
