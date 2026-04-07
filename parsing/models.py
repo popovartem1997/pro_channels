@@ -81,6 +81,8 @@ class ParseKeyword(models.Model):
     sources = models.ManyToManyField(ParseSource, related_name='keywords', verbose_name='Источники')
     is_active = models.BooleanField(default=True, verbose_name='Активен')
     created_at = models.DateTimeField(auto_now_add=True)
+    stats_skipped = models.PositiveIntegerField('Пропусков (статистика)', default=0)
+    stats_published = models.PositiveIntegerField('Публикаций (статистика)', default=0)
 
     class Meta:
         verbose_name = 'Ключевое слово'

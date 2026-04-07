@@ -8,7 +8,7 @@ import io
 import logging
 import os
 from celery import shared_task
-from django.db.models import Max
+from django.db.models import F, Max
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -923,6 +923,19 @@ def publish_post_task(self, post_id: int, force: bool = False):
         post.status = Post.STATUS_PUBLISHED
         post.published_at = timezone.now()
         _save_post_touch_updated_at(post, 'status', 'published_at')
+        kw_id = getattr(post, 'source_parse_keyword_id', None)
+        if kw_id and not getattr(post, 'parsing_publish_stats_applied', False):
+            flagged = Post.objects.filter(
+                pk=post_id,
+                parsing_publish_stats_applied=False,
+                source_parse_keyword_id=kw_id,
+            ).update(parsing_publish_stats_applied=True)
+            if flagged:
+                from parsing.models import ParseKeyword
+
+                ParseKeyword.objects.filter(pk=kw_id).update(
+                    stats_published=F('stats_published') + 1
+                )
         block_min = int(getattr(post, 'ad_top_block_minutes', 0) or 0)
         if block_min > 0:
             until = timezone.now() + datetime.timedelta(minutes=block_min)

@@ -5,13 +5,25 @@ import json
 from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.utils import timezone
-from django.db.models import Sum, Count
+from django.db.models import Q, Sum, Count, Case, When, Value, F, FloatField
+from django.db.models.functions import Cast
+from django.urls import reverse
 from datetime import timedelta
+
+
+def _chgroup_param_for_parse_keyword(kw):
+    ch = kw.channel
+    if ch is not None and getattr(ch, 'channel_group_id', None):
+        return str(ch.channel_group_id)
+    if kw.channel_group_id:
+        return str(kw.channel_group_id)
+    return 'all'
 
 
 @login_required
 def stats_dashboard(request):
     from channels.models import Channel
+    from parsing.models import ParseKeyword
     from .models import ChannelStat, PostStat
     if getattr(request.user, 'role', '') in ('manager', 'assistant_admin'):
         from managers.models import TeamMember
@@ -44,9 +56,65 @@ def stats_dashboard(request):
             'latest_subscribers': stats_list[-1].subscribers if stats_list else 0,
         })
 
+    kw_sort = (request.GET.get('kw_sort') or 'keyword').strip()
+    kw_dir = (request.GET.get('kw_dir') or 'asc').strip()
+    if kw_sort not in ('keyword', 'published', 'skipped', 'created', 'rate'):
+        kw_sort = 'keyword'
+    if kw_dir not in ('asc', 'desc'):
+        kw_dir = 'asc'
+
+    if getattr(request.user, 'role', '') in ('manager', 'assistant_admin'):
+        from managers.models import TeamMember
+
+        parse_ch_ids = list(
+            TeamMember.objects.filter(member=request.user, is_active=True)
+            .filter(Q(can_publish=True) | Q(can_moderate=True))
+            .values_list('channels__pk', flat=True)
+            .distinct()
+        )
+        kw_qs = ParseKeyword.objects.filter(channel_id__in=parse_ch_ids)
+    else:
+        kw_qs = ParseKeyword.objects.filter(owner=request.user)
+
+    kw_qs = kw_qs.select_related('channel', 'channel_group')
+    kw_qs = kw_qs.annotate(_dec=F('stats_skipped') + F('stats_published')).annotate(
+        _rate=Case(
+            When(_dec=0, then=Value(0.0)),
+            default=Cast(F('stats_published'), FloatField()) / Cast(F('_dec'), FloatField()),
+            output_field=FloatField(),
+        ),
+    )
+    order_field = {
+        'keyword': 'keyword',
+        'published': 'stats_published',
+        'skipped': 'stats_skipped',
+        'created': 'created_at',
+        'rate': '_rate',
+    }.get(kw_sort, 'keyword')
+    ord_prefix = '' if kw_dir == 'asc' else '-'
+    if kw_sort == 'keyword':
+        kw_qs = kw_qs.order_by(f'{ord_prefix}keyword', 'pk')
+    else:
+        kw_qs = kw_qs.order_by(f'{ord_prefix}{order_field}', 'keyword')
+
+    keyword_stat_rows = []
+    for kw in kw_qs:
+        dec = int(kw._dec)
+        keyword_stat_rows.append({
+            'kw': kw,
+            'chgroup_param': _chgroup_param_for_parse_keyword(kw),
+            'conversion_pct': round(100.0 * kw.stats_published / dec, 1) if dec else None,
+        })
+
+    stats_dashboard_url = reverse('stats:dashboard')
+
     return render(request, 'stats/dashboard.html', {
         'channel_data': channel_data,
         'date_range': f'{week_ago:%d.%m} — {today:%d.%m.%Y}',
+        'keyword_stat_rows': keyword_stat_rows,
+        'kw_sort': kw_sort,
+        'kw_dir': kw_dir,
+        'stats_dashboard_url': stats_dashboard_url,
     })
 
 

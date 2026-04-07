@@ -94,6 +94,26 @@ class Post(models.Model):
         related_name='campaign_posts',
         verbose_name='Заявка на рекламу (публикации)',
     )
+    source_parsed_item = models.ForeignKey(
+        'parsing.ParsedItem',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='derived_posts',
+        verbose_name='Источник: распарсенный элемент',
+    )
+    source_parse_keyword = models.ForeignKey(
+        'parsing.ParseKeyword',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='derived_posts',
+        verbose_name='Источник: ключевик',
+    )
+    parsing_publish_stats_applied = models.BooleanField(
+        'Статистика публикации по парсингу учтена',
+        default=False,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

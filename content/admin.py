@@ -12,7 +12,15 @@ class PostAdmin(admin.ModelAdmin):
     search_fields = ['text', 'author__email']
     filter_horizontal = ['channels']
     inlines = [PostMediaInline]
-    readonly_fields = ['created_at', 'updated_at', 'published_at', 'uid']
+    readonly_fields = [
+        'created_at',
+        'updated_at',
+        'published_at',
+        'uid',
+        'source_parsed_item',
+        'source_parse_keyword',
+        'parsing_publish_stats_applied',
+    ]
 
 @admin.register(PublishResult)
 class PublishResultAdmin(admin.ModelAdmin):

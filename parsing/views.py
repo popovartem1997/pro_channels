@@ -6,7 +6,7 @@ from django.urls import reverse
 from urllib.parse import urlencode
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.db.models import Q, Count
+from django.db.models import Q, Count, F
 from .models import ParseSource, ParseKeyword, ParsedItem, ParseTask, AIRewriteJob
 from django.http import JsonResponse
 from django.http import HttpResponse
@@ -797,6 +797,9 @@ def keyword_delete(request, pk):
                 _ensure_auto_parse_task(ch.owner, ch)
             except Exception:
                 pass
+        nxt = (request.POST.get('next') or '').strip()
+        if nxt.startswith('/') and not nxt.startswith('//'):
+            return redirect(nxt)
     return redirect(_parsing_sources_redirect(request, scope))
 
 
@@ -857,8 +860,11 @@ def item_skip(request, pk):
     scope = _get_parse_scope(request)
     if request.method != 'POST':
         return redirect(_parse_url('parsing:items', scope))
+    prev_status = item.status
     item.status = ParsedItem.STATUS_IGNORED
     item.save(update_fields=['status'])
+    if prev_status != ParsedItem.STATUS_IGNORED:
+        ParseKeyword.objects.filter(pk=item.keyword_id).update(stats_skipped=F('stats_skipped') + 1)
     wants_json = request.POST.get('ajax') == '1' or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
     if wants_json:
         from core.views import compute_feed_quick_link_counts
@@ -942,6 +948,8 @@ def item_to_post(request, pk):
         text=text,
         text_html='',
         status=Post.STATUS_DRAFT,
+        source_parsed_item=item,
+        source_parse_keyword=item.keyword,
     )
 
     ch_ids = _channel_ids_for_new_post_from_parsed_item(item, request.user)
@@ -1031,6 +1039,8 @@ def item_ai_to_post(request, pk):
         text=text_plain,
         text_html=text_html,
         status=Post.STATUS_DRAFT,
+        source_parsed_item=item,
+        source_parse_keyword=item.keyword,
     )
     ch_ids = _channel_ids_for_new_post_from_parsed_item(item, request.user)
     if ch_ids:

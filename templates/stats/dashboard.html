@@ -9,6 +9,9 @@
   .stat-card-mini .label { font-size: .75rem; color: #64748b; text-transform: uppercase;
     letter-spacing: .04em; font-weight: 600; }
   .stat-card-mini .number { font-size: 1.6rem; font-weight: 800; color: #1a202c; }
+  .kw-stats-table th a { color: inherit; text-decoration: none; }
+  .kw-stats-table th a:hover { text-decoration: underline; }
+  .kw-stats-table th.sorted { color: var(--brand, #5b6ef5); }
 </style>
 {% endblock %}
 
@@ -16,6 +19,74 @@
 <div class="page-header">
   <h1><i class="bi bi-bar-chart-line me-2" style="color:var(--brand)"></i>Статистика</h1>
   <p class="text-muted small mb-0">Сводная аналитика по всем каналам</p>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header bg-transparent border-bottom py-3">
+    <h6 class="fw-bold mb-0"><i class="bi bi-key me-2 text-secondary"></i>Эффективность ключевиков</h6>
+    <p class="text-muted small mb-0 mt-1">Пропуск в ленте парсинга и успешная публикация поста из материала учитываются в счётчиках. Ключевик можно удалить, если он больше не нужен.</p>
+  </div>
+  <div class="card-body p-0">
+    {% if keyword_stat_rows %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0 kw-stats-table">
+        <thead class="table-light">
+          <tr>
+            <th class="{% if kw_sort == 'keyword' %}sorted{% endif %}">
+              <a href="{{ stats_dashboard_url }}?kw_sort=keyword&amp;kw_dir={% if kw_sort == 'keyword' and kw_dir == 'asc' %}desc{% else %}asc{% endif %}">Ключевик</a>
+            </th>
+            <th>Канал / проект</th>
+            <th class="text-end {% if kw_sort == 'skipped' %}sorted{% endif %}">
+              <a href="{{ stats_dashboard_url }}?kw_sort=skipped&amp;kw_dir={% if kw_sort == 'skipped' and kw_dir == 'asc' %}desc{% else %}asc{% endif %}">Пропуски</a>
+            </th>
+            <th class="text-end {% if kw_sort == 'published' %}sorted{% endif %}">
+              <a href="{{ stats_dashboard_url }}?kw_sort=published&amp;kw_dir={% if kw_sort == 'published' and kw_dir == 'asc' %}desc{% else %}asc{% endif %}">Публикации</a>
+            </th>
+            <th class="text-end {% if kw_sort == 'rate' %}sorted{% endif %}">
+              <a href="{{ stats_dashboard_url }}?kw_sort=rate&amp;kw_dir={% if kw_sort == 'rate' and kw_dir == 'asc' %}desc{% else %}asc{% endif %}">Конверсия</a>
+            </th>
+            <th class="{% if kw_sort == 'created' %}sorted{% endif %}">
+              <a href="{{ stats_dashboard_url }}?kw_sort=created&amp;kw_dir={% if kw_sort == 'created' and kw_dir == 'asc' %}desc{% else %}asc{% endif %}">Создан</a>
+            </th>
+            <th class="text-end" style="width:1%">Действия</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in keyword_stat_rows %}
+          <tr>
+            <td class="fw-medium">{{ row.kw.keyword }}</td>
+            <td class="text-muted small">
+              {% if row.kw.channel %}
+                {{ row.kw.channel.name }}
+              {% elif row.kw.channel_group %}
+                {{ row.kw.channel_group.name }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td class="text-end">{{ row.kw.stats_skipped }}</td>
+            <td class="text-end">{{ row.kw.stats_published }}</td>
+            <td class="text-end">{% if row.conversion_pct is not None %}{{ row.conversion_pct }}%{% else %}—{% endif %}</td>
+            <td class="text-muted small">{{ row.kw.created_at|date:"d.m.Y" }}</td>
+            <td class="text-end text-nowrap">
+              <a href="{% url 'parsing:keyword_edit' row.kw.pk %}?chgroup={{ row.chgroup_param }}" class="btn btn-outline-secondary btn-sm">Изменить</a>
+              <form action="{% url 'parsing:keyword_delete' row.kw.pk %}" method="post" class="d-inline" onsubmit="return confirm('Удалить ключевик «{{ row.kw.keyword|escapejs }}»? Связанные найденные материалы будут удалены.');">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ stats_dashboard_url }}">
+                <button type="submit" class="btn btn-outline-danger btn-sm">Удалить</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="card-body text-muted py-4">
+      Нет ключевых слов в области видимости этой страницы (или у вас ещё не настроен парсинг).
+    </div>
+    {% endif %}
+  </div>
 </div>
 
 {% if channel_data %}
