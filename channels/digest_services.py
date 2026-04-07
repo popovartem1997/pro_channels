@@ -14,6 +14,7 @@ import json
 import logging
 import re
 from collections import Counter
+from html import escape as html_escape
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -244,7 +245,7 @@ def format_holidays(country_code: str, day: dt.date) -> str:
         except Exception:
             cal = hol.Russia(years=day.year)
         names = [str(nm) for d0, nm in cal.items() if d0 == day and nm]
-        lines = [f'     🔸{n}' for n in names if n]
+        lines = [f'     🎊 {n}' for n in names if n]
         return '\n'.join(lines)
     except Exception as exc:
         logger.warning('holidays digest: %s', exc)
@@ -401,19 +402,23 @@ def compose_digest_text(cfg, *, local_now: dt.datetime, day: dt.date, lat: float
     tz_name = cfg.timezone_name or 'Europe/Moscow'
     date_fmt = day.strftime('%d.%m.%Y')
 
-    lines_plain: list[str] = []
-    lines_html: list[str] = []
+    blocks_plain: list[str] = []
+    blocks_html: list[str] = []
 
-    def p(s: str) -> None:
-        lines_plain.append(s)
+    def add_block(plain_part: str, html_part: str) -> None:
+        pt = (plain_part or '').strip()
+        ht = (html_part or '').strip()
+        if pt:
+            blocks_plain.append(pt)
+        if ht:
+            blocks_html.append(ht)
 
-    def h(s: str) -> None:
-        lines_html.append(s)
+    def _weather_line_html(line: str) -> str:
+        return html_escape(line).replace(' ', '&nbsp;')
 
     if cfg.block_date:
         block = f'🗓 {date_fmt} года'
-        p(block)
-        h(block.replace('\n', '<br>'))
+        add_block(block, f'<b>{html_escape(block)}</b>')
 
     hourly = None
     if cfg.block_weather:
@@ -421,17 +426,18 @@ def compose_digest_text(cfg, *, local_now: dt.datetime, day: dt.date, lat: float
         if hourly:
             agg = _aggregate_periods(hourly, tz_name)
             loc = (cfg.location_label or '').strip()
-            head = '🌥 Погода на сегодня:'
+            head = '🌤 Погода на сегодня'
             if loc:
                 head += f' ({loc})'
-            p(head)
-            h(head)
+            head += ':'
+            plines = [head]
+            hlines = [f'<b>{html_escape(head)}</b>']
             for key, _cap, low in PERIOD_LABELS:
                 a = agg.get(key) or {}
                 if not a:
-                    line = f'     🔸{low.capitalize()}: данные недоступны'
-                    p(line)
-                    h(line.replace(' ', '&nbsp;').replace('\n', '<br>'))
+                    line = f'     ☁️ {low.capitalize()}: данные недоступны'
+                    plines.append(line)
+                    hlines.append(_weather_line_html(line))
                     continue
                 t1, t2 = a['tmin'], a['tmax']
                 sign = '−' if t1 < 0 else ''
@@ -439,35 +445,32 @@ def compose_digest_text(cfg, *, local_now: dt.datetime, day: dt.date, lat: float
                 t1s = f'{sign}{abs(t1)}' if t1 != 0 or t2 == 0 else str(t1)
                 t2s = f'{sign2}{abs(t2)}' if t2 != 0 else str(t2)
                 line = (
-                    f'     🔸{low.capitalize()}: от {t1s} до {t2s} | {a.get("wx", "—")} | '
-                    f'{a.get("mm", 0)} мм.рт.ст. | {a.get("hum", 0)}% | '
-                    f'{a.get("wms", 0)}, {a.get("wdir", "—")}'
+                    f'     🌡️ {low.capitalize()}: от {t1s} до {t2s} °C | {a.get("wx", "—")} | '
+                    f'{a.get("mm", 0)} мм рт.ст. | {a.get("hum", 0)}% | '
+                    f'{a.get("wms", 0)} м/с, {a.get("wdir", "—")}'
                 )
-                p(line)
-                h(line.replace(' ', '&nbsp;'))
-
+                plines.append(line)
+                hlines.append(_weather_line_html(line))
+            add_block('\n'.join(plines), '\n'.join(hlines))
         else:
-            msg = '🌥 Погода: не удалось загрузить прогноз.'
-            p(msg)
-            h(msg)
+            msg = '⛅ Погода: не удалось загрузить прогноз.'
+            add_block(msg, f'<b>{html_escape(msg)}</b>')
 
     if cfg.block_sun:
         sun = fetch_sun_local(lat, lon, day, tz_name)
         if sun:
             sr, ss = sun
-            p('')
-            p('🌝  Вот так сегодня встает и ложится солнце:')
-            p(f'     🌜Рассвет: {sr}')
-            p(f'     🌛Закат: {ss}')
-            h('')
-            h('🌝&nbsp; Вот так сегодня встает и ложится солнце:')
-            h(f'     🌜Рассвет: {sr}')
-            h(f'     🌛Закат: {ss}')
+            head = '🌅 Рассвет и закат сегодня'
+            plines = [head, f'     🌄 Рассвет: {sr}', f'     🌇 Закат: {ss}']
+            hlines = [
+                f'<b>{html_escape(head)}</b>',
+                f'     🌄 Рассвет: {html_escape(sr)}',
+                f'     🌇 Закат: {html_escape(ss)}',
+            ]
+            add_block('\n'.join(plines), '\n'.join(hlines))
         else:
-            p('')
-            p('🌝 Солнце: данные недоступны.')
-            h('')
-            h('🌝 Солнце: данные недоступны.')
+            msg = '🌅 Солнце: данные недоступны.'
+            add_block(msg, f'<b>{html_escape(msg)}</b>')
 
     keys = get_global_api_keys()
     api_key = (keys.get_deepseek_api_key() or '').strip()
@@ -490,61 +493,55 @@ def compose_digest_text(cfg, *, local_now: dt.datetime, day: dt.date, lat: float
     fb = static_ai_fallback()
 
     if cfg.block_quote:
-        p('')
-        p('🤔 Цитата дня:')
+        head = '💬 Цитата дня'
         if cfg.use_ai_quote and api_key and (ai.get('quote_ru') or '').strip():
             q = ai['quote_ru'].strip()
             au = (ai.get('quote_author') or '').strip() or '—'
         else:
             q, au = fb['quote_ru'], fb['quote_author']
-        p(f'     {q} ({au})')
-        h('')
-        h('🤔 Цитата дня:')
-        h(f'     {q} ({au})')
+        body_plain = f'     {q} ({au})'
+        body_html = f'     {html_escape(q)} ({html_escape(au)})'
+        add_block(f'{head}\n{body_plain}', f'<b>{html_escape(head)}</b>\n{body_html}')
 
     if cfg.block_english:
-        p('')
-        p('🤔 Английское слово:')
+        head = '📖 Английское слово'
         if cfg.use_ai_english and api_key and (ai.get('english_word') or '').strip():
             w = ai['english_word'].strip()
             ipa = (ai.get('ipa') or '—').strip()
             gl = (ai.get('gloss_ru') or '—').strip()
         else:
             w, ipa, gl = fb['english_word'], fb['ipa'], fb['gloss_ru']
-        p(f'     {w}\xa0(\xa0{ipa}\xa0) — {gl}')
-        h('')
-        h('🤔 Английское слово:')
-        h(f'     {w}&nbsp;(&nbsp;{ipa}&nbsp;) — {gl}')
+        body_plain = f'     {w} ({ipa}) — {gl}'
+        body_html = f'     {html_escape(w)} ({html_escape(ipa)}) — {html_escape(gl)}'
+        add_block(f'{head}\n{body_plain}', f'<b>{html_escape(head)}</b>\n{body_html}')
 
     if cfg.block_holidays:
         hol = format_holidays(cfg.country_for_holidays, day)
-        p('')
-        p('🎉 Праздники сегодня:')
+        head = '🎉 Праздники сегодня'
         if hol:
-            p(hol)
-            h('')
-            h('🎉 Праздники сегодня:')
-            h(hol.replace(' ', '&nbsp;'))
+            add_block(
+                f'{head}:\n{hol}',
+                f'<b>{html_escape(head)}:</b>\n' + _weather_line_html(hol),
+            )
         else:
-            p('     (официальных праздников по календарю нет)')
-            h('')
-            h('🎉 Праздники сегодня:')
-            h('     (официальных праздников по календарю нет)')
+            sub = '     ✨ Официальных праздников по календарю нет'
+            add_block(
+                f'{head}:\n{sub}',
+                f'<b>{html_escape(head)}:</b>\n{html_escape(sub)}',
+            )
 
     if cfg.block_horoscope:
-        p('')
-        p('✨ Гороскоп на сегодня:')
+        head = '✨ Гороскоп на сегодня'
         if cfg.use_ai_horoscope and api_key and (ai.get('horoscope_ru') or '').strip():
             ho = ai['horoscope_ru'].strip()
         else:
             ho = fb['horoscope_ru']
-        p(f'     {ho}')
-        h('')
-        h('✨ Гороскоп на сегодня:')
-        h(f'     {ho}')
+        body_plain = f'     {ho}'
+        body_html = f'     {html_escape(ho)}'
+        add_block(f'{head}\n{body_plain}', f'<b>{html_escape(head)}</b>\n{body_html}')
 
-    plain = '\n'.join(lines_plain).strip()
-    html = '<br>\n'.join(lines_html).strip()
+    plain = '\n\n'.join(blocks_plain).strip()
+    html = '\n\n'.join(blocks_html).strip()
     return plain, html
 
 
