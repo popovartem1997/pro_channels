@@ -601,9 +601,151 @@
 })();
 </script>
 
+<style>
+  .pc-post-emoji-panel {
+    position: fixed;
+    z-index: 1060;
+    display: none;
+    max-width: min(320px, calc(100vw - 24px));
+    max-height: min(260px, 45vh);
+    overflow-y: auto;
+    padding: 8px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    grid-template-columns: repeat(8, 1fr);
+    gap: 2px;
+  }
+  .pc-post-emoji-panel.is-open { display: grid; }
+  .pc-post-emoji-panel button {
+    border: 0;
+    background: transparent;
+    border-radius: 6px;
+    font-size: 1.35rem;
+    line-height: 1.2;
+    padding: 4px 2px;
+    cursor: pointer;
+  }
+  .pc-post-emoji-panel button:hover { background: var(--brand-light, #eef0ff); }
+</style>
 <script>
 // Simple WYSIWYG editor for posts: stores HTML for TG + plain for MAX/VK.
 (function () {
+  var PC_POST_EMOJIS = (
+    '😀 😃 😄 😁 😅 😂 🤣 😊 😇 🙂 😉 😍 🥰 😘 😋 😛 🤪 😜 🤗 🥳 😎 🤔 😴 🤤 😢 😭 😤 🙄 😬 🤐 ' +
+    '👍 👎 👌 ✌️ 🤞 🤝 👏 🙌 🫶 👋 🤚 ✋ 🙏 💪 👀 👂 ❤️ 🧡 💛 💚 💙 💜 🤍 🖤 💔 ❣️ 💕 ' +
+    '🔥 💯 ✨ ⭐ 🌟 💫 ⚡ ☀️ 🌙 🌈 ☁️ ⛅ 🌧️ ❄️ 🌊 🌸 🌹 🍀 🎉 🎊 🎁 🎈 ✅ ❌ ⚠️ ❓ ❗ 💬 📝 📌 🔔 🏠 ✈️ 🚀'
+  ).split(/\s+/).filter(Boolean);
+
+  var _pcEmojiUi = { panel: null, anchor: null, ed: null, sync: null, onDocClick: null, onKey: null };
+
+  function insertPlainAtCaretInEditor(ed, text) {
+    if (!ed || text === null || text === undefined) return;
+    ed.focus();
+    var sel = window.getSelection();
+    var range;
+    if (sel.rangeCount) {
+      range = sel.getRangeAt(0);
+      if (!ed.contains(range.commonAncestorContainer)) {
+        range = document.createRange();
+        range.selectNodeContents(ed);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    } else {
+      range = document.createRange();
+      range.selectNodeContents(ed);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    range.deleteContents();
+    var tn = document.createTextNode(text);
+    range.insertNode(tn);
+    range.setStartAfter(tn);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  function hidePostEmojiPicker() {
+    var st = _pcEmojiUi;
+    if (st.panel) {
+      st.panel.classList.remove('is-open');
+      st.panel.style.left = '';
+      st.panel.style.top = '';
+    }
+    st.anchor = null;
+    st.ed = null;
+    st.sync = null;
+    if (st.onDocClick) {
+      document.removeEventListener('click', st.onDocClick, true);
+      st.onDocClick = null;
+    }
+    if (st.onKey) {
+      document.removeEventListener('keydown', st.onKey, true);
+      st.onKey = null;
+    }
+  }
+
+  function ensurePostEmojiPanel() {
+    if (_pcEmojiUi.panel) return _pcEmojiUi.panel;
+    var panel = document.createElement('div');
+    panel.className = 'pc-post-emoji-panel';
+    panel.setAttribute('role', 'listbox');
+    panel.setAttribute('aria-label', 'Смайлики');
+    PC_POST_EMOJIS.forEach(function (em) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('aria-label', em);
+      b.textContent = em;
+      b.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var ctx = _pcEmojiUi;
+        if (ctx.ed) {
+          insertPlainAtCaretInEditor(ctx.ed, em);
+          if (ctx.sync) ctx.sync();
+        }
+        hidePostEmojiPicker();
+      });
+      panel.appendChild(b);
+    });
+    document.body.appendChild(panel);
+    _pcEmojiUi.panel = panel;
+    return panel;
+  }
+
+  function togglePostEmojiPicker(anchorBtn, ed, syncFn) {
+    var panel = ensurePostEmojiPanel();
+    var isOpen = panel.classList.contains('is-open') && _pcEmojiUi.anchor === anchorBtn;
+    hidePostEmojiPicker();
+    if (isOpen) return;
+    _pcEmojiUi.anchor = anchorBtn;
+    _pcEmojiUi.ed = ed;
+    _pcEmojiUi.sync = syncFn;
+    var r = anchorBtn.getBoundingClientRect();
+    var pad = 8;
+    panel.classList.add('is-open');
+    var pw = panel.offsetWidth || 280;
+    var left = Math.min(r.left, window.innerWidth - pw - pad);
+    left = Math.max(pad, left);
+    panel.style.left = left + 'px';
+    panel.style.top = (r.bottom + 6) + 'px';
+    _pcEmojiUi.onDocClick = function (e) {
+      var t = e.target;
+      if (panel.contains(t) || (anchorBtn && anchorBtn.contains(t))) return;
+      hidePostEmojiPicker();
+    };
+    document.addEventListener('click', _pcEmojiUi.onDocClick, true);
+    _pcEmojiUi.onKey = function (e) {
+      if (e.key === 'Escape') hidePostEmojiPicker();
+    };
+    document.addEventListener('keydown', _pcEmojiUi.onKey, true);
+  }
+
   function stripHtml(html) {
     var raw = (html || '')
       .replace(/<br\s*\/?>/gi, '\n')
@@ -722,6 +864,7 @@
     var edForm = ed.closest('form');
     if (edForm) {
       edForm.addEventListener('submit', function () {
+        hidePostEmojiPicker();
         sync();
       });
     }
@@ -734,17 +877,6 @@
       var cd = e.clipboardData || window.clipboardData;
       if (!cd) return;
       e.preventDefault();
-      ed.focus();
-      var sel = window.getSelection();
-      if (!sel.rangeCount) return;
-      var range = sel.getRangeAt(0);
-      if (!ed.contains(range.commonAncestorContainer)) {
-        range = document.createRange();
-        range.selectNodeContents(ed);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
       var html = cd.getData('text/html') || '';
       var plain = cd.getData('text/plain');
       if (plain === null || plain === undefined) plain = '';
@@ -755,15 +887,7 @@
         toInsert = hx.innerText || hx.textContent || '';
       }
       if (!toInsert) return;
-
-      range.deleteContents();
-      var tn = document.createTextNode(toInsert);
-      range.insertNode(tn);
-      range.setStartAfter(tn);
-      range.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(range);
-
+      insertPlainAtCaretInEditor(ed, toInsert);
       sync();
     });
 
@@ -789,8 +913,12 @@
         try { document.execCommand('formatBlock', false, 'pre'); } catch (e) {}
       }
       else if (a === 'link') execLink();
+      else if (a === 'emoji') {
+        togglePostEmojiPicker(btn, ed, sync);
+      }
       else if (a === 'clear') {
         ed.textContent = '';
+        hidePostEmojiPicker();
       }
       sync();
     });
