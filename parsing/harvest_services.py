@@ -13,6 +13,51 @@ MAX_KEYWORDS_FROM_AI = 40
 KEYWORD_MAX_LEN = 255
 
 
+def ensure_example_telegram_parse_source(
+    *,
+    owner,
+    channel,
+    channel_group,
+    example_channel_raw: str,
+):
+    """
+    Создаёт или находит ParseSource (Telegram) с source_id = канал-пример,
+    привязанный к целевому каналу публикации и группе.
+    """
+    from .models import ParseSource
+
+    ref = normalize_telegram_channel_ref(example_channel_raw)
+    if not ref:
+        return None
+    qs = ParseSource.objects.filter(
+        owner=owner,
+        channel=channel,
+        platform=ParseSource.PLATFORM_TELEGRAM,
+        source_id=ref,
+    )
+    src = qs.first()
+    if src:
+        updates = []
+        if not src.is_active:
+            src.is_active = True
+            updates.append('is_active')
+        if channel_group and src.channel_group_id != channel_group.id:
+            src.channel_group = channel_group
+            updates.append('channel_group')
+        if updates:
+            src.save(update_fields=updates)
+        return src
+    return ParseSource.objects.create(
+        owner=owner,
+        channel=channel,
+        channel_group=channel_group,
+        platform=ParseSource.PLATFORM_TELEGRAM,
+        source_id=ref,
+        name=f'{ref} (пример для ключевиков)'[:255],
+        is_active=True,
+    )
+
+
 def normalize_telegram_channel_ref(raw: str) -> str:
     s = (raw or '').strip()
     if not s:
@@ -125,6 +170,20 @@ def apply_harvest_keywords(job, keywords_to_add: list[str]) -> int:
 
     if not channels:
         return 0
+
+    # Источник Telegram = канал, откуда брались посты для AI (один ParseSource на каждый целевой канал).
+    for ch in channels:
+        ensure_example_telegram_parse_source(
+            owner=owner,
+            channel=ch,
+            channel_group=group,
+            example_channel_raw=job.example_channel,
+        )
+    for ch in channels:
+        try:
+            sync_auto_parse_tasks_for_channel(ch)
+        except Exception:
+            logger.exception('harvest: sync after example source ch=%s', ch.pk)
 
     sources_qs = ParseSource.objects.filter(owner=owner, channel_group=group, is_active=True)
     source_pks = list(sources_qs.values_list('pk', flat=True))
