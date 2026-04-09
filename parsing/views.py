@@ -1277,6 +1277,46 @@ def _harvest_allowed_channel_groups(user):
     return ChannelGroup.objects.filter(pk__in=gids).order_by('name')
 
 
+def _keyword_harvest_target_channel_ids(job: KeywordHarvestJob) -> list[int]:
+    """Каналы, куда попадут ключевики при применении задачи (как в apply_harvest_keywords)."""
+    from channels.models import Channel
+
+    group = job.channel_group
+    if job.target_mode == KeywordHarvestJob.TARGET_GROUP_ONE and job.target_channel_id:
+        return [int(job.target_channel_id)]
+    return list(
+        Channel.objects.filter(channel_group=group, is_active=True)
+        .exclude(platform__in=(Channel.PLATFORM_MAX, Channel.PLATFORM_INSTAGRAM))
+        .values_list('pk', flat=True)
+    )
+
+
+def _keyword_harvest_visible_suggestions(job: KeywordHarvestJob) -> list[str]:
+    """Кандидаты от AI без фраз, уже заведённых на целевых каналах (без учёта регистра)."""
+    from .models import ParseKeyword
+
+    raw = job.suggested_keywords or []
+    if not isinstance(raw, list):
+        return []
+    ch_ids = _keyword_harvest_target_channel_ids(job)
+    existing_lower: set[str] = set()
+    if ch_ids:
+        existing_lower = {
+            (k or '').strip().lower()
+            for k in ParseKeyword.objects.filter(channel_id__in=ch_ids).values_list('keyword', flat=True)
+            if (k or '').strip()
+        }
+    out: list[str] = []
+    for x in raw:
+        s = str(x).strip()
+        if not s:
+            continue
+        if s.lower() in existing_lower:
+            continue
+        out.append(s)
+    return out
+
+
 @login_required
 def keyword_harvest_list(request):
     jobs = _keyword_harvest_jobs_qs(request.user).select_related('channel_group', 'created_by')[:80]
@@ -1383,13 +1423,11 @@ def keyword_harvest_detail(request, pk):
         if job.status != KeywordHarvestJob.STATUS_READY:
             messages.error(request, 'Задача ещё не готова или уже обработана.')
             return redirect('parsing:keyword_harvest_detail', pk=job.pk)
-        raw_kws = job.suggested_keywords or []
-        if not isinstance(raw_kws, list):
-            raw_kws = []
-        exclude = set(request.POST.getlist('exclude'))
-        to_add = [kw for i, kw in enumerate(raw_kws) if str(i) not in exclude]
+        visible = _keyword_harvest_visible_suggestions(job)
+        include = set(request.POST.getlist('include'))
+        to_add = [kw for i, kw in enumerate(visible) if str(i) in include]
         if not to_add:
-            messages.warning(request, 'Отмечены все ключевики как «не добавлять» — нечего сохранять.')
+            messages.warning(request, 'Отметьте галочками хотя бы один ключевик, который нужно добавить.')
             return redirect('parsing:keyword_harvest_detail', pk=job.pk)
 
         from .harvest_services import apply_harvest_keywords
@@ -1410,11 +1448,23 @@ def keyword_harvest_detail(request, pk):
         return redirect('parsing:keyword_harvest_detail', pk=job.pk)
 
     telethon_ok = _telethon_session_exists_for_user(job.channel_group.owner_id)
+    visible_keywords: list[str] = []
+    harvest_skipped_existing_count = 0
+    if job.status == KeywordHarvestJob.STATUS_READY:
+        raw = job.suggested_keywords or []
+        suggested_nonempty = (
+            sum(1 for x in raw if str(x).strip()) if isinstance(raw, list) else 0
+        )
+        visible_keywords = _keyword_harvest_visible_suggestions(job)
+        harvest_skipped_existing_count = max(0, suggested_nonempty - len(visible_keywords))
+
     return render(
         request,
         'parsing/keyword_harvest_detail.html',
         {
             'job': job,
             'telethon_ok': telethon_ok,
+            'visible_keywords': visible_keywords,
+            'harvest_skipped_existing_count': harvest_skipped_existing_count,
         },
     )

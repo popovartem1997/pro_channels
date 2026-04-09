@@ -52,14 +52,21 @@
 </div>
 {% endif %}
 
-{% if job.status == 'ready' and job.suggested_keywords %}
+{% if job.status == 'ready' and visible_keywords %}
+{% if harvest_skipped_existing_count %}
+<div class="alert alert-secondary small mb-3">
+  <i class="bi bi-funnel me-1"></i>
+  Не показано предложений, уже заведённых для этой группы (целевых каналов): <strong>{{ harvest_skipped_existing_count }}</strong>.
+</div>
+{% endif %}
 <form method="post" class="card border-success">
   {% csrf_token %}
   <input type="hidden" name="action" value="apply">
   <div class="card-header bg-success-subtle py-3">
     <h6 class="mb-0 fw-bold">Кандидаты от AI</h6>
     <p class="small text-muted mb-0 mt-1">
-      По умолчанию все строки будут добавлены как ключевики. Отметьте <strong>«не добавлять»</strong> у тех, которые не нужны.
+      Отметьте галочками <strong>только те фразы</strong>, которые нужно добавить как ключевики. Без галочки строка не попадёт в парсинг.
+      Фразы, которые уже есть на выбранных для задачи каналах, <strong>не отображаются</strong>.
     </p>
   </div>
   <div class="card-body p-0">
@@ -68,17 +75,17 @@
         <thead class="table-light">
           <tr>
             <th>Ключевик</th>
-            <th class="text-end" style="width:1%">Не добавлять</th>
+            <th class="text-end" style="width:1%">Добавить</th>
           </tr>
         </thead>
         <tbody>
-          {% for kw in job.suggested_keywords %}
+          {% for kw in visible_keywords %}
           <tr>
             <td class="fw-medium">{{ kw }}</td>
             <td class="text-end">
               <div class="form-check d-inline-flex justify-content-end">
-                <input class="form-check-input" type="checkbox" name="exclude" value="{{ forloop.counter0 }}" id="ex{{ forloop.counter0 }}">
-                <label class="form-check-label visually-hidden" for="ex{{ forloop.counter0 }}">Не добавлять</label>
+                <input class="form-check-input" type="checkbox" name="include" value="{{ forloop.counter0 }}" id="in{{ forloop.counter0 }}">
+                <label class="form-check-label visually-hidden" for="in{{ forloop.counter0 }}">Добавить</label>
               </div>
             </td>
           </tr>
@@ -88,10 +95,15 @@
     </div>
   </div>
   <div class="card-footer d-flex flex-wrap gap-2">
-    <button type="submit" class="btn btn-success">Добавить выбранные ключевики</button>
-    <span class="small text-muted align-self-center">Дубликаты и уже существующие фразы в канале будут пропущены.</span>
+    <button type="submit" class="btn btn-success">Добавить отмеченные</button>
+    <span class="small text-muted align-self-center">При сохранении дубликаты на канале по-прежнему будут пропущены.</span>
   </div>
 </form>
+{% elif job.status == 'ready' and job.suggested_keywords %}
+<div class="alert alert-info">
+  <i class="bi bi-info-circle me-1"></i>
+  Все предложенные AI ключевики <strong>уже заведены</strong> для каналов этой задачи (группа «{{ job.channel_group.name }}»). Добавлять нечего.
+</div>
 {% elif job.status == 'ready' %}
 <div class="alert alert-warning">AI не вернул список ключевиков (пустой ответ).</div>
 {% endif %}
