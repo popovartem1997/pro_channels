@@ -1287,8 +1287,8 @@ def keyword_harvest_list(request):
 def keyword_harvest_create(request):
     from channels.models import Channel, ChannelGroup
 
-    groups = list(_harvest_allowed_channel_groups(request))
-    channels = list(_harvest_target_channels_select_qs(request))
+    groups = list(_harvest_allowed_channel_groups(request.user))
+    channels = list(_harvest_target_channels_select_qs(request.user))
     if not groups:
         messages.error(
             request,
