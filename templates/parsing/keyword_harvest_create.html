@@ -7,8 +7,8 @@
   </a>
   <h1>Новая задача</h1>
   <p class="text-muted small mb-0">
-    Укажите <strong>публичный</strong> канал-пример и описание района. Система скачает ограниченное число последних постов через Telethon
-    (сессия <strong>владельца</strong> аккаунта группы) и отправит их в DeepSeek.
+    Укажите один или несколько <strong>публичных</strong> каналов-примеров и описание района. Система скачает последние посты
+    (на каждый канал отдельно) через Telethon — сессия <strong>владельца</strong> аккаунта группы — и отправит сводку в DeepSeek.
   </p>
 </div>
 
@@ -35,13 +35,15 @@
         <div class="form-text">Если выбрать один канал — ключевик создаётся только для него.</div>
       </div>
       <div class="mb-3">
-        <label class="form-label fw-semibold" for="id_example_channel">Канал-пример в Telegram</label>
-        <input type="text" name="example_channel" id="id_example_channel" class="form-control"
-               placeholder="@gorod_news или https://t.me/gorod_news" required maxlength="255">
-        <div class="form-text">Откуда брать последние посты (только текст).</div>
+        <label class="form-label fw-semibold" for="id_example_channels">Каналы-примеры в Telegram</label>
+        <textarea name="example_channels" id="id_example_channels" class="form-control" rows="6" required
+                  placeholder="@news_1&#10;https://t.me/news_2&#10;@local_3"></textarea>
+        <div class="form-text">
+          По одному каналу в строке, или через запятую. До 20 каналов — откуда брать тексты постов.
+        </div>
       </div>
       <div class="mb-3">
-        <label class="form-label fw-semibold" for="id_max_posts">Сколько последних постов взять</label>
+        <label class="form-label fw-semibold" for="id_max_posts">Последних постов с каждого канала-примера</label>
         <input type="number" name="max_posts" id="id_max_posts" class="form-control" value="20" min="5" max="80">
       </div>
       <div class="mb-4">

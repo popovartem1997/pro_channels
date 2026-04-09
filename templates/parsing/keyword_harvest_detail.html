@@ -7,7 +7,14 @@
   </a>
   <h1>Задача №{{ job.pk }}</h1>
   <p class="text-muted small mb-0">
-    Группа: <strong>{{ job.channel_group.name }}</strong> · Пример: <code>{{ job.example_channel }}</code>
+    Группа: <strong>{{ job.channel_group.name }}</strong>
+    {% if job.example_channels %}
+      · Примеры:
+      {% for c in job.example_channels|slice:":12" %}<code class="me-1">{{ c }}</code>{% if not forloop.last %}·{% endif %}{% endfor %}
+      {% if job.example_channels|length > 12 %}…{% endif %}
+    {% else %}
+      · Пример: <code>{{ job.example_channel }}</code>
+    {% endif %}
     {% if job.target_mode == 'group_one' and job.target_channel %}
       · Канал: {{ job.target_channel.name }}
     {% endif %}
@@ -44,6 +51,7 @@
   <ul class="list-group list-group-flush">
     {% for row in job.posts_snapshot|slice:":15" %}
     <li class="list-group-item small text-muted">
+      {% if row.channel %}<span class="badge bg-secondary me-1">{{ row.channel }}</span>{% endif %}
       <span class="badge bg-light text-dark me-1">id {{ row.id }}</span>
       {{ row.snippet }}
     </li>
@@ -75,13 +83,19 @@
         <thead class="table-light">
           <tr>
             <th>Ключевик</th>
+            <th class="text-nowrap" style="width:1%">Повторяемость</th>
+            <th>Комментарий</th>
             <th class="text-end" style="width:1%">Добавить</th>
           </tr>
         </thead>
         <tbody>
-          {% for kw in visible_keywords %}
+          {% for row in visible_keywords %}
           <tr>
-            <td class="fw-medium">{{ kw }}</td>
+            <td class="fw-medium">{{ row.phrase }}</td>
+            <td class="text-muted small">
+              {% if row.repeat_score %}{{ row.repeat_score }} / 10{% else %}—{% endif %}
+            </td>
+            <td class="small text-muted">{{ row.comment|default:"" }}</td>
             <td class="text-end">
               <div class="form-check d-inline-flex justify-content-end">
                 <input class="form-check-input" type="checkbox" name="include" value="{{ forloop.counter0 }}" id="in{{ forloop.counter0 }}">
@@ -114,14 +128,29 @@
   Ключевики добавлены{% if job.applied_at %} {{ job.applied_at|date:"d.m.Y H:i" }}{% endif %}.
   Откройте <a href="{% url 'parsing:sources' %}">парсинг</a>, чтобы увидеть список ключевых слов.
 </div>
-{% if job.suggested_keywords %}
+{% if suggested_rows_for_display %}
 <div class="card">
   <div class="card-header small fw-semibold">Список, который предлагал AI</div>
-  <ul class="list-group list-group-flush">
-    {% for kw in job.suggested_keywords %}
-    <li class="list-group-item small">{{ kw }}</li>
-    {% endfor %}
-  </ul>
+  <div class="table-responsive">
+    <table class="table mb-0 small">
+      <thead class="table-light">
+        <tr>
+          <th>Ключевик</th>
+          <th class="text-nowrap">Оценка</th>
+          <th>Комментарий</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in suggested_rows_for_display %}
+        <tr>
+          <td class="fw-medium">{{ row.phrase }}</td>
+          <td class="text-muted">{% if row.repeat_score %}{{ row.repeat_score }} / 10{% else %}—{% endif %}</td>
+          <td class="text-muted">{{ row.comment|default:"" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endif %}
 {% endif %}

@@ -36,7 +36,14 @@
           <tr>
             <td class="text-muted">{{ j.pk }}</td>
             <td class="fw-semibold">{{ j.channel_group.name }}</td>
-            <td class="small text-break"><code>{{ j.example_channel }}</code></td>
+            <td class="small text-break">
+              {% if j.example_channels and j.example_channels|length > 1 %}
+                <span class="badge text-bg-light text-dark border">{{ j.example_channels|length }} каналов</span>
+                <div class="mt-1"><code>{{ j.example_channels.0 }}</code> …</div>
+              {% else %}
+                <code>{{ j.example_channel }}</code>
+              {% endif %}
+            </td>
             <td>
               {% if j.status == 'pending' %}
                 <span class="badge text-bg-secondary">В очереди</span>

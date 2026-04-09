@@ -5,8 +5,12 @@ import asyncio
 import concurrent.futures
 import datetime
 import io
+import json
 import logging
 import os
+import shutil
+import subprocess
+import tempfile
 from celery import shared_task
 from django.db.models import F, Max
 from django.utils import timezone
@@ -1334,7 +1338,113 @@ def _tg_file_for_telegram_upload(mf, *, attach: bool):
     return InputFile(io.BytesIO(raw), filename=name, attach=attach)
 
 
-def _tg_input_media_for_group_item(media_obj, media_type: str, *, caption, parse_mode):
+def _probe_ffprobe_video_dimensions(path: str) -> tuple[int, int] | None:
+    """
+    Ширина/высота видео для Telegram Bot API (send_video / InputMediaVideo).
+    Без корректных width/height клиент Telegram иногда отображает ролик с искажённым соотношением сторон.
+    Требуется ffprobe в PATH (часть пакета ffmpeg).
+    """
+    p = (path or '').strip()
+    if not p or not os.path.isfile(p):
+        return None
+    ffprobe = shutil.which('ffprobe')
+    if not ffprobe:
+        return None
+    try:
+        proc = subprocess.run(
+            [
+                ffprobe,
+                '-v',
+                'error',
+                '-select_streams',
+                'v:0',
+                '-show_entries',
+                'stream=width,height',
+                '-show_entries',
+                'stream_tags=rotate',
+                '-of',
+                'json',
+                p,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        data = json.loads(proc.stdout or '{}')
+        streams = data.get('streams') or []
+        if not streams:
+            return None
+        st = streams[0]
+        w = st.get('width')
+        h = st.get('height')
+        if w is None or h is None:
+            return None
+        wi, he = int(w), int(h)
+        if wi <= 0 or he <= 0:
+            return None
+        tags = st.get('tags') or {}
+        rot = tags.get('rotate')
+        if rot is not None:
+            try:
+                r = int(str(rot).strip())
+            except ValueError:
+                r = 0
+            if r % 180 == 90:
+                wi, he = he, wi
+        return (wi, he)
+    except Exception:
+        logger.debug('ffprobe dimensions failed for %s', p, exc_info=True)
+        return None
+
+
+def _video_dimensions_for_postmedia(mf) -> tuple[int, int] | None:
+    """Размеры кадра для PostMedia-видео: с диска или через временный файл."""
+    from .models import PostMedia
+
+    if mf.media_type != PostMedia.TYPE_VIDEO:
+        return None
+    try:
+        fp = mf.file.path
+        if fp and os.path.isfile(fp):
+            return _probe_ffprobe_video_dimensions(fp)
+    except Exception:
+        pass
+    name = os.path.basename(getattr(mf.file, 'name', '') or '') or 'video.mp4'
+    suf = os.path.splitext(name)[1] or '.mp4'
+    try:
+        mf.file.open('rb')
+        try:
+            raw = mf.file.read()
+        finally:
+            mf.file.close()
+    except Exception:
+        return None
+    if not raw:
+        return None
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suf)
+    try:
+        tmp.write(raw)
+        tmp.close()
+        return _probe_ffprobe_video_dimensions(tmp.name)
+    except Exception:
+        return None
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except Exception:
+            pass
+
+
+def _tg_input_media_for_group_item(
+    media_obj,
+    media_type: str,
+    *,
+    caption,
+    parse_mode,
+    width=None,
+    height=None,
+):
     """InputMedia* только из уже подготовленного upload-объекта (без ORM)."""
     from telegram import InputMediaDocument, InputMediaPhoto, InputMediaVideo
     from .models import PostMedia
@@ -1350,6 +1460,9 @@ def _tg_input_media_for_group_item(media_obj, media_type: str, *, caption, parse
         kw['caption'] = caption
     if parse_mode is not None:
         kw['parse_mode'] = parse_mode
+    if media_type == PostMedia.TYPE_VIDEO and width and height:
+        kw['width'] = int(width)
+        kw['height'] = int(height)
     return cls(**kw)
 
 
@@ -1384,12 +1497,15 @@ def _prepare_telegram_publish_bundle(post, channel):
     use_attach = len(media_rows) > 1
     media_payload = []
     for mf in media_rows:
-        media_payload.append(
-            {
-                'type': mf.media_type,
-                'upload': _tg_file_for_telegram_upload(mf, attach=use_attach),
-            }
-        )
+        row = {
+            'type': mf.media_type,
+            'upload': _tg_file_for_telegram_upload(mf, attach=use_attach),
+        }
+        if mf.media_type == PostMedia.TYPE_VIDEO:
+            dims = _video_dimensions_for_postmedia(mf)
+            if dims:
+                row['width'], row['height'] = dims
+        media_payload.append(row)
 
     return {
         'bot_token': bot_token,
@@ -1439,7 +1555,12 @@ async def _publish_telegram_async_send(bundle: dict):
                 if mt == 'photo':
                     m = await bot.send_photo(photo=media_obj, **cap_kw)
                 elif mt == 'video':
-                    m = await bot.send_video(video=media_obj, **cap_kw)
+                    vk = {**cap_kw, 'supports_streaming': True}
+                    w, h = row.get('width'), row.get('height')
+                    if w and h:
+                        vk['width'] = int(w)
+                        vk['height'] = int(h)
+                    m = await bot.send_video(video=media_obj, **vk)
                 else:
                     m = await bot.send_document(document=media_obj, **cap_kw)
                 msg_id = m.message_id
@@ -1448,16 +1569,24 @@ async def _publish_telegram_async_send(bundle: dict):
                 for i, row in enumerate(media):
                     media_obj = row['upload']
                     mt = row['type']
+                    w, h = row.get('width'), row.get('height')
                     if i == 0:
                         item = _tg_input_media_for_group_item(
                             media_obj,
                             mt,
                             caption=text,
                             parse_mode=parse_mode,
+                            width=w,
+                            height=h,
                         )
                     else:
                         item = _tg_input_media_for_group_item(
-                            media_obj, mt, caption=None, parse_mode=None
+                            media_obj,
+                            mt,
+                            caption=None,
+                            parse_mode=None,
+                            width=w,
+                            height=h,
                         )
                     group.append(item)
                 msgs = await bot.send_media_group(media=group, **common_kw)

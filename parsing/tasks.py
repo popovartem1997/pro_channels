@@ -1059,10 +1059,36 @@ def purge_parse_media_retention():
     return run_parse_media_cleanup(retention_days=effective_parse_media_retention_days())
 
 
-def _run_harvest_telethon_fetch(owner_id: int, channel_ref: str, limit: int) -> list[dict]:
+def _harvest_message_text(message) -> str:
+    msg_text = ''
+    try:
+        msg_text = (message.text or '').strip()
+    except Exception:
+        msg_text = ''
+    if not msg_text:
+        try:
+            raw_txt = getattr(message, 'raw_text', None)
+            if raw_txt is not None:
+                msg_text = str(raw_txt).strip()
+        except Exception:
+            pass
+    if not msg_text:
+        try:
+            poll = getattr(message, 'poll', None)
+            if poll is not None:
+                pq = getattr(poll, 'poll', poll)
+                q = getattr(pq, 'question', None) or getattr(poll, 'question', None)
+                if q:
+                    msg_text = str(q).strip()
+        except Exception:
+            pass
+    return msg_text
+
+
+def _run_harvest_telethon_fetch_multi(owner_id: int, channel_refs: list[str], limit_per_channel: int) -> list[dict]:
     """
-    Последние посты с текстом из публичного TG-канала (как @name).
-    Сессия Telethon: user_{owner_id}.session или user_default.session.
+    Последние посты с текстом из нескольких публичных TG-каналов (одна сессия Telethon).
+    Каждый элемент: id, text, channel_ref.
     """
     import asyncio
     from pathlib import Path
@@ -1071,11 +1097,27 @@ def _run_harvest_telethon_fetch(owner_id: int, channel_ref: str, limit: int) -> 
 
     from core.models import get_global_api_keys
 
+    seen: set[str] = set()
+    uniq_refs: list[str] = []
+    for r in channel_refs or []:
+        r = (r or '').strip()
+        if not r:
+            continue
+        k = r.lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq_refs.append(r)
+    if not uniq_refs:
+        return []
+
     keys = get_global_api_keys()
     api_id = (keys.telegram_api_id or '').strip()
     api_hash = (keys.get_telegram_api_hash() or '').strip()
     if not api_id or not api_hash:
         raise ValueError('TELEGRAM_API_ID / TELEGRAM_API_HASH не заданы (Ключи API → Парсинг Telegram).')
+
+    lim = max(1, min(int(limit_per_channel), 80))
 
     async def _fetch():
         from telethon import TelegramClient
@@ -1096,37 +1138,21 @@ def _run_harvest_telethon_fetch(owner_id: int, channel_ref: str, limit: int) -> 
                 )
         collected: list[dict] = []
         try:
-            entity = await client.get_entity(channel_ref)
-            async for message in client.iter_messages(entity, limit=int(limit)):
-                msg_text = ''
+            for channel_ref in uniq_refs:
                 try:
-                    msg_text = (message.text or '').strip()
-                except Exception:
-                    msg_text = ''
-                if not msg_text:
-                    try:
-                        raw_txt = getattr(message, 'raw_text', None)
-                        if raw_txt is not None:
-                            msg_text = str(raw_txt).strip()
-                    except Exception:
-                        pass
-                if not msg_text:
-                    try:
-                        poll = getattr(message, 'poll', None)
-                        if poll is not None:
-                            pq = getattr(poll, 'poll', poll)
-                            q = getattr(pq, 'question', None) or getattr(poll, 'question', None)
-                            if q:
-                                msg_text = str(q).strip()
-                    except Exception:
-                        pass
-                if not msg_text:
+                    entity = await client.get_entity(channel_ref)
+                except Exception as exc:
+                    logger.warning('harvest TG: get_entity %s: %s', channel_ref, exc)
                     continue
-                try:
-                    mid = int(message.id)
-                except Exception:
-                    continue
-                collected.append({'id': mid, 'text': msg_text})
+                async for message in client.iter_messages(entity, limit=lim):
+                    msg_text = _harvest_message_text(message)
+                    if not msg_text:
+                        continue
+                    try:
+                        mid = int(message.id)
+                    except Exception:
+                        continue
+                    collected.append({'id': mid, 'text': msg_text, 'channel_ref': channel_ref})
         finally:
             try:
                 await client.disconnect()
@@ -1138,10 +1164,18 @@ def _run_harvest_telethon_fetch(owner_id: int, channel_ref: str, limit: int) -> 
         return asyncio.run(_fetch())
 
 
+def _run_harvest_telethon_fetch(owner_id: int, channel_ref: str, limit: int) -> list[dict]:
+    """Один канал; совместимость с прежним форматом (без channel_ref в элементах)."""
+    rows = _run_harvest_telethon_fetch_multi(owner_id, [channel_ref], limit)
+    for r in rows:
+        r.pop('channel_ref', None)
+    return rows
+
+
 @shared_task
 def run_keyword_harvest_job(job_id: int):
-    """Очередь: выгрузка постов примера → DeepSeek → suggested_keywords, статус ready."""
-    from .harvest_services import extract_keywords_with_deepseek, normalize_telegram_channel_ref
+    """Очередь: выгрузка постов примеров → DeepSeek → suggested_keywords, статус ready."""
+    from .harvest_services import extract_ranked_keywords_with_deepseek, harvest_example_channel_refs
     from .models import KeywordHarvestJob
 
     try:
@@ -1156,10 +1190,10 @@ def run_keyword_harvest_job(job_id: int):
     job.error_message = ''
     job.save(update_fields=['status', 'error_message', 'updated_at'])
 
-    ref = normalize_telegram_channel_ref(job.example_channel)
-    if not ref:
+    refs = harvest_example_channel_refs(job)
+    if not refs:
         job.status = KeywordHarvestJob.STATUS_FAILED
-        job.error_message = 'Не указан канал-пример.'
+        job.error_message = 'Не указан ни один канал-пример.'
         job.save(update_fields=['status', 'error_message', 'updated_at'])
         return
 
@@ -1167,7 +1201,7 @@ def run_keyword_harvest_job(job_id: int):
     lim = max(5, min(int(job.max_posts or 20), 80))
 
     try:
-        posts = _run_harvest_telethon_fetch(owner_id, ref, lim)
+        posts = _run_harvest_telethon_fetch_multi(owner_id, refs, lim)
     except Exception as exc:
         logger.exception('keyword harvest fetch job_id=%s', job_id)
         job.status = KeywordHarvestJob.STATUS_FAILED
@@ -1178,8 +1212,8 @@ def run_keyword_harvest_job(job_id: int):
     if not posts:
         job.status = KeywordHarvestJob.STATUS_FAILED
         job.error_message = (
-            'Не удалось получить текст постов: канал недоступен, нет текстовых сообщений в лимите '
-            'или нет доступа. Проверьте @username и что аккаунт Telethon видит канал.'
+            'Не удалось получить текст постов: каналы недоступны, нет текстовых сообщений в лимите '
+            'или нет доступа. Проверьте @username и что аккаунт Telethon видит каналы.'
         )
         job.save(update_fields=['status', 'error_message', 'updated_at'])
         return
@@ -1188,16 +1222,23 @@ def run_keyword_harvest_job(job_id: int):
     snapshot = []
     for i, p in enumerate(posts):
         tid = p.get('id')
+        cref = (p.get('channel_ref') or '')[:120]
         txt = (p.get('text') or '')[:1500]
-        digest_lines.append(f'--- Пост #{i + 1} (id {tid}) ---\n{txt}')
-        snapshot.append({'id': tid, 'snippet': (p.get('text') or '')[:400]})
+        digest_lines.append(f'--- Канал {cref} · пост #{i + 1} (id {tid}) ---\n{txt}')
+        snapshot.append(
+            {
+                'id': tid,
+                'channel': cref,
+                'snippet': (p.get('text') or '')[:400],
+            }
+        )
     combined = '\n\n'.join(digest_lines)
 
     from core.models import get_global_api_keys
 
     keys = get_global_api_keys()
     api_key = (keys.get_deepseek_api_key() or '').strip()
-    job.posts_snapshot = snapshot[:50]
+    job.posts_snapshot = snapshot[:80]
     job.save(update_fields=['posts_snapshot', 'updated_at'])
 
     if not api_key:
@@ -1207,7 +1248,7 @@ def run_keyword_harvest_job(job_id: int):
         return
 
     try:
-        kws = extract_keywords_with_deepseek(
+        kws = extract_ranked_keywords_with_deepseek(
             posts_digest_text=combined,
             region_prompt=job.region_prompt,
             api_key=api_key,

@@ -238,18 +238,24 @@ class KeywordHarvestJob(models.Model):
         verbose_name='Канал (если один)',
     )
     example_channel = models.CharField(
-        'Пример канала в Telegram',
+        'Первый канал-пример (Telegram)',
         max_length=255,
-        help_text='@username или ссылка t.me/... — откуда читать последние посты',
+        help_text='Дублирует первый из списка example_channels; для совместимости',
+    )
+    example_channels = models.JSONField(
+        'Каналы-примеры (Telegram)',
+        default=list,
+        blank=True,
+        help_text='Список @username / t.me — откуда читать посты (до 20 каналов)',
     )
     region_prompt = models.TextField(
         'Ваш район / контекст',
         help_text='Опишите населённый пункт и район (Московская область и т.д.), чтобы AI адаптировал формулировки',
     )
     max_posts = models.PositiveSmallIntegerField(
-        'Сколько последних постов взять',
+        'Последних постов с каждого канала-примера',
         default=20,
-        help_text='Ограничение сверху — не больше 80',
+        help_text='На каждый указанный канал; не больше 80',
     )
     status = models.CharField('Статус', max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
     error_message = models.TextField('Текст ошибки', blank=True)

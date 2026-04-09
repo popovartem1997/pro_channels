@@ -1291,12 +1291,16 @@ def _keyword_harvest_target_channel_ids(job: KeywordHarvestJob) -> list[int]:
     )
 
 
-def _keyword_harvest_visible_suggestions(job: KeywordHarvestJob) -> list[str]:
-    """Кандидаты от AI без фраз, уже заведённых на целевых каналах (без учёта регистра)."""
+def _keyword_harvest_visible_suggestions(job: KeywordHarvestJob) -> list[dict]:
+    """
+    Кандидаты от AI (phrase, repeat_score, comment) без фраз, уже заведённых на целевых каналах.
+    """
+    from .harvest_services import normalize_suggestion_list_for_ui
     from .models import ParseKeyword
 
     raw = job.suggested_keywords or []
-    if not isinstance(raw, list):
+    rows = normalize_suggestion_list_for_ui(raw) if raw else []
+    if not rows:
         return []
     ch_ids = _keyword_harvest_target_channel_ids(job)
     existing_lower: set[str] = set()
@@ -1306,14 +1310,13 @@ def _keyword_harvest_visible_suggestions(job: KeywordHarvestJob) -> list[str]:
             for k in ParseKeyword.objects.filter(channel_id__in=ch_ids).values_list('keyword', flat=True)
             if (k or '').strip()
         }
-    out: list[str] = []
-    for x in raw:
-        s = str(x).strip()
-        if not s:
+    out: list[dict] = []
+    for row in rows:
+        phrase = (row.get('phrase') or '').strip()
+        if not phrase or phrase.lower() in existing_lower:
             continue
-        if s.lower() in existing_lower:
-            continue
-        out.append(s)
+        out.append(row)
+    out.sort(key=lambda r: (-(r.get('repeat_score') or 0), (r.get('phrase') or '').lower()))
     return out
 
 
@@ -1448,13 +1451,13 @@ def keyword_harvest_detail(request, pk):
         return redirect('parsing:keyword_harvest_detail', pk=job.pk)
 
     telethon_ok = _telethon_session_exists_for_user(job.channel_group.owner_id)
-    visible_keywords: list[str] = []
+    from .harvest_services import normalize_suggestion_list_for_ui
+
+    visible_keywords: list[dict] = []
     harvest_skipped_existing_count = 0
+    suggested_rows_for_display = normalize_suggestion_list_for_ui(job.suggested_keywords or [])
     if job.status == KeywordHarvestJob.STATUS_READY:
-        raw = job.suggested_keywords or []
-        suggested_nonempty = (
-            sum(1 for x in raw if str(x).strip()) if isinstance(raw, list) else 0
-        )
+        suggested_nonempty = len(suggested_rows_for_display)
         visible_keywords = _keyword_harvest_visible_suggestions(job)
         harvest_skipped_existing_count = max(0, suggested_nonempty - len(visible_keywords))
 
@@ -1466,5 +1469,6 @@ def keyword_harvest_detail(request, pk):
             'telethon_ok': telethon_ok,
             'visible_keywords': visible_keywords,
             'harvest_skipped_existing_count': harvest_skipped_existing_count,
+            'suggested_rows_for_display': suggested_rows_for_display,
         },
     )
