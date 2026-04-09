@@ -26,4 +26,7 @@ urlpatterns = [
     path('tasks/<int:pk>/delete/', views.parse_task_delete, name='parse_task_delete'),
     path('ai/', views.ai_rewrite_list, name='ai_rewrite'),
     path('ai/create/', views.ai_rewrite_create, name='ai_rewrite_create'),
+    path('keywords/harvest/', views.keyword_harvest_list, name='keyword_harvest_list'),
+    path('keywords/harvest/new/', views.keyword_harvest_create, name='keyword_harvest_create'),
+    path('keywords/harvest/<int:pk>/', views.keyword_harvest_detail, name='keyword_harvest_detail'),
 ]

@@ -61,6 +61,9 @@
   <a href="{% url 'parsing:parse_tasks' %}{{ parsing_scope_query }}" class="btn btn-outline-secondary">
     <i class="bi bi-arrow-repeat me-1"></i> Задачи парсинга
   </a>
+  <a href="{% url 'parsing:keyword_harvest_list' %}" class="btn btn-outline-secondary">
+    <i class="bi bi-magic me-1"></i> Ключевики с примера канала
+  </a>
 </div>
 {% endblock %}
 

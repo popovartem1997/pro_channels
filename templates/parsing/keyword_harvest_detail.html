@@ -1,0 +1,117 @@
+{% extends 'base.html' %}
+{% block title %}Задача #{{ job.pk }} — ключевики{% endblock %}
+{% block content %}
+<div class="page-header">
+  <a href="{% url 'parsing:keyword_harvest_list' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+    <i class="bi bi-arrow-left me-1"></i> К списку задач
+  </a>
+  <h1>Задача №{{ job.pk }}</h1>
+  <p class="text-muted small mb-0">
+    Группа: <strong>{{ job.channel_group.name }}</strong> · Пример: <code>{{ job.example_channel }}</code>
+    {% if job.target_mode == 'group_one' and job.target_channel %}
+      · Канал: {{ job.target_channel.name }}
+    {% endif %}
+  </p>
+</div>
+
+{% if job.status == 'pending' or job.status == 'running' %}
+<div class="alert alert-info">
+  <i class="bi bi-hourglass-split me-1"></i>
+  Задача выполняется воркером (очередь <code>parse</code>). Обновите страницу через минуту.
+  {% if not telethon_ok %}
+  <div class="mt-2 small"><strong>Внимание:</strong> для владельца группы не найдена сессия Telethon — задача, скорее всего, завершится ошибкой.</div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if job.status == 'failed' %}
+<div class="alert alert-danger">
+  <strong>Ошибка.</strong>
+  <pre class="small mb-0 mt-2" style="white-space:pre-wrap;">{{ job.error_message|default:"—" }}</pre>
+</div>
+{% endif %}
+
+{% if job.region_prompt %}
+<div class="card mb-3">
+  <div class="card-header py-2 small fw-semibold">Контекст района (промпт)</div>
+  <div class="card-body small" style="white-space:pre-wrap;">{{ job.region_prompt }}</div>
+</div>
+{% endif %}
+
+{% if job.posts_snapshot %}
+<div class="card mb-3">
+  <div class="card-header py-2 small fw-semibold">Фрагменты постов (пример канала)</div>
+  <ul class="list-group list-group-flush">
+    {% for row in job.posts_snapshot|slice:":15" %}
+    <li class="list-group-item small text-muted">
+      <span class="badge bg-light text-dark me-1">id {{ row.id }}</span>
+      {{ row.snippet }}
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if job.status == 'ready' and job.suggested_keywords %}
+<form method="post" class="card border-success">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="apply">
+  <div class="card-header bg-success-subtle py-3">
+    <h6 class="mb-0 fw-bold">Кандидаты от AI</h6>
+    <p class="small text-muted mb-0 mt-1">
+      По умолчанию все строки будут добавлены как ключевики. Отметьте <strong>«не добавлять»</strong> у тех, которые не нужны.
+    </p>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Ключевик</th>
+            <th class="text-end" style="width:1%">Не добавлять</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for kw in job.suggested_keywords %}
+          <tr>
+            <td class="fw-medium">{{ kw }}</td>
+            <td class="text-end">
+              <div class="form-check d-inline-flex justify-content-end">
+                <input class="form-check-input" type="checkbox" name="exclude" value="{{ forloop.counter0 }}" id="ex{{ forloop.counter0 }}">
+                <label class="form-check-label visually-hidden" for="ex{{ forloop.counter0 }}">Не добавлять</label>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card-footer d-flex flex-wrap gap-2">
+    <button type="submit" class="btn btn-success">Добавить выбранные ключевики</button>
+    <span class="small text-muted align-self-center">Дубликаты и уже существующие фразы в канале будут пропущены.</span>
+  </div>
+</form>
+{% elif job.status == 'ready' %}
+<div class="alert alert-warning">AI не вернул список ключевиков (пустой ответ).</div>
+{% endif %}
+
+{% if job.status == 'applied' %}
+<div class="alert alert-primary">
+  <i class="bi bi-check2-circle me-1"></i>
+  Ключевики добавлены{% if job.applied_at %} {{ job.applied_at|date:"d.m.Y H:i" }}{% endif %}.
+  Откройте <a href="{% url 'parsing:sources' %}">парсинг</a>, чтобы увидеть список ключевых слов.
+</div>
+{% if job.suggested_keywords %}
+<div class="card">
+  <div class="card-header small fw-semibold">Список, который предлагал AI</div>
+  <ul class="list-group list-group-flush">
+    {% for kw in job.suggested_keywords %}
+    <li class="list-group-item small">{{ kw }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% endif %}
+
+{% endblock %}

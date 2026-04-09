@@ -1,6 +1,14 @@
 from django.contrib import admin, messages
 
-from .models import ParseKeyword, ParsedItem, ParseSource, ParseTask
+from .models import KeywordHarvestJob, ParseKeyword, ParsedItem, ParseSource, ParseTask
+
+
+@admin.register(KeywordHarvestJob)
+class KeywordHarvestJobAdmin(admin.ModelAdmin):
+    list_display = ['pk', 'channel_group', 'status', 'example_channel', 'created_by', 'created_at']
+    list_filter = ['status']
+    search_fields = ['example_channel', 'region_prompt', 'created_by__email']
+    readonly_fields = ['created_at', 'updated_at', 'applied_at', 'posts_snapshot', 'suggested_keywords']
 
 
 @admin.register(ParseTask)

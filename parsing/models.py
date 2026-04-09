@@ -184,3 +184,85 @@ class AIRewriteJob(models.Model):
 
     def __str__(self):
         return f'AI рерайт #{self.pk} ({self.get_status_display()})'
+
+
+class KeywordHarvestJob(models.Model):
+    """
+    Очередь: взять последние посты из примера TG-канала (Telethon), отдать DeepSeek + описание района,
+    получить список ключевиков; пользователь отмечает, какие не добавлять, затем создаются ParseKeyword.
+    """
+    STATUS_PENDING = 'pending'
+    STATUS_RUNNING = 'running'
+    STATUS_READY = 'ready'
+    STATUS_APPLIED = 'applied'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'В очереди'),
+        (STATUS_RUNNING, 'Выполняется'),
+        (STATUS_READY, 'Готово к выбору'),
+        (STATUS_APPLIED, 'Ключевики добавлены'),
+        (STATUS_FAILED, 'Ошибка'),
+    ]
+
+    TARGET_GROUP_ALL = 'group_all'
+    TARGET_GROUP_ONE = 'group_one'
+    TARGET_MODE_CHOICES = [
+        (TARGET_GROUP_ALL, 'Все каналы группы (кроме MAX/Instagram)'),
+        (TARGET_GROUP_ONE, 'Один канал из группы'),
+    ]
+
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='keyword_harvest_jobs',
+        verbose_name='Кто создал',
+    )
+    channel_group = models.ForeignKey(
+        'channels.ChannelGroup',
+        on_delete=models.CASCADE,
+        related_name='keyword_harvest_jobs',
+        verbose_name='Группа каналов',
+    )
+    target_mode = models.CharField(
+        'Куда вешать ключевики',
+        max_length=20,
+        choices=TARGET_MODE_CHOICES,
+        default=TARGET_GROUP_ALL,
+    )
+    target_channel = models.ForeignKey(
+        'channels.Channel',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='keyword_harvest_jobs',
+        verbose_name='Канал (если один)',
+    )
+    example_channel = models.CharField(
+        'Пример канала в Telegram',
+        max_length=255,
+        help_text='@username или ссылка t.me/... — откуда читать последние посты',
+    )
+    region_prompt = models.TextField(
+        'Ваш район / контекст',
+        help_text='Опишите населённый пункт и район (Московская область и т.д.), чтобы AI адаптировал формулировки',
+    )
+    max_posts = models.PositiveSmallIntegerField(
+        'Сколько последних постов взять',
+        default=20,
+        help_text='Ограничение сверху — не больше 80',
+    )
+    status = models.CharField('Статус', max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    error_message = models.TextField('Текст ошибки', blank=True)
+    posts_snapshot = models.JSONField('Фрагменты постов (для просмотра)', default=list, blank=True)
+    suggested_keywords = models.JSONField('Кандидаты от AI', default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    applied_at = models.DateTimeField('Добавлено в ключевики', null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Задача: ключевики с примера канала'
+        verbose_name_plural = 'Очередь ключевиков с примера канала'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Harvest #{self.pk} ({self.get_status_display()})'

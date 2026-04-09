@@ -199,6 +199,7 @@ CELERY_TASK_ROUTES = {
     'parsing.tasks.execute_parse_task': {'queue': 'parse'},
     'parsing.tasks.check_parse_tasks': {'queue': 'parse'},
     'parsing.tasks.purge_parse_media_retention': {'queue': 'parse'},
+    'parsing.tasks.run_keyword_harvest_job': {'queue': 'parse'},
 }
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 # Долгие задачи (парсинг, импорт истории): не отбирать несколько сообщений в один процесс.

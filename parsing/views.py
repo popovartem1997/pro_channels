@@ -6,8 +6,9 @@ from django.urls import reverse
 from urllib.parse import urlencode
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.utils import timezone
 from django.db.models import Q, Count, F
-from .models import ParseSource, ParseKeyword, ParsedItem, ParseTask, AIRewriteJob
+from .models import ParseSource, ParseKeyword, ParsedItem, ParseTask, AIRewriteJob, KeywordHarvestJob
 from django.http import JsonResponse
 from django.http import HttpResponse
 from django.views.decorators.http import require_POST, require_http_methods
@@ -1233,3 +1234,187 @@ def ai_rewrite_create(request):
     return render(request, 'parsing/ai_rewrite_create.html', {
         'prefill_text': item.text if item else '',
     })
+
+
+def _keyword_harvest_jobs_qs(user):
+    from django.db.models import Q
+    from managers.models import TeamMember
+
+    if getattr(user, 'role', '') in ('manager', 'assistant_admin'):
+        gids = set(
+            TeamMember.objects.filter(member=user, is_active=True)
+            .filter(Q(can_publish=True) | Q(can_moderate=True))
+            .values_list('channels__channel_group_id', flat=True)
+        )
+        gids.discard(None)
+        return KeywordHarvestJob.objects.filter(channel_group_id__in=gids)
+    return KeywordHarvestJob.objects.filter(channel_group__owner=user)
+
+
+def _harvest_target_channels_select_qs(user):
+    from channels.models import Channel
+    from django.db.models import Q
+    from managers.models import TeamMember
+
+    if getattr(user, 'role', '') in ('manager', 'assistant_admin'):
+        cids = list(
+            TeamMember.objects.filter(member=user, is_active=True)
+            .filter(Q(can_publish=True) | Q(can_moderate=True))
+            .values_list('channels__pk', flat=True)
+        )
+        qs = Channel.objects.filter(pk__in=cids, is_active=True, channel_group_id__isnull=False)
+    else:
+        qs = Channel.objects.filter(owner=user, is_active=True, channel_group_id__isnull=False)
+    return qs.exclude(platform__in=(Channel.PLATFORM_MAX, Channel.PLATFORM_INSTAGRAM)).select_related(
+        'channel_group'
+    ).order_by('channel_group__name', 'platform', 'name')
+
+
+def _harvest_allowed_channel_groups(user):
+    from channels.models import ChannelGroup
+
+    gids = _harvest_target_channels_select_qs(user).values_list('channel_group_id', flat=True).distinct()
+    return ChannelGroup.objects.filter(pk__in=gids).order_by('name')
+
+
+@login_required
+def keyword_harvest_list(request):
+    jobs = _keyword_harvest_jobs_qs(request.user).select_related('channel_group', 'created_by')[:80]
+    return render(request, 'parsing/keyword_harvest_list.html', {'jobs': jobs})
+
+
+@login_required
+def keyword_harvest_create(request):
+    from channels.models import Channel, ChannelGroup
+
+    groups = list(_harvest_allowed_channel_groups(request))
+    channels = list(_harvest_target_channels_select_qs(request))
+    if not groups:
+        messages.error(
+            request,
+            'Нет групп каналов с подходящими каналами (нужна хотя бы одна группа с TG/VK, не MAX/Instagram).',
+        )
+        return redirect('parsing:sources')
+
+    if request.method == 'POST':
+        gid = (request.POST.get('channel_group') or '').strip()
+        example = (request.POST.get('example_channel') or '').strip()
+        region = (request.POST.get('region_prompt') or '').strip()
+        try:
+            max_posts = int((request.POST.get('max_posts') or '20').strip() or 20)
+        except ValueError:
+            max_posts = 20
+        max_posts = max(5, min(max_posts, 80))
+        target_ch_pk = (request.POST.get('target_channel') or '').strip()
+
+        if not gid.isdigit():
+            messages.error(request, 'Выберите группу каналов.')
+            return redirect('parsing:keyword_harvest_create')
+        group = ChannelGroup.objects.filter(pk=int(gid)).first()
+        allowed_gids = {g.pk for g in groups}
+        if not group or group.pk not in allowed_gids:
+            messages.error(request, 'Группа недоступна.')
+            return redirect('parsing:keyword_harvest_create')
+        if not example:
+            messages.error(request, 'Укажите пример канала в Telegram (@username или ссылка).')
+            return redirect('parsing:keyword_harvest_create')
+        if not region:
+            messages.error(request, 'Опишите ваш район и контекст для AI.')
+            return redirect('parsing:keyword_harvest_create')
+
+        owner_id = group.owner_id
+        if not _telethon_session_exists_for_user(owner_id):
+            messages.error(
+                request,
+                'Для чтения постов из Telegram нужна авторизованная сессия Telethon у владельца аккаунта '
+                f'(user_{owner_id}.session или user_default). Подключите Telegram в разделе парсинга.',
+            )
+            return redirect('parsing:keyword_harvest_create')
+
+        target_mode = KeywordHarvestJob.TARGET_GROUP_ALL
+        target_channel = None
+        if target_ch_pk.isdigit():
+            ch = Channel.objects.filter(pk=int(target_ch_pk)).select_related('channel_group').first()
+            if (
+                ch
+                and ch.channel_group_id == group.id
+                and ch.pk in {c.pk for c in channels}
+            ):
+                target_mode = KeywordHarvestJob.TARGET_GROUP_ONE
+                target_channel = ch
+
+        job = KeywordHarvestJob.objects.create(
+            created_by=request.user,
+            channel_group=group,
+            target_mode=target_mode,
+            target_channel=target_channel,
+            example_channel=example[:255],
+            region_prompt=region[:8000],
+            max_posts=max_posts,
+            status=KeywordHarvestJob.STATUS_PENDING,
+        )
+        from .tasks import run_keyword_harvest_job
+
+        run_keyword_harvest_job.delay(job.pk)
+        messages.success(
+            request,
+            f'Задача №{job.pk} поставлена в очередь. Через минуту обновите страницу списка или откройте задачу.',
+        )
+        return redirect('parsing:keyword_harvest_detail', pk=job.pk)
+
+    return render(
+        request,
+        'parsing/keyword_harvest_create.html',
+        {
+            'groups': groups,
+            'channels': channels,
+        },
+    )
+
+
+@login_required
+def keyword_harvest_detail(request, pk):
+    job = get_object_or_404(
+        _keyword_harvest_jobs_qs(request.user).select_related('channel_group', 'target_channel'),
+        pk=pk,
+    )
+
+    if request.method == 'POST' and request.POST.get('action') == 'apply':
+        if job.status != KeywordHarvestJob.STATUS_READY:
+            messages.error(request, 'Задача ещё не готова или уже обработана.')
+            return redirect('parsing:keyword_harvest_detail', pk=job.pk)
+        raw_kws = job.suggested_keywords or []
+        if not isinstance(raw_kws, list):
+            raw_kws = []
+        exclude = set(request.POST.getlist('exclude'))
+        to_add = [kw for i, kw in enumerate(raw_kws) if str(i) not in exclude]
+        if not to_add:
+            messages.warning(request, 'Отмечены все ключевики как «не добавлять» — нечего сохранять.')
+            return redirect('parsing:keyword_harvest_detail', pk=job.pk)
+
+        from .harvest_services import apply_harvest_keywords
+
+        try:
+            created = apply_harvest_keywords(job, to_add)
+        except Exception as exc:
+            messages.error(request, f'Не удалось создать ключевики: {exc}')
+            return redirect('parsing:keyword_harvest_detail', pk=job.pk)
+
+        job.status = KeywordHarvestJob.STATUS_APPLIED
+        job.applied_at = timezone.now()
+        job.save(update_fields=['status', 'applied_at', 'updated_at'])
+        messages.success(
+            request,
+            f'Добавлено записей ключевиков: {created}. Дубликаты и уже существующие фразы пропущены.',
+        )
+        return redirect('parsing:keyword_harvest_detail', pk=job.pk)
+
+    telethon_ok = _telethon_session_exists_for_user(job.channel_group.owner_id)
+    return render(
+        request,
+        'parsing/keyword_harvest_detail.html',
+        {
+            'job': job,
+            'telethon_ok': telethon_ok,
+        },
+    )

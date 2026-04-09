@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% block title %}Ключевики с примера канала{% endblock %}
+{% block content %}
+<div class="page-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+  <div>
+    <a href="{% url 'parsing:sources' %}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+      <i class="bi bi-arrow-left me-1"></i> К парсингу
+    </a>
+    <h1><i class="bi bi-magic me-2" style="color:var(--brand)"></i>Ключевики с примера канала</h1>
+    <p class="text-muted small mb-0">
+      Очередь задач: последние посты из примера Telegram → DeepSeek под ваш район → выбор, что не добавлять → создание ключевиков в группе.
+    </p>
+  </div>
+  <a href="{% url 'parsing:keyword_harvest_create' %}" class="btn btn-brand">
+    <i class="bi bi-plus-lg me-1"></i> Новая задача
+  </a>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    {% if jobs %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>№</th>
+            <th>Группа</th>
+            <th>Пример TG</th>
+            <th>Статус</th>
+            <th>Создана</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for j in jobs %}
+          <tr>
+            <td class="text-muted">{{ j.pk }}</td>
+            <td class="fw-semibold">{{ j.channel_group.name }}</td>
+            <td class="small text-break"><code>{{ j.example_channel }}</code></td>
+            <td>
+              {% if j.status == 'pending' %}
+                <span class="badge text-bg-secondary">В очереди</span>
+              {% elif j.status == 'running' %}
+                <span class="badge text-bg-info">Выполняется</span>
+              {% elif j.status == 'ready' %}
+                <span class="badge text-bg-success">Готово к выбору</span>
+              {% elif j.status == 'applied' %}
+                <span class="badge text-bg-primary">Добавлено</span>
+              {% elif j.status == 'failed' %}
+                <span class="badge text-bg-danger">Ошибка</span>
+              {% endif %}
+            </td>
+            <td class="small text-muted">{{ j.created_at|date:"d.m.Y H:i" }}</td>
+            <td class="text-end">
+              <a href="{% url 'parsing:keyword_harvest_detail' j.pk %}" class="btn btn-sm btn-outline-primary">Открыть</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center text-muted py-5">Задач пока нет — создайте первую.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

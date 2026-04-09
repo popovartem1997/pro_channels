@@ -1057,3 +1057,168 @@ def purge_parse_media_retention():
     from parsing.media_retention import run_parse_media_cleanup
 
     return run_parse_media_cleanup(retention_days=effective_parse_media_retention_days())
+
+
+def _run_harvest_telethon_fetch(owner_id: int, channel_ref: str, limit: int) -> list[dict]:
+    """
+    Последние посты с текстом из публичного TG-канала (как @name).
+    Сессия Telethon: user_{owner_id}.session или user_default.session.
+    """
+    import asyncio
+    from pathlib import Path
+
+    from django.conf import settings
+
+    from core.models import get_global_api_keys
+
+    keys = get_global_api_keys()
+    api_id = (keys.telegram_api_id or '').strip()
+    api_hash = (keys.get_telegram_api_hash() or '').strip()
+    if not api_id or not api_hash:
+        raise ValueError('TELEGRAM_API_ID / TELEGRAM_API_HASH не заданы (Ключи API → Парсинг Telegram).')
+
+    async def _fetch():
+        from telethon import TelegramClient
+
+        session_dir = Path(settings.BASE_DIR) / 'media' / 'telethon_sessions'
+        session_dir.mkdir(parents=True, exist_ok=True)
+        session_path = str(session_dir / f'user_{int(owner_id)}')
+        client = TelegramClient(session_path, int(api_id), api_hash)
+        await client.connect()
+        if not await client.is_user_authorized():
+            await client.disconnect()
+            client = TelegramClient(str(session_dir / 'user_default'), int(api_id), api_hash)
+            await client.connect()
+            if not await client.is_user_authorized():
+                raise ValueError(
+                    'Telethon не авторизован для владельца аккаунта. '
+                    'Владелец должен подключить Telegram в разделе «Парсинг».'
+                )
+        collected: list[dict] = []
+        try:
+            entity = await client.get_entity(channel_ref)
+            async for message in client.iter_messages(entity, limit=int(limit)):
+                msg_text = ''
+                try:
+                    msg_text = (message.text or '').strip()
+                except Exception:
+                    msg_text = ''
+                if not msg_text:
+                    try:
+                        raw_txt = getattr(message, 'raw_text', None)
+                        if raw_txt is not None:
+                            msg_text = str(raw_txt).strip()
+                    except Exception:
+                        pass
+                if not msg_text:
+                    try:
+                        poll = getattr(message, 'poll', None)
+                        if poll is not None:
+                            pq = getattr(poll, 'poll', poll)
+                            q = getattr(pq, 'question', None) or getattr(poll, 'question', None)
+                            if q:
+                                msg_text = str(q).strip()
+                    except Exception:
+                        pass
+                if not msg_text:
+                    continue
+                try:
+                    mid = int(message.id)
+                except Exception:
+                    continue
+                collected.append({'id': mid, 'text': msg_text})
+        finally:
+            try:
+                await client.disconnect()
+            except Exception as ex:
+                logger.warning('harvest TG: disconnect: %s', ex)
+        return collected
+
+    with _telethon_session_lock(int(owner_id)):
+        return asyncio.run(_fetch())
+
+
+@shared_task
+def run_keyword_harvest_job(job_id: int):
+    """Очередь: выгрузка постов примера → DeepSeek → suggested_keywords, статус ready."""
+    from .harvest_services import extract_keywords_with_deepseek, normalize_telegram_channel_ref
+    from .models import KeywordHarvestJob
+
+    try:
+        job = KeywordHarvestJob.objects.select_related('channel_group', 'target_channel').get(pk=job_id)
+    except KeywordHarvestJob.DoesNotExist:
+        return
+
+    if job.status != KeywordHarvestJob.STATUS_PENDING:
+        return
+
+    job.status = KeywordHarvestJob.STATUS_RUNNING
+    job.error_message = ''
+    job.save(update_fields=['status', 'error_message', 'updated_at'])
+
+    ref = normalize_telegram_channel_ref(job.example_channel)
+    if not ref:
+        job.status = KeywordHarvestJob.STATUS_FAILED
+        job.error_message = 'Не указан канал-пример.'
+        job.save(update_fields=['status', 'error_message', 'updated_at'])
+        return
+
+    owner_id = job.channel_group.owner_id
+    lim = max(5, min(int(job.max_posts or 20), 80))
+
+    try:
+        posts = _run_harvest_telethon_fetch(owner_id, ref, lim)
+    except Exception as exc:
+        logger.exception('keyword harvest fetch job_id=%s', job_id)
+        job.status = KeywordHarvestJob.STATUS_FAILED
+        job.error_message = str(exc)[:2000]
+        job.save(update_fields=['status', 'error_message', 'updated_at'])
+        return
+
+    if not posts:
+        job.status = KeywordHarvestJob.STATUS_FAILED
+        job.error_message = (
+            'Не удалось получить текст постов: канал недоступен, нет текстовых сообщений в лимите '
+            'или нет доступа. Проверьте @username и что аккаунт Telethon видит канал.'
+        )
+        job.save(update_fields=['status', 'error_message', 'updated_at'])
+        return
+
+    digest_lines = []
+    snapshot = []
+    for i, p in enumerate(posts):
+        tid = p.get('id')
+        txt = (p.get('text') or '')[:1500]
+        digest_lines.append(f'--- Пост #{i + 1} (id {tid}) ---\n{txt}')
+        snapshot.append({'id': tid, 'snippet': (p.get('text') or '')[:400]})
+    combined = '\n\n'.join(digest_lines)
+
+    from core.models import get_global_api_keys
+
+    keys = get_global_api_keys()
+    api_key = (keys.get_deepseek_api_key() or '').strip()
+    job.posts_snapshot = snapshot[:50]
+    job.save(update_fields=['posts_snapshot', 'updated_at'])
+
+    if not api_key:
+        job.status = KeywordHarvestJob.STATUS_FAILED
+        job.error_message = 'Не задан ключ DeepSeek (раздел «Ключи API»).'
+        job.save(update_fields=['status', 'error_message', 'updated_at'])
+        return
+
+    try:
+        kws = extract_keywords_with_deepseek(
+            posts_digest_text=combined,
+            region_prompt=job.region_prompt,
+            api_key=api_key,
+        )
+    except Exception as exc:
+        logger.exception('keyword harvest deepseek job_id=%s', job_id)
+        job.status = KeywordHarvestJob.STATUS_FAILED
+        job.error_message = f'DeepSeek: {exc}'[:2000]
+        job.save(update_fields=['status', 'error_message', 'updated_at'])
+        return
+
+    job.suggested_keywords = kws
+    job.status = KeywordHarvestJob.STATUS_READY
+    job.save(update_fields=['suggested_keywords', 'status', 'updated_at'])
