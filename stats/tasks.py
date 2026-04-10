@@ -306,7 +306,11 @@ def _get_max_post_stats(channel, msg_id):
 
 
 def _get_tg_post_stats(channel, msg_id):
-    """Получает статистику поста Telegram через Telethon (если настроен)."""
+    """Получает статистику поста Telegram через Telethon (если настроен).
+
+    Тот же каталог сессий, что и парсинг (media/telethon_sessions/user_{owner_id}).
+    Нельзя вызывать client.start() без сессии: в Celery нет stdin → «EOF when reading a line».
+    """
     from django.conf import settings
     import asyncio
 
@@ -323,10 +327,36 @@ def _get_tg_post_stats(channel, msg_id):
 
     async def _fetch():
         from telethon import TelegramClient
-        from telethon.tl.functions.channels import GetMessagesRequest
-        session_path = str(settings.BASE_DIR / 'media' / 'telethon_session')
-        client = TelegramClient(session_path, int(api_id), api_hash)
-        await client.start()
+
+        session_dir = settings.BASE_DIR / 'media' / 'telethon_sessions'
+        try:
+            session_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+
+        paths = []
+        oid = getattr(channel, 'owner_id', None)
+        if oid:
+            paths.append(session_dir / f'user_{int(oid)}')
+        paths.append(session_dir / 'user_default')
+
+        client = None
+        for base in paths:
+            c = TelegramClient(str(base), int(api_id), api_hash)
+            await c.connect()
+            if await c.is_user_authorized():
+                client = c
+                break
+            await c.disconnect()
+
+        if client is None:
+            logger.warning(
+                'TG post stats: нет авторизованной Telethon-сессии для канала pk=%s (пробовали %s)',
+                getattr(channel, 'pk', None),
+                [str(p) for p in paths],
+            )
+            return None
+
         try:
             entity = await client.get_entity(channel.tg_chat_id)
             msgs = await client.get_messages(entity, ids=[int(msg_id)])
