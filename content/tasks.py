@@ -202,6 +202,8 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
     from django.core.files.base import ContentFile
     import requests
 
+    from core.telegram_bot_request import telegram_bot_requests_proxies
+
     warnings: list[str] = []
     imported = 0
 
@@ -231,12 +233,18 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
 
         for idx, file_id in enumerate(suggestion.media_file_ids or []):
             try:
-                r = requests.get(f'{api_base}/getFile', params={'file_id': file_id}, timeout=15)
+                _px = telegram_bot_requests_proxies()
+                r = requests.get(
+                    f'{api_base}/getFile',
+                    params={'file_id': file_id},
+                    timeout=15,
+                    proxies=_px,
+                )
                 data = r.json()
                 if not data.get('ok'):
                     raise ValueError(data.get('description') or 'getFile failed')
                 file_path = data['result']['file_path']
-                dl = requests.get(f'{file_base}/{file_path}', timeout=30)
+                dl = requests.get(f'{file_base}/{file_path}', timeout=30, proxies=_px)
                 dl.raise_for_status()
                 filename = (file_path.split('/')[-1] or f'media_{idx}')
                 media_type = _tg_postmedia_type_from_path(file_path, suggestion.content_type)
@@ -1042,6 +1050,8 @@ def _publish_to_channel(post, channel):
 
 def _delete_telegram_published_message(channel, message_id: int) -> None:
     """Удаляет сообщение в Telegram (отдельный поток + asyncio, как при публикации)."""
+    from core.telegram_bot_request import build_telegram_bot_http_request
+
     channel_id = int(channel.pk)
     mid = int(message_id)
 
@@ -1059,7 +1069,7 @@ def _delete_telegram_published_message(channel, message_id: int) -> None:
             raise ValueError('Не настроен токен или chat_id для Telegram')
 
         async def _inner():
-            bot = Bot(token=token, request=_telegram_bot_httpx_request())
+            bot = Bot(token=token, request=build_telegram_bot_http_request())
             async with bot:
                 await bot.delete_message(chat_id=chat_id, message_id=mid)
 
@@ -1516,25 +1526,9 @@ def _prepare_telegram_publish_bundle(post, channel):
     }
 
 
-def _telegram_bot_httpx_request():
-    """HTTP-клиент Bot API: большой пул и таймауты. PTB 21+ — media_write_timeout; PTB 20.7 — без него."""
-    from telegram.request import HTTPXRequest
-
-    kw = dict(
-        connection_pool_size=8,
-        connect_timeout=60.0,
-        read_timeout=300.0,
-        write_timeout=300.0,
-        pool_timeout=60.0,
-    )
-    try:
-        return HTTPXRequest(media_write_timeout=300.0, **kw)
-    except TypeError:
-        return HTTPXRequest(**kw)
-
-
 async def _publish_telegram_async_send(bundle: dict):
     """Только HTTP через PTB: без ORM и без обращений к Django."""
+    from core.telegram_bot_request import build_telegram_bot_http_request
     from telegram import Bot
     from telegram.error import NetworkError, RetryAfter, TelegramError, TimedOut
     bot_token = bundle['bot_token']
@@ -1546,7 +1540,7 @@ async def _publish_telegram_async_send(bundle: dict):
     media = bundle['media']
 
     # connection_pool_size по умолчанию 1 — частая причина TimedOut при двух запросах подряд (send + pin).
-    request = _telegram_bot_httpx_request()
+    request = build_telegram_bot_http_request()
     transient = (TimedOut, NetworkError)
 
     async def _once():

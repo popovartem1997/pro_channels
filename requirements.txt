@@ -14,7 +14,8 @@ django-celery-beat==2.6.0
 django-celery-results==2.5.1
 
 # ─── Боты ─────────────────────────────────────────────────────────────────────
-python-telegram-bot==20.7
+# [socks] — прокси socks5:// из «Ключи API» (Telegram Bot API)
+python-telegram-bot[socks]==20.7
 vk-api==11.9.9
 requests==2.31.0
 

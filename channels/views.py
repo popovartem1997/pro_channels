@@ -433,12 +433,15 @@ def channel_test(request, pk):
 
     try:
         if channel.platform == Channel.PLATFORM_TELEGRAM:
+            from core.telegram_bot_request import telegram_bot_requests_proxies
+
             token = channel.get_tg_token()
             if not token:
                 return JsonResponse({'ok': False, 'message': 'Токен бота не задан'})
             resp = http_requests.get(
                 f'https://api.telegram.org/bot{token}/getMe',
-                timeout=10
+                timeout=10,
+                proxies=telegram_bot_requests_proxies(),
             )
             data = resp.json()
             if data.get('ok'):

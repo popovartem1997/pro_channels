@@ -641,6 +641,8 @@ def telegram_webhook_setup(request, bot_id: int):
     secret = secrets.token_urlsafe(32)
 
     try:
+        from core.telegram_bot_request import telegram_bot_requests_proxies
+
         token = bot.get_token()
         resp = requests.post(
             f'https://api.telegram.org/bot{token}/setWebhook',
@@ -650,6 +652,7 @@ def telegram_webhook_setup(request, bot_id: int):
                 'drop_pending_updates': True,
             },
             timeout=15,
+            proxies=telegram_bot_requests_proxies(),
         )
         data = resp.json()
         if not data.get('ok'):
@@ -912,11 +915,14 @@ def conversation_detail(request, pk: int):
         # Send to user via Telegram Bot API
         try:
             import requests
+            from core.telegram_bot_request import telegram_bot_requests_proxies
+
             token = conv.bot.get_token()
             resp = requests.post(
                 f'https://api.telegram.org/bot{token}/sendMessage',
                 json={'chat_id': conv.platform_user_id, 'text': text},
                 timeout=10,
+                proxies=telegram_bot_requests_proxies(),
             )
             data = resp.json()
             if not data.get('ok'):
@@ -1251,16 +1257,19 @@ def suggestion_media(request, pk: int, idx: int):
     if not file_id:
         return HttpResponse(status=404)
 
+    from core.telegram_bot_request import telegram_bot_requests_proxies
+
     token = bot.get_token()
     api_base = f'https://api.telegram.org/bot{token}'
     file_base = f'https://api.telegram.org/file/bot{token}'
+    _px = telegram_bot_requests_proxies()
     try:
-        r = requests.get(f'{api_base}/getFile', params={'file_id': file_id}, timeout=15)
+        r = requests.get(f'{api_base}/getFile', params={'file_id': file_id}, timeout=15, proxies=_px)
         data = r.json()
         if not data.get('ok'):
             return HttpResponse(status=404)
         file_path = data['result']['file_path']
-        dl = requests.get(f'{file_base}/{file_path}', timeout=30)
+        dl = requests.get(f'{file_base}/{file_path}', timeout=30, proxies=_px)
         dl.raise_for_status()
         ct = dl.headers.get('Content-Type') or 'application/octet-stream'
         return HttpResponse(dl.content, content_type=ct)

@@ -73,6 +73,15 @@ class GlobalApiKeys(models.Model):
     telegram_api_id = models.CharField(max_length=50, blank=True, verbose_name='TELEGRAM_API_ID')
     telegram_api_hash_enc = models.TextField(blank=True, verbose_name='TELEGRAM_API_HASH (enc)')
 
+    # Telegram Bot API (python-telegram-bot: публикация в каналы, бот-предложка) — HTTP(S)/SOCKS прокси
+    telegram_bot_proxy_url = models.CharField(
+        max_length=512,
+        blank=True,
+        verbose_name='Прокси для Telegram Bot API',
+        help_text='Один URL: http://host:port, http://user:pass@host:port, socks5://host:port. Пусто — без прокси. '
+        'Для SOCKS5 в образе должен быть установлен extra python-telegram-bot[socks].',
+    )
+
     # VK parsing
     vk_parse_access_token_enc = models.TextField(blank=True, verbose_name='VK_PARSE_ACCESS_TOKEN (enc)')
 

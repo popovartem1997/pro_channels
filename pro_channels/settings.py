@@ -257,6 +257,10 @@ TBANK_RECEIPT_TAXATION = config('TBANK_RECEIPT_TAXATION', default='usn_income')
 VK_ORD_ACCESS_TOKEN = config('VK_ORD_ACCESS_TOKEN', default='')
 VK_ORD_CABINET_ID = config('VK_ORD_CABINET_ID', default='')
 
+# ─── Telegram Bot API (python-telegram-bot: боты, публикация в каналы) ────────
+# Запасной прокси, если в админке «Ключи API» поле пустое. Основное — telegram_bot_proxy_url в БД.
+TELEGRAM_BOT_PROXY_URL = (config('TELEGRAM_BOT_PROXY_URL', default='') or '').strip()
+
 # ─── Telegram Парсинг (Telethon — user API) ──────────────────────────────────
 TELEGRAM_API_ID = config('TELEGRAM_API_ID', default='')
 TELEGRAM_API_HASH = config('TELEGRAM_API_HASH', default='')

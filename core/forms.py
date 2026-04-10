@@ -31,6 +31,7 @@ class GlobalApiKeysForm(forms.ModelForm):
             'vk_ord_contract_sum_from_campaign_total',
             'vk_ord_contract_amount_fixed',
             'telegram_api_id',
+            'telegram_bot_proxy_url',
             'parse_media_retention_days',
             'parse_media_disk_quota_bytes',
         ]

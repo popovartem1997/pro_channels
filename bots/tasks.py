@@ -86,6 +86,7 @@ def flush_telegram_media_group_task(self, cache_key: str, bot_id: int):
     import time
 
     from celery.exceptions import Retry
+    from core.telegram_bot_request import build_telegram_bot_http_request
     from django.core.cache import cache
     from telegram import Bot
 
@@ -147,7 +148,7 @@ def flush_telegram_media_group_task(self, cache_key: str, bot_id: int):
             is_active=True,
         )
         token = bot_config.get_token()
-        bot = Bot(token)
+        bot = Bot(token, request=build_telegram_bot_http_request())
 
         async def run():
             await flush_collected_telegram_album(

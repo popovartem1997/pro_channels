@@ -1688,8 +1688,10 @@ def build_application(bot_config) -> Application:
     Создать и настроить Application для конкретного бота.
     bot_config — объект SuggestionBot из БД.
     """
+    from core.telegram_bot_request import build_telegram_bot_http_request
+
     token = bot_config.get_token()
-    app = Application.builder().token(token).build()
+    app = Application.builder().token(token).request(build_telegram_bot_http_request()).build()
 
     # Сохраняем конфиг в bot_data — доступен во всех хендлерах
     app.bot_data['bot_config'] = bot_config

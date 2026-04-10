@@ -156,6 +156,21 @@
               </div>
             {% endif %}
           </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold" for="{{ form.telegram_bot_proxy_url.id_for_label }}">
+              {{ form.telegram_bot_proxy_url.label }}
+            </label>
+            {{ form.telegram_bot_proxy_url }}
+            {% if form.telegram_bot_proxy_url.help_text %}
+              <div class="form-text">{{ form.telegram_bot_proxy_url.help_text }}</div>
+            {% endif %}
+            <div class="form-text text-muted">
+              Используется для <b>Telegram Bot API</b>: публикация постов в каналы, бот-предложка (вебхук/long polling), уведомления через <code>requests</code>.
+              Парсинг через Telethon — отдельно, этот URL на него не влияет.
+            </div>
+          </div>
+
             <div class="mb-3">
             <label class="form-label fw-semibold" for="{{ form.parse_media_retention_days.id_for_label }}">
               {{ form.parse_media_retention_days.label }}

@@ -136,6 +136,8 @@ def _telegram_send_message_raw(
     """Отправка через Bot API с жёстким таймаутом (python-telegram-bot v20+ — async)."""
     if not token or not chat_id or not text:
         return
+    from core.telegram_bot_request import telegram_bot_requests_proxies
+
     payload: dict = {'chat_id': chat_id, 'text': text}
     if reply_markup:
         payload['reply_markup'] = reply_markup
@@ -143,6 +145,7 @@ def _telegram_send_message_raw(
         f'https://api.telegram.org/bot{token}/sendMessage',
         json=payload,
         timeout=_TELEGRAM_SEND_TIMEOUT,
+        proxies=telegram_bot_requests_proxies(),
     )
     data = r.json() if r.content else {}
     if not data.get('ok'):

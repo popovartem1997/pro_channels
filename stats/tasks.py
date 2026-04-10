@@ -82,6 +82,8 @@ def _get_subscribers_count(channel):
     from channels.models import Channel as Ch
 
     if channel.platform == Ch.PLATFORM_TELEGRAM:
+        from core.telegram_bot_request import telegram_bot_requests_proxies
+
         token = channel.get_tg_token()
         chat_id = channel.tg_chat_id
         if not token or not chat_id:
@@ -90,6 +92,7 @@ def _get_subscribers_count(channel):
             f'https://api.telegram.org/bot{token}/getChatMemberCount',
             params={'chat_id': chat_id},
             timeout=10,
+            proxies=telegram_bot_requests_proxies(),
         )
         data = resp.json()
         if data.get('ok'):
