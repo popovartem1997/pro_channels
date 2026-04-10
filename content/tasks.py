@@ -1521,7 +1521,7 @@ def _prepare_telegram_publish_bundle(post, channel):
 async def _publish_telegram_async_send(bundle: dict):
     """Только HTTP через PTB: без ORM и без обращений к Django."""
     from telegram import Bot
-    from telegram.error import RetryAfter, TelegramError
+    from telegram.error import NetworkError, RetryAfter, TelegramError, TimedOut
     from telegram.request import HTTPXRequest
 
     bot_token = bundle['bot_token']
@@ -1532,11 +1532,13 @@ async def _publish_telegram_async_send(bundle: dict):
     parse_mode = bundle['parse_mode']
     media = bundle['media']
 
-    request = HTTPXRequest(connect_timeout=25.0, read_timeout=120.0)
-    bot = Bot(token=bot_token, request=request)
-    common_kw = {'chat_id': chat_id, 'disable_notification': disable_notification}
+    # Большие видео/документы: upload может идти дольше 120 с; кратковременные сетевые сбои — повтор ниже.
+    request = HTTPXRequest(connect_timeout=40.0, read_timeout=300.0)
+    transient = (TimedOut, NetworkError)
 
-    try:
+    async def _once():
+        bot = Bot(token=bot_token, request=request)
+        common_kw = {'chat_id': chat_id, 'disable_notification': disable_notification}
         async with bot:
             msg_id = None
             if not media:
@@ -1596,10 +1598,34 @@ async def _publish_telegram_async_send(bundle: dict):
                 await bot.pin_chat_message(chat_id=chat_id, message_id=msg_id)
 
             return {'message_id': msg_id or ''}
-    except RetryAfter:
-        raise
-    except TelegramError as exc:
-        raise ValueError(f'Telegram API error: {exc}') from exc
+
+    last_exc: BaseException | None = None
+    for attempt in range(1, 4):
+        try:
+            return await _once()
+        except RetryAfter:
+            raise
+        except transient as exc:
+            last_exc = exc
+            logger.warning(
+                'TG publish transient error (attempt %s/3): %s',
+                attempt,
+                exc,
+            )
+            if attempt >= 3:
+                break
+            await asyncio.sleep(2.0 * attempt)
+        except TelegramError as exc:
+            err_s = str(exc).lower()
+            if attempt < 3 and ('timed out' in err_s or 'timeout' in err_s):
+                last_exc = exc
+                logger.warning('TG publish TelegramError retry (attempt %s/3): %s', attempt, exc)
+                await asyncio.sleep(2.0 * attempt)
+                continue
+            raise ValueError(f'Telegram API error: {exc}') from exc
+    if last_exc is not None:
+        raise ValueError(f'Telegram API error: {last_exc}') from last_exc
+    raise ValueError('Telegram API error: publish failed after retries')
 
 
 def _publish_telegram(post, channel):
@@ -1623,7 +1649,7 @@ def _publish_telegram(post, channel):
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         fut = pool.submit(_runner)
-        return fut.result(timeout=300)
+        return fut.result(timeout=900)
 
 
 def _publish_vk(post, channel):
