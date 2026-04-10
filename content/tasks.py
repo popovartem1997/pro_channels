@@ -1618,7 +1618,8 @@ async def _publish_telegram_async_send(bundle: dict):
 
             return {'message_id': msg_id or ''}
 
-    max_attempts = 5
+    max_attempts = 9
+    backoff_cap = 120.0
     last_exc: BaseException | None = None
     for attempt in range(1, max_attempts + 1):
         try:
@@ -1636,7 +1637,7 @@ async def _publish_telegram_async_send(bundle: dict):
             )
             if attempt >= max_attempts:
                 break
-            await asyncio.sleep(min(3.0 * attempt, 45.0))
+            await asyncio.sleep(min(5.0 * attempt, backoff_cap))
         except TelegramError as exc:
             err_s = str(exc).lower()
             if attempt < max_attempts and ('timed out' in err_s or 'timeout' in err_s):
@@ -1648,7 +1649,7 @@ async def _publish_telegram_async_send(bundle: dict):
                     exc,
                     getattr(exc, '__cause__', None),
                 )
-                await asyncio.sleep(min(3.0 * attempt, 45.0))
+                await asyncio.sleep(min(5.0 * attempt, backoff_cap))
                 continue
             raise ValueError(f'Telegram API error: {exc}') from exc
     if last_exc is not None:
@@ -1681,7 +1682,8 @@ def _publish_telegram(post, channel):
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         fut = pool.submit(_runner)
-        return fut.result(timeout=900)
+        # Согласовано с HTTPX read/write 600s и до 9 повторов с паузами (медленный прокси / API).
+        return fut.result(timeout=3600)
 
 
 def _publish_vk(post, channel):

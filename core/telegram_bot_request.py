@@ -76,16 +76,17 @@ def build_telegram_bot_http_request(*, proxy_url: str | None = None):
         proxy = (proxy_url or '').strip()
     else:
         proxy = effective_telegram_bot_proxy_url()
+    # Медленные маршруты/прокси: запас по connect/pool и длительная отдача больших медиа.
     kw: dict = dict(
         connection_pool_size=8,
-        connect_timeout=60.0,
-        read_timeout=300.0,
-        write_timeout=300.0,
-        pool_timeout=60.0,
+        connect_timeout=90.0,
+        read_timeout=600.0,
+        write_timeout=600.0,
+        pool_timeout=120.0,
     )
     if proxy:
         kw['proxy'] = validate_telegram_http_proxy_url(proxy)
     try:
-        return HTTPXRequest(media_write_timeout=300.0, **kw)
+        return HTTPXRequest(media_write_timeout=600.0, **kw)
     except TypeError:
         return HTTPXRequest(**kw)
