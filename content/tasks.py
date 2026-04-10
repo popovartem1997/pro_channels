@@ -1051,7 +1051,6 @@ def _delete_telegram_published_message(channel, message_id: int) -> None:
         from channels.models import Channel
         from telegram import Bot
         from telegram.error import TelegramError
-        from telegram.request import HTTPXRequest
 
         ch = Channel.objects.get(pk=channel_id)
         token = ch.get_tg_token()
@@ -1060,8 +1059,7 @@ def _delete_telegram_published_message(channel, message_id: int) -> None:
             raise ValueError('Не настроен токен или chat_id для Telegram')
 
         async def _inner():
-            req = HTTPXRequest(connect_timeout=25.0, read_timeout=60.0)
-            bot = Bot(token=token, request=req)
+            bot = Bot(token=token, request=_telegram_bot_httpx_request())
             async with bot:
                 await bot.delete_message(chat_id=chat_id, message_id=mid)
 
@@ -1518,12 +1516,27 @@ def _prepare_telegram_publish_bundle(post, channel):
     }
 
 
+def _telegram_bot_httpx_request():
+    """HTTP-клиент Bot API: большой пул и таймауты. PTB 21+ — media_write_timeout; PTB 20.7 — без него."""
+    from telegram.request import HTTPXRequest
+
+    kw = dict(
+        connection_pool_size=8,
+        connect_timeout=60.0,
+        read_timeout=300.0,
+        write_timeout=300.0,
+        pool_timeout=60.0,
+    )
+    try:
+        return HTTPXRequest(media_write_timeout=300.0, **kw)
+    except TypeError:
+        return HTTPXRequest(**kw)
+
+
 async def _publish_telegram_async_send(bundle: dict):
     """Только HTTP через PTB: без ORM и без обращений к Django."""
     from telegram import Bot
     from telegram.error import NetworkError, RetryAfter, TelegramError, TimedOut
-    from telegram.request import HTTPXRequest
-
     bot_token = bundle['bot_token']
     chat_id = bundle['chat_id']
     disable_notification = bundle['disable_notification']
@@ -1532,13 +1545,8 @@ async def _publish_telegram_async_send(bundle: dict):
     parse_mode = bundle['parse_mode']
     media = bundle['media']
 
-    # PTB 20: по умолчанию write_timeout=5 с — при upload медиа запрос обрывается «Timed out», даже если read_timeout большой.
-    request = HTTPXRequest(
-        connect_timeout=40.0,
-        read_timeout=300.0,
-        write_timeout=300.0,
-        pool_timeout=30.0,
-    )
+    # connection_pool_size по умолчанию 1 — частая причина TimedOut при двух запросах подряд (send + pin).
+    request = _telegram_bot_httpx_request()
     transient = (TimedOut, NetworkError)
 
     async def _once():
@@ -1600,12 +1608,21 @@ async def _publish_telegram_async_send(bundle: dict):
                 msg_id = msgs[0].message_id if msgs else None
 
             if pin_message and msg_id:
-                await bot.pin_chat_message(chat_id=chat_id, message_id=msg_id)
+                try:
+                    await bot.pin_chat_message(chat_id=chat_id, message_id=msg_id)
+                except TelegramError as pin_exc:
+                    # Сообщение уже в канале; таймаут/сбой только на pin не должен валить всю публикацию.
+                    logger.warning(
+                        'TG publish: сообщение отправлено, закрепление не удалось (msg_id=%s): %s',
+                        msg_id,
+                        pin_exc,
+                    )
 
             return {'message_id': msg_id or ''}
 
+    max_attempts = 5
     last_exc: BaseException | None = None
-    for attempt in range(1, 4):
+    for attempt in range(1, max_attempts + 1):
         try:
             return await _once()
         except RetryAfter:
@@ -1613,22 +1630,34 @@ async def _publish_telegram_async_send(bundle: dict):
         except transient as exc:
             last_exc = exc
             logger.warning(
-                'TG publish transient error (attempt %s/3): %s',
+                'TG publish transient error (attempt %s/%s): %s | cause=%r',
                 attempt,
+                max_attempts,
                 exc,
+                getattr(exc, '__cause__', None),
             )
-            if attempt >= 3:
+            if attempt >= max_attempts:
                 break
-            await asyncio.sleep(2.0 * attempt)
+            await asyncio.sleep(min(3.0 * attempt, 45.0))
         except TelegramError as exc:
             err_s = str(exc).lower()
-            if attempt < 3 and ('timed out' in err_s or 'timeout' in err_s):
+            if attempt < max_attempts and ('timed out' in err_s or 'timeout' in err_s):
                 last_exc = exc
-                logger.warning('TG publish TelegramError retry (attempt %s/3): %s', attempt, exc)
-                await asyncio.sleep(2.0 * attempt)
+                logger.warning(
+                    'TG publish TelegramError retry (attempt %s/%s): %s | cause=%r',
+                    attempt,
+                    max_attempts,
+                    exc,
+                    getattr(exc, '__cause__', None),
+                )
+                await asyncio.sleep(min(3.0 * attempt, 45.0))
                 continue
             raise ValueError(f'Telegram API error: {exc}') from exc
     if last_exc is not None:
+        logger.error(
+            'TG publish: исчерпаны повторы после TimedOut/NetworkError',
+            exc_info=last_exc,
+        )
         raise ValueError(f'Telegram API error: {last_exc}') from last_exc
     raise ValueError('Telegram API error: publish failed after retries')
 
