@@ -29,8 +29,8 @@ services:
     environment:
       CELERY_BROKER_URL: redis://redis:6379/0
       DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
-      # fcntl на общем media — импорт/парсинг не зависят от «залипших» ключей Redis.
-      TELETHON_SESSION_LOCK_BACKEND: file
+      # redis: один держатель сессии Telethon на owner_id между воркерами; TTL+renew, см. clear_telethon_session_locks при сбоях.
+      TELETHON_SESSION_LOCK_BACKEND: redis
       # Из .env иногда остаётся True — тогда .delay() в web и не попадает в Redis.
       CELERY_TASK_ALWAYS_EAGER: "false"
     ports:
@@ -65,11 +65,12 @@ services:
     environment:
       CELERY_BROKER_URL: redis://redis:6379/0
       DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
-      TELETHON_SESSION_LOCK_BACKEND: file
+      TELETHON_SESSION_LOCK_BACKEND: redis
       CELERY_TASK_ALWAYS_EAGER: "false"
-    # Порядок очередей важен (Redis BRPOP слева направо): import_history → prio → celery → parse.
-    # import_history — TG→MAX; prio — публикация; celery — digest/факты и прочее; parse — parsing.tasks.* (лента).
-    command: celery -A pro_channels worker -l INFO -Q import_history,prio,celery,parse -c 4
+    # Порядок очередей (Redis BRPOP слева направо): сначала prio — публикация и тики не «голодают» за длинным импортом TG→MAX.
+    # import_history — TG→MAX; prio — публикация/запланированные/digest; celery — прочее; parse — parsing.tasks.* (лента).
+    # Если нужно ускорить массовый импорт в ущерб публикации: поставьте import_history первым в -Q.
+    command: celery -A pro_channels worker -l INFO -Q prio,import_history,celery,parse -c 4
     depends_on:
       redis:
         condition: service_started
@@ -85,7 +86,7 @@ services:
     environment:
       CELERY_BROKER_URL: redis://redis:6379/0
       DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
-      TELETHON_SESSION_LOCK_BACKEND: file
+      TELETHON_SESSION_LOCK_BACKEND: redis
       CELERY_TASK_ALWAYS_EAGER: "false"
     command: celery -A pro_channels beat -l INFO
     depends_on:
