@@ -1532,8 +1532,13 @@ async def _publish_telegram_async_send(bundle: dict):
     parse_mode = bundle['parse_mode']
     media = bundle['media']
 
-    # Большие видео/документы: upload может идти дольше 120 с; кратковременные сетевые сбои — повтор ниже.
-    request = HTTPXRequest(connect_timeout=40.0, read_timeout=300.0)
+    # PTB 20: по умолчанию write_timeout=5 с — при upload медиа запрос обрывается «Timed out», даже если read_timeout большой.
+    request = HTTPXRequest(
+        connect_timeout=40.0,
+        read_timeout=300.0,
+        write_timeout=300.0,
+        pool_timeout=30.0,
+    )
     transient = (TimedOut, NetworkError)
 
     async def _once():
