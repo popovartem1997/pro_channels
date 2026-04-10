@@ -75,3 +75,14 @@ class GlobalApiKeysForm(forms.ModelForm):
             obj.save()
         return obj
 
+    def clean_telegram_bot_proxy_url(self):
+        val = (self.cleaned_data.get('telegram_bot_proxy_url') or '').strip()
+        if not val:
+            return ''
+        from .telegram_bot_request import validate_telegram_http_proxy_url
+
+        try:
+            return validate_telegram_http_proxy_url(val)
+        except ValueError as exc:
+            raise forms.ValidationError(str(exc)) from exc
+
