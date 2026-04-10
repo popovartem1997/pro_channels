@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 from celery import shared_task
 from django.db.models import F, Max
 from django.utils import timezone
@@ -192,6 +193,68 @@ def _fix_telegram_postmedia_mislabeled_as_document(post) -> None:
         PostMedia.objects.bulk_update(to_update, ['media_type'])
 
 
+# Скачивание через Bot API (часто через SOCKS): короткие timeout дают пустой пост без вложений.
+_TG_IMPORT_GETFILE_TIMEOUT = (30.0, 90.0)  # connect, read
+_TG_IMPORT_DOWNLOAD_TIMEOUT = (30.0, 240.0)
+_TG_IMPORT_MAX_ATTEMPTS = 4
+
+
+def _telegram_download_file_for_suggestion(
+    api_base: str,
+    file_base: str,
+    file_id: str,
+    proxies,
+) -> tuple[bytes, str, str]:
+    """
+    getFile + скачивание по file_path. Несколько попыток при таймаутах/сетевых сбоях.
+    Возвращает (сырой контент, file_path из getFile, Content-Type заголовка скачивания).
+    """
+    import requests
+    for attempt in range(1, _TG_IMPORT_MAX_ATTEMPTS + 1):
+        try:
+            r = requests.get(
+                f'{api_base}/getFile',
+                params={'file_id': file_id},
+                timeout=_TG_IMPORT_GETFILE_TIMEOUT,
+                proxies=proxies,
+            )
+            data = r.json()
+            if not data.get('ok'):
+                desc = str(data.get('description') or 'getFile failed')
+                # 429 / временные ответы — повтор
+                if attempt < _TG_IMPORT_MAX_ATTEMPTS and any(
+                    x in desc.lower() for x in ('too many', 'retry', 'timeout', 'bad gateway', 'internal')
+                ):
+                    time.sleep(min(3.0 * attempt, 45.0))
+                    continue
+                raise ValueError(desc)
+            file_path = data['result']['file_path']
+            dl = requests.get(
+                f'{file_base}/{file_path}',
+                timeout=_TG_IMPORT_DOWNLOAD_TIMEOUT,
+                proxies=proxies,
+            )
+            dl.raise_for_status()
+            ct = (dl.headers.get('Content-Type') or '')
+            return dl.content, file_path, ct
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            if attempt >= _TG_IMPORT_MAX_ATTEMPTS:
+                raise
+            logger.warning(
+                'TG import file_id=%s attempt %s/%s: %s',
+                file_id[:32],
+                attempt,
+                _TG_IMPORT_MAX_ATTEMPTS,
+                exc,
+            )
+            time.sleep(min(4.0 * attempt, 60.0))
+        except requests.RequestException as exc:
+            if attempt >= _TG_IMPORT_MAX_ATTEMPTS:
+                raise
+            time.sleep(min(3.0 * attempt, 30.0))
+    raise RuntimeError('TG import: retry loop ended without result')
+
+
 def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
     """
     Импортирует медиа из предложки в PostMedia.
@@ -234,29 +297,20 @@ def _import_suggestion_media_into_post(post_id: int) -> tuple[int, list[str]]:
         for idx, file_id in enumerate(suggestion.media_file_ids or []):
             try:
                 _px = telegram_bot_requests_proxies()
-                r = requests.get(
-                    f'{api_base}/getFile',
-                    params={'file_id': file_id},
-                    timeout=15,
-                    proxies=_px,
+                raw, file_path, content_type_hdr = _telegram_download_file_for_suggestion(
+                    api_base, file_base, file_id, _px
                 )
-                data = r.json()
-                if not data.get('ok'):
-                    raise ValueError(data.get('description') or 'getFile failed')
-                file_path = data['result']['file_path']
-                dl = requests.get(f'{file_base}/{file_path}', timeout=30, proxies=_px)
-                dl.raise_for_status()
                 filename = (file_path.split('/')[-1] or f'media_{idx}')
                 media_type = _tg_postmedia_type_from_path(file_path, suggestion.content_type)
                 if not _tg_basename_has_extension(filename):
                     filename = filename + _tg_extension_for_saved_file(
                         media_type,
-                        dl.headers.get('Content-Type', ''),
-                        dl.content[:64] if dl.content else b'',
+                        content_type_hdr,
+                        raw[:64] if raw else b'',
                     )
                 PostMedia.objects.create(
                     post=post,
-                    file=ContentFile(dl.content, name=filename),
+                    file=ContentFile(raw, name=filename),
                     media_type=media_type,
                     order=current_max + idx + 1,
                 )
