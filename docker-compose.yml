@@ -59,6 +59,27 @@ services:
       - media_volume:/app/media
     restart: unless-stopped
 
+  # Только очередь prio: публикация постов, check_scheduled_posts, digest/факты.
+  # Отдельно от «celery», иначе долгий парсинг (parse) занимает все слоты — в prio копятся сотни задач и посты висят в «Публикуется».
+  celery-prio:
+    build: .
+    env_file: .env
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
+      TELETHON_SESSION_LOCK_BACKEND: redis
+      CELERY_TASK_ALWAYS_EAGER: "false"
+    command: celery -A pro_channels worker -l INFO -n prio@%h -Q prio -c 4
+    depends_on:
+      redis:
+        condition: service_started
+      db:
+        condition: service_healthy
+    volumes:
+      - media_volume:/app/media
+    restart: unless-stopped
+
+  # Парсинг, импорт TG→MAX, прочее — без конкуренции с публикацией.
   celery:
     build: .
     env_file: .env
@@ -67,10 +88,7 @@ services:
       DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
       TELETHON_SESSION_LOCK_BACKEND: redis
       CELERY_TASK_ALWAYS_EAGER: "false"
-    # Порядок очередей (Redis BRPOP слева направо): сначала prio — публикация и тики не «голодают» за длинным импортом TG→MAX.
-    # import_history — TG→MAX; prio — публикация/запланированные/digest; celery — прочее; parse — parsing.tasks.* (лента).
-    # Если нужно ускорить массовый импорт в ущерб публикации: поставьте import_history первым в -Q.
-    command: celery -A pro_channels worker -l INFO -Q prio,import_history,celery,parse -c 4
+    command: celery -A pro_channels worker -l INFO -n bg@%h -Q import_history,celery,parse -c 4
     depends_on:
       redis:
         condition: service_started
