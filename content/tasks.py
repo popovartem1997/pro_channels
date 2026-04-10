@@ -1050,7 +1050,7 @@ def _publish_to_channel(post, channel):
 
 def _delete_telegram_published_message(channel, message_id: int) -> None:
     """Удаляет сообщение в Telegram (отдельный поток + asyncio, как при публикации)."""
-    from core.telegram_bot_request import build_telegram_bot_http_request
+    from core.telegram_bot_request import build_telegram_bot_http_request, effective_telegram_bot_proxy_url
 
     channel_id = int(channel.pk)
     mid = int(message_id)
@@ -1068,8 +1068,10 @@ def _delete_telegram_published_message(channel, message_id: int) -> None:
         if not token or not chat_id:
             raise ValueError('Не настроен токен или chat_id для Telegram')
 
+        tg_request = build_telegram_bot_http_request(proxy_url=effective_telegram_bot_proxy_url())
+
         async def _inner():
-            bot = Bot(token=token, request=build_telegram_bot_http_request())
+            bot = Bot(token=token, request=tg_request)
             async with bot:
                 await bot.delete_message(chat_id=chat_id, message_id=mid)
 
@@ -1481,6 +1483,7 @@ def _prepare_telegram_publish_bundle(post, channel):
     «You cannot call this from an async context».
     """
     from channels.models import Channel as Ch
+    from core.telegram_bot_request import effective_telegram_bot_proxy_url
     from telegram.constants import ParseMode
     from .models import PostMedia
 
@@ -1523,6 +1526,7 @@ def _prepare_telegram_publish_bundle(post, channel):
         'text': text,
         'parse_mode': parse_mode,
         'media': media_payload,
+        'proxy_url': effective_telegram_bot_proxy_url(),
     }
 
 
@@ -1540,7 +1544,7 @@ async def _publish_telegram_async_send(bundle: dict):
     media = bundle['media']
 
     # connection_pool_size по умолчанию 1 — частая причина TimedOut при двух запросах подряд (send + pin).
-    request = build_telegram_bot_http_request()
+    request = build_telegram_bot_http_request(proxy_url=bundle.get('proxy_url', ''))
     transient = (TimedOut, NetworkError)
 
     async def _once():

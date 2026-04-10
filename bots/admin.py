@@ -232,10 +232,13 @@ class SuggestionAdmin(admin.ModelAdmin):
 
             if bot_config.platform == SuggestionBot.PLATFORM_TELEGRAM:
                 import asyncio
-                from core.telegram_bot_request import build_telegram_bot_http_request
+                from core.telegram_bot_request import build_telegram_bot_http_request, effective_telegram_bot_proxy_url
                 from telegram import Bot
+
+                tg_request = build_telegram_bot_http_request(proxy_url=effective_telegram_bot_proxy_url())
+
                 async def send():
-                    bot = Bot(token=bot_config.get_token(), request=build_telegram_bot_http_request())
+                    bot = Bot(token=bot_config.get_token(), request=tg_request)
                     async with bot:
                         await bot.send_message(chat_id=suggestion.platform_user_id, text=text)
                 asyncio.run(send())

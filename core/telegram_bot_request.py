@@ -27,11 +27,19 @@ def telegram_bot_requests_proxies() -> dict[str, str] | None:
     return {'http': p, 'https': p}
 
 
-def build_telegram_bot_http_request():
-    """Единый HTTPXRequest для Bot API: публикация постов, бот-предложка, служебные вызовы."""
+def build_telegram_bot_http_request(*, proxy_url: str | None = None):
+    """Единый HTTPXRequest для Bot API: публикация постов, бот-предложка, служебные вызовы.
+
+    В async-корутине Django нельзя дергать ORM — передайте ``proxy_url`` заранее (из синхронного кода),
+    либо результат ``effective_telegram_bot_proxy_url()`` до ``asyncio.run``.
+    Если ``proxy_url`` не передан, читается из БД/.env (только из sync-контекста).
+    """
     from telegram.request import HTTPXRequest
 
-    proxy = effective_telegram_bot_proxy_url()
+    if proxy_url is not None:
+        proxy = (proxy_url or '').strip()
+    else:
+        proxy = effective_telegram_bot_proxy_url()
     kw: dict = dict(
         connection_pool_size=8,
         connect_timeout=60.0,
