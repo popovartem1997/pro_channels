@@ -1340,8 +1340,11 @@ def keyword_harvest_create(request):
         return redirect('parsing:sources')
 
     if request.method == 'POST':
+        from .harvest_services import parse_example_channels_from_post
+
         gid = (request.POST.get('channel_group') or '').strip()
-        example = (request.POST.get('example_channel') or '').strip()
+        example_raw = (request.POST.get('example_channels') or request.POST.get('example_channel') or '').strip()
+        example_list = parse_example_channels_from_post(example_raw)
         region = (request.POST.get('region_prompt') or '').strip()
         try:
             max_posts = int((request.POST.get('max_posts') or '20').strip() or 20)
@@ -1358,8 +1361,11 @@ def keyword_harvest_create(request):
         if not group or group.pk not in allowed_gids:
             messages.error(request, 'Группа недоступна.')
             return redirect('parsing:keyword_harvest_create')
-        if not example:
-            messages.error(request, 'Укажите пример канала в Telegram (@username или ссылка).')
+        if not example_list:
+            messages.error(
+                request,
+                'Укажите хотя бы один канал-пример в Telegram (@username или ссылка t.me/…), по одному в строке или через запятую.',
+            )
             return redirect('parsing:keyword_harvest_create')
         if not region:
             messages.error(request, 'Опишите ваш район и контекст для AI.')
@@ -1386,12 +1392,14 @@ def keyword_harvest_create(request):
                 target_mode = KeywordHarvestJob.TARGET_GROUP_ONE
                 target_channel = ch
 
+        first_example = (example_list[0] or '')[:255]
         job = KeywordHarvestJob.objects.create(
             created_by=request.user,
             channel_group=group,
             target_mode=target_mode,
             target_channel=target_channel,
-            example_channel=example[:255],
+            example_channel=first_example,
+            example_channels=example_list,
             region_prompt=region[:8000],
             max_posts=max_posts,
             status=KeywordHarvestJob.STATUS_PENDING,
