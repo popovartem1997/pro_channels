@@ -1285,55 +1285,95 @@ def _tg_strip_br_for_telegram_api(html: str) -> str:
 TG_MEDIA_CAPTION_CHAR_LIMIT = 1024
 
 
-def _tg_visible_plain_from_html(html: str) -> str:
-    """HTML поста → видимый текст для короткой подписи под медиа."""
+def _tg_html_units_for_caption_split(html: str) -> tuple[list[str], str]:
+    """
+    Куски исходного HTML и разделитель между ними: блоки дайджеста (\\n\\n) или строки одного блока (\\n).
+    """
     import re
-    from html import unescape
 
-    s = re.sub(r'<[^>]+>', ' ', html or '')
-    s = unescape(s)
-    s = re.sub(r'[\s\xa0]+', ' ', s).strip()
-    return s
+    s = (html or '').strip()
+    if not s:
+        return [], '\n\n'
+    blocks = [b.strip() for b in re.split(r'\n\s*\n+', s) if b.strip()]
+    if len(blocks) <= 1 and blocks:
+        return ([ln.rstrip() for ln in blocks[0].split('\n')], '\n')
+    return (blocks, '\n\n')
+
+
+def _tg_hard_split_oversized_line(line: str, limit: int) -> tuple[str, str]:
+    """Одна строка длиннее limit — режем по символам (редкий случай)."""
+    if len(line) <= limit:
+        return line, ''
+    return line[: max(0, limit - 1)] + '…', line[max(0, limit - 1) :].lstrip()
 
 
 def _tg_caption_html_and_overflow(full_html: str) -> tuple[str | None, str | None]:
     """
-    Возвращает (caption_html, overflow_html). Если текст помещается в лимит подписи — (full, None).
-    Иначе подпись — начало видимого текста (HTML-экранирование); overflow — только продолжение того же текста,
-    без повторения начала (иначе в канале два почти одинаковых сообщения).
+    Возвращает (caption_html, overflow_html). Лимит подписи Telegram — 1024 символа.
+    Делим исходный HTML по блокам/строкам, чтобы сохранить разметку (<b>, переносы) в обоих сообщениях.
     """
-    from html import escape
-
-    full_html = full_html or ''
+    full_html = (full_html or '').strip()
+    if not full_html:
+        return None, None
     if len(full_html) <= TG_MEDIA_CAPTION_CHAR_LIMIT:
         return full_html, None
 
-    plain = _tg_visible_plain_from_html(full_html)
-    ell = '…'
-    if not plain:
-        return escape(ell, quote=False), None
+    lim = TG_MEDIA_CAPTION_CHAR_LIMIT
+    units, sep = _tg_html_units_for_caption_split(full_html)
+    if not units:
+        return full_html[: max(0, lim - 1)] + '…', None
 
-    lo, hi = 0, len(plain)
-    best_mid = 0
-    while lo <= hi:
-        mid = (lo + hi) // 2
-        chunk = plain[:mid]
-        if mid < len(plain):
-            chunk = chunk + ell
-        esc = escape(chunk, quote=False)
-        if len(esc) <= TG_MEDIA_CAPTION_CHAR_LIMIT:
-            best_mid = mid
-            lo = mid + 1
+    cap: list[str] = []
+    rest_from: int | None = None
+    for i, u in enumerate(units):
+        trial = sep.join(cap + [u]) if cap else u
+        if len(trial) <= lim:
+            cap.append(u)
         else:
-            hi = mid - 1
+            rest_from = i
+            break
 
-    caption_plain = plain[:best_mid] + (ell if best_mid < len(plain) else '')
-    caption_h = escape(caption_plain, quote=False)
-    suffix_plain = plain[best_mid:].strip()
-    if not suffix_plain:
-        return caption_h, None
-    overflow_h = _tg_plain_to_html_caption(suffix_plain)
-    return caption_h, overflow_h
+    if cap and rest_from is None:
+        return sep.join(cap), None
+    if cap and rest_from is not None:
+        tail = units[rest_from:]
+        return sep.join(cap), sep.join(tail)
+
+    # Ни один целый кусок не влез — режем первый кусок по строкам (sep уже \\n или блок целиком)
+    first = units[0]
+    lines = first.split('\n')
+    cap_lines: list[str] = []
+    rest_idx: int | None = None
+    for i, ln in enumerate(lines):
+        trial = '\n'.join(cap_lines + [ln]) if cap_lines else ln
+        if len(trial) <= lim:
+            cap_lines.append(ln)
+        else:
+            rest_idx = i
+            break
+
+    if cap_lines and rest_idx is not None:
+        overflow_chunks: list[str] = []
+        overflow_chunks.append('\n'.join(lines[rest_idx:]))
+        if len(units) > 1:
+            overflow_chunks.append(sep.join(units[1:]))
+        second = sep.join(c for c in overflow_chunks if c)
+        return '\n'.join(cap_lines), second
+
+    if cap_lines and rest_idx is None:
+        return '\n'.join(cap_lines), None
+
+    # Первая строка длиннее лимита
+    head, tail = _tg_hard_split_oversized_line(lines[0], lim)
+    overflow_parts: list[str] = []
+    if tail:
+        overflow_parts.append(tail)
+    if len(lines) > 1:
+        overflow_parts.append('\n'.join(lines[1:]))
+    if len(units) > 1:
+        overflow_parts.append(sep.join(units[1:]))
+    second = sep.join(overflow_parts) if overflow_parts else None
+    return head, second
 
 
 def _tg_sanitize_entities_for_telegram_html(text: str) -> str:
