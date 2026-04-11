@@ -7,7 +7,8 @@
 - Сводка по вчерашним постам канала: при включённом блоке и ключе DeepSeek — одно предложение; иначе краткий fallback.
 - Цитата / слово / гороскоп: DeepSeek (текст), если включено и задан ключ в «Ключи API».
   Гороскоп: при «Общий» — по всем знакам зодиака; при выборе знака — только для него.
-- Картинка: picsum.photos по seed; при недоступности — локальный JPEG в Pillow (цвета/градиент от seed; без DeepSeek — у DeepSeek нет API изображений в этой интеграции).
+- Картинка: picsum.photos по seed (seed зависит от сезона, погоды по прогнозу Open-Meteo и времени генерации);
+  при недоступности — локальный JPEG в Pillow с градиентом под сезон и погоду.
   На картинку накладывается полупрозрачный водяной знак с названием канала (красивый шрифт при наличии в системе).
   Если задан HTTP/SOCKS-прокси в «Ключи API», скачивание picsum идёт через него.
 """
@@ -686,6 +687,186 @@ def geocode_place_label(query: str) -> tuple[float | None, float | None]:
         return None, None
 
 
+def _digest_season_north(day: dt.date) -> str:
+    """Время года для РФ / северного полушария по календарю."""
+    m = day.month
+    if m in (12, 1, 2):
+        return 'winter'
+    if m in (3, 4, 5):
+        return 'spring'
+    if m in (6, 7, 8):
+        return 'summer'
+    return 'autumn'
+
+
+def _digest_wmo_image_bucket(code: int | None) -> str:
+    """Грубый класс погоды для подбора картинки/градиента (WMO weathercode)."""
+    if code is None:
+        return 'unknown'
+    try:
+        c = int(code)
+    except (TypeError, ValueError):
+        return 'unknown'
+    if c <= 1:
+        return 'clear'
+    if c <= 3:
+        return 'cloudy'
+    if 45 <= c <= 48:
+        return 'fog'
+    if c < 50:
+        return 'cloudy'
+    if c <= 67 or c in (80, 81, 82):
+        return 'rain'
+    if 95 <= c <= 99:
+        return 'storm'
+    if 71 <= c <= 77 or c in (85, 86):
+        return 'snow'
+    return 'cloudy'
+
+
+def _digest_temp_band(tavg: float) -> str:
+    if tavg < -5:
+        return 'freezing'
+    if tavg < 5:
+        return 'cold'
+    if tavg < 13:
+        return 'cool'
+    if tavg < 22:
+        return 'mild'
+    if tavg < 30:
+        return 'warm'
+    return 'hot'
+
+
+def _digest_image_weather_context(
+    day: dt.date, lat: float, lon: float, tz_name: str
+) -> dict[str, Any]:
+    """
+    Сезон (север) + доминирующий тип погоды и средняя температура за сутки по Open-Meteo.
+    """
+    season = _digest_season_north(day)
+    hourly = fetch_open_meteo_day(lat, lon, tz_name, day)
+    if not hourly:
+        return {
+            'season': season,
+            'wx_bucket': 'unknown',
+            't_band': 'mild',
+            'tavg': 10.0,
+            'mode_wmo': None,
+        }
+    codes = hourly.get('weathercode') or []
+    temps = hourly.get('temperature_2m') or []
+    ints: list[int] = []
+    for c in codes:
+        try:
+            ints.append(int(c))
+        except (TypeError, ValueError):
+            continue
+    mode_wmo = Counter(ints).most_common(1)[0][0] if ints else None
+    wx_bucket = _digest_wmo_image_bucket(mode_wmo)
+    tvals = [float(t) for t in temps if t is not None]
+    tavg = sum(tvals) / len(tvals) if tvals else 10.0
+    t_band = _digest_temp_band(tavg)
+    return {
+        'season': season,
+        'wx_bucket': wx_bucket,
+        't_band': t_band,
+        'tavg': tavg,
+        'mode_wmo': mode_wmo,
+    }
+
+
+def _digest_build_image_seed(
+    *,
+    day: dt.date,
+    channel_pk: int,
+    image_seed_extra: str,
+    local_now: dt.datetime,
+    wx_ctx: dict[str, Any],
+) -> str:
+    """
+    Seed для picsum: меняется с сезоном, погодой, температурой, часом генерации и каналом.
+    """
+    extra_s = re.sub(r'[^a-zA-Z0-9_-]', '_', (image_seed_extra or '')[:20])[:20] or 'x'
+    hr = local_now.hour
+    base = (
+        f"{day.isoformat()}-c{channel_pk}-h{hr:02d}-"
+        f"{wx_ctx['season']}-{wx_ctx['wx_bucket']}-{wx_ctx['t_band']}-"
+        f"t{wx_ctx['tavg']:.1f}-m{wx_ctx['mode_wmo']}-{extra_s}"
+    )
+    h12 = hashlib.sha256(base.encode('utf-8')).hexdigest()[:12]
+    # только [a-zA-Z0-9_-] для picsum path
+    raw = f"{base}-{h12}"
+    return re.sub(r'[^a-zA-Z0-9_-]', '_', raw)[:80]
+
+
+def _digest_palette_season_weather(wx_ctx: dict[str, Any], seed_salt: str) -> tuple[tuple[int, int, int], ...]:
+    """Палитра градиента заглушки: сезон + погода + температура + щепоть вариации из salt."""
+    dig = hashlib.sha256(
+        f"{wx_ctx.get('season')}|{wx_ctx.get('wx_bucket')}|{wx_ctx.get('t_band')}|"
+        f"{wx_ctx.get('tavg', 0):.2f}|{seed_salt}".encode('utf-8')
+    ).digest()
+    season = wx_ctx.get('season') or 'spring'
+    wxb = wx_ctx.get('wx_bucket') or 'unknown'
+    tb = wx_ctx.get('t_band') or 'mild'
+
+    # Базовый оттенок по сезону (HSV hue 0..1)
+    sh = {'winter': 0.58, 'spring': 0.30, 'summer': 0.14, 'autumn': 0.08}
+    h0 = (sh.get(season, 0.25) + dig[0] / 900.0) % 1.0
+    # Погода: дождь/туман — холоднее и серее; ясно — теплее; снег — к синему
+    wx_shift = {
+        'clear': 0.03,
+        'cloudy': -0.02,
+        'fog': -0.06,
+        'rain': -0.05,
+        'storm': -0.08,
+        'snow': 0.02,
+        'unknown': 0.0,
+    }
+    h0 = (h0 + wx_shift.get(wxb, -0.03) + dig[1] / 1200.0) % 1.0
+    h1 = (h0 + 0.06 + dig[2] / 800.0) % 1.0
+
+    # Насыщенность: лето/ясно ярче; зима/туман приглушённее
+    sat0 = 0.10 + (dig[3] % 20) / 350.0
+    if season == 'summer' and wxb == 'clear':
+        sat0 += 0.12
+    if wxb in ('fog', 'cloudy', 'rain'):
+        sat0 *= 0.65
+    if wxb == 'snow':
+        sat0 *= 0.55
+    sat0 = max(0.04, min(0.38, sat0))
+
+    # Яркость от «температурной полосы»
+    tb_vhi = {
+        'freezing': 0.72,
+        'cold': 0.76,
+        'cool': 0.80,
+        'mild': 0.84,
+        'warm': 0.88,
+        'hot': 0.90,
+    }
+    v_hi = tb_vhi.get(tb, 0.84) + (dig[4] % 14) / 250.0
+    v_lo = v_hi - 0.30 - (dig[5] % 10) / 250.0
+    v_hi = max(0.55, min(0.95, v_hi))
+    v_lo = max(0.35, min(0.72, v_lo))
+
+    r1, g1, b1 = colorsys.hsv_to_rgb(h0, sat0, v_hi)
+    r2, g2, b2 = colorsys.hsv_to_rgb(h1, min(0.42, sat0 + 0.1), v_lo)
+    top = (int(r1 * 255), int(g1 * 255), int(b1 * 255))
+    bot = (int(r2 * 255), int(g2 * 255), int(b2 * 255))
+
+    th = (h0 + 0.48) % 1.0
+    tr, tg, tb_ = colorsys.hsv_to_rgb(th, 0.35, 0.20)
+    title_c = (int(tr * 255), int(tg * 255), int(tb_ * 255))
+    sh2, ss2, sv2 = (h0 + 0.12) % 1.0, 0.14, 0.36
+    sr, sg, sb = colorsys.hsv_to_rgb(sh2, ss2, sv2)
+    sub_c = (int(sr * 255), int(sg * 255), int(sb * 255))
+    nh, ns, nv = (h0 + 0.32) % 1.0, 0.09, 0.46
+    nr, ng, nb = colorsys.hsv_to_rgb(nh, ns, nv)
+    note_c = (int(nr * 255), int(ng * 255), int(nb * 255))
+    return top, bot, title_c, sub_c, note_c
+
+
 def _digest_color_tuple_from_seed(seed: str) -> tuple[tuple[int, int, int], ...]:
     """Детерминированная палитра из seed: верх/низ градиента, цвета текста."""
     dig = hashlib.sha256((seed or 'morning').encode('utf-8')).digest()
@@ -797,15 +978,23 @@ def _digest_apply_channel_watermark_rgb(im, channel_name: str):
     return out.convert('RGB')
 
 
-def _digest_fallback_image_jpeg(seed: str, *, channel_name: str = '') -> bytes:
-    """Локальная картинка без внешних CDN; вид зависит от seed (день, канал, доп. seed)."""
+def _digest_fallback_image_jpeg(
+    seed: str,
+    *,
+    channel_name: str = '',
+    wx_ctx: dict[str, Any] | None = None,
+) -> bytes:
+    """Локальная картинка без внешних CDN; градиент от сезона и погоды (или от seed, если контекста нет)."""
     import io
 
     from PIL import Image, ImageDraw, ImageFont
 
     w, h = 1200, 800
     dig = hashlib.sha256((seed or 'morning').encode('utf-8')).digest()
-    top, bot, title_c, sub_c, note_c = _digest_color_tuple_from_seed(seed)
+    if wx_ctx:
+        top, bot, title_c, sub_c, note_c = _digest_palette_season_weather(wx_ctx, seed)
+    else:
+        top, bot, title_c, sub_c, note_c = _digest_color_tuple_from_seed(seed)
 
     im = Image.new('RGB', (w, h), color=top)
     draw = ImageDraw.Draw(im)
@@ -851,7 +1040,12 @@ def _digest_fallback_image_jpeg(seed: str, *, channel_name: str = '') -> bytes:
     return buf.getvalue()
 
 
-def download_digest_image_bytes(seed: str, *, channel_name: str = '') -> bytes | None:
+def download_digest_image_bytes(
+    seed: str,
+    *,
+    channel_name: str = '',
+    wx_ctx: dict[str, Any] | None = None,
+) -> bytes | None:
     safe = re.sub(r'[^a-zA-Z0-9_-]', '_', seed)[:80]
     url = f'https://picsum.photos/seed/{safe}/1200/800'
     headers = {'User-Agent': 'ProChannelsMorningDigest/1.0 (+https://prochannels.ru)'}
@@ -895,7 +1089,7 @@ def download_digest_image_bytes(seed: str, *, channel_name: str = '') -> bytes |
         logger.warning('digest image (picsum): %s', exc)
 
     try:
-        out = _digest_fallback_image_jpeg(seed, channel_name=channel_name)
+        out = _digest_fallback_image_jpeg(seed, channel_name=channel_name, wx_ctx=wx_ctx)
         logger.info('digest image: использована локальная заглушка Pillow (seed=%s)', safe[:40])
         return out
     except Exception as exc:
@@ -1195,8 +1389,20 @@ def _create_morning_digest_draft_post(cfg, *, day: dt.date, local_now: dt.dateti
     post.channels.add(channel)
 
     if cfg.block_image:
-        seed = f'{day.isoformat()}-{channel.pk}-{cfg.image_seed_extra or "d"}'
-        blob = download_digest_image_bytes(seed, channel_name=(channel.name or '').strip())
+        tz_img = cfg.timezone_name or 'Europe/Moscow'
+        wx_ctx = _digest_image_weather_context(day, lat, lon, tz_img)
+        seed = _digest_build_image_seed(
+            day=day,
+            channel_pk=channel.pk,
+            image_seed_extra=cfg.image_seed_extra or '',
+            local_now=local_now,
+            wx_ctx=wx_ctx,
+        )
+        blob = download_digest_image_bytes(
+            seed,
+            channel_name=(channel.name or '').strip(),
+            wx_ctx=wx_ctx,
+        )
         if blob:
             PostMedia.objects.create(
                 post=post,
