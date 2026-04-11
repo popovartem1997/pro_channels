@@ -5,7 +5,8 @@
 - Солнце: sunrise-sunset.org (без ключа).
 - Праздники: библиотека holidays.
 - Цитата / слово / гороскоп: DeepSeek (текст), если включено и задан ключ в «Ключи API».
-- Картинка: picsum.photos по seed (DeepSeek изображения не генерирует).
+- Картинка: picsum.photos по seed; при недоступности (часто на хостинге в РФ) — запасной JPEG через Pillow.
+  Если задан HTTP/SOCKS-прокси в «Ключи API», скачивание picsum идёт через него.
 """
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ import datetime as dt
 import json
 import logging
 import re
+from pathlib import Path
 from collections import Counter
 from html import escape as html_escape
 from typing import Any
@@ -332,15 +334,91 @@ def geocode_place_label(query: str) -> tuple[float | None, float | None]:
         return None, None
 
 
+def _digest_fallback_image_jpeg(seed: str) -> bytes:
+    """Локальная картинка без внешних CDN — для хостинга, где picsum недоступен."""
+    import io
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    w, h = 1200, 800
+    base = (248, 250, 253)
+    im = Image.new('RGB', (w, h), color=base)
+    draw = ImageDraw.Draw(im)
+    for y in range(h):
+        t = y / max(h - 1, 1)
+        c = (
+            int(240 + 8 * t),
+            int(244 + 6 * t),
+            int(252 - 4 * t),
+        )
+        draw.line([(0, y), (w, y)], fill=c)
+
+    font_paths = [
+        Path('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'),
+        Path('/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf'),
+    ]
+    font_lg = font_sm = None
+    for fp in font_paths:
+        if fp.is_file():
+            try:
+                font_lg = ImageFont.truetype(str(fp), 44)
+                font_sm = ImageFont.truetype(str(fp), 26)
+                break
+            except Exception:
+                pass
+    if font_lg is None:
+        font_lg = font_sm = ImageFont.load_default()
+
+    title = 'Утренний дайджест'
+    sub = (seed or '')[:90]
+    tw, th = draw.textbbox((0, 0), title, font=font_lg)[2:]
+    draw.text(((w - tw) // 2, h // 2 - 50), title, fill=(35, 48, 62), font=font_lg)
+    if sub:
+        sw, sh = draw.textbbox((0, 0), sub, font=font_sm)[2:]
+        draw.text(((w - sw) // 2, h // 2 + 20), sub, fill=(75, 88, 102), font=font_sm)
+    note = 'Локальная заглушка (внешний сервис картинок недоступен)'
+    nw, nh = draw.textbbox((0, 0), note, font=font_sm)[2:]
+    draw.text(((w - nw) // 2, h - 48), note, fill=(120, 130, 145), font=font_sm)
+
+    buf = io.BytesIO()
+    im.save(buf, format='JPEG', quality=88, optimize=True)
+    return buf.getvalue()
+
+
 def download_digest_image_bytes(seed: str) -> bytes | None:
+    safe = re.sub(r'[^a-zA-Z0-9_-]', '_', seed)[:80]
+    url = f'https://picsum.photos/seed/{safe}/1200/800'
+    headers = {'User-Agent': 'ProChannelsMorningDigest/1.0 (+https://prochannels.ru)'}
+
     try:
-        safe = re.sub(r'[^a-zA-Z0-9_-]', '_', seed)[:80]
-        url = f'https://picsum.photos/seed/{safe}/1200/800'
-        r = requests.get(url, timeout=35, allow_redirects=True)
+        from core.telegram_bot_request import telegram_bot_requests_proxies
+
+        proxies = telegram_bot_requests_proxies()
+    except Exception:
+        proxies = None
+
+    try:
+        r = requests.get(
+            url,
+            timeout=45,
+            allow_redirects=True,
+            headers=headers,
+            proxies=proxies,
+        )
         r.raise_for_status()
-        return r.content
+        data = r.content or b''
+        if len(data) > 512:
+            return data
+        logger.warning('digest image: picsum ответ слишком короткий (%s байт)', len(data))
     except Exception as exc:
-        logger.warning('digest image: %s', exc)
+        logger.warning('digest image (picsum): %s', exc)
+
+    try:
+        out = _digest_fallback_image_jpeg(seed)
+        logger.info('digest image: использована локальная заглушка Pillow (seed=%s)', safe[:40])
+        return out
+    except Exception as exc:
+        logger.warning('digest image (fallback Pillow): %s', exc)
         return None
 
 
