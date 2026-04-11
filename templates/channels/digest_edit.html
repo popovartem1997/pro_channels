@@ -89,14 +89,6 @@
         <input type="text" class="form-control" name="country_for_holidays" id="id_country_for_holidays"
                value="{{ digest.country_for_holidays }}" maxlength="2">
       </div>
-      <div class="col-md-3">
-        <label class="form-label small" for="id_horoscope_sign">Гороскоп</label>
-        <select class="form-select" name="horoscope_sign" id="id_horoscope_sign">
-          {% for val, lab in zodiac_choices %}
-          <option value="{{ val }}" {% if digest.horoscope_sign == val %}selected{% endif %}>{{ lab }}</option>
-          {% endfor %}
-        </select>
-      </div>
     </div>
 
     <hr>

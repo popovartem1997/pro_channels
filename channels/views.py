@@ -1166,8 +1166,7 @@ def _apply_morning_digest_from_post(request, digest) -> Optional[str]:
 
     digest.location_label = (request.POST.get('location_label') or '').strip()[:120]
     digest.country_for_holidays = (request.POST.get('country_for_holidays') or 'RU').strip().upper()[:2]
-    hs = (request.POST.get('horoscope_sign') or 'general').strip()[:20]
-    digest.horoscope_sign = hs if hs in dict(ChannelMorningDigest.ZODIAC_CHOICES) else ChannelMorningDigest.ZODIAC_GENERAL
+    digest.horoscope_sign = ChannelMorningDigest.ZODIAC_GENERAL
 
     digest.block_date = request.POST.get('block_date') == 'on'
     digest.block_weather = request.POST.get('block_weather') == 'on'
@@ -1261,7 +1260,6 @@ def channel_digest_edit(request, pk):
             'digest': digest,
             'selected_weekdays': selected_wd,
             'weekday_meta': weekday_meta,
-            'zodiac_choices': ChannelMorningDigest.ZODIAC_CHOICES,
         },
     )
 

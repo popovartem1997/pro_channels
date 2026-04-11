@@ -1360,14 +1360,12 @@ def _tg_html_has_rich_formatting(html: str) -> bool:
     )
 
 
-def _build_text(post, channel, *, tg_skip_footer: bool = False):
+def _build_text(post, channel):
     """
     Собирает итоговый текст поста: ОРД метка + текст + подпись канала.
 
     Подписи хранятся в HTML-разметке (для TG/MAX) или plain text (VK).
     Подпись НЕ добавляется к рекламным постам (ord_label задан).
-
-    tg_skip_footer: для Telegram — не добавлять tg_footer (второе сообщение с гороскопом получит подпись).
     """
     from channels.models import Channel as Ch
     from html import escape
@@ -1397,7 +1395,7 @@ def _build_text(post, channel, *, tg_skip_footer: bool = False):
             text = f'{ol}\n\n{text}'
         else:
             footer = (channel.tg_footer or '').strip()
-            if footer and not tg_skip_footer:
+            if footer:
                 text = f'{text}\n\n{footer}'
         # Редактор и старые посты могут содержать <br>; API Telegram HTML их не принимает.
         text = _tg_strip_br_for_telegram_api(text)
@@ -1405,9 +1403,6 @@ def _build_text(post, channel, *, tg_skip_footer: bool = False):
 
     # MAX / VK / прочие — как раньше (plain + \n)
     text = post.text or ''
-    fu = (getattr(post, 'telegram_followup_text', None) or '').strip()
-    if fu:
-        text = f'{text}\n\n{fu}' if text.strip() else fu
 
     if post.ord_label:
         text = f'{post.ord_label}\n\n{text}'
@@ -1423,30 +1418,6 @@ def _build_text(post, channel, *, tg_skip_footer: bool = False):
             text = f'{text}\n\n{footer}'
 
     return text
-
-
-def _build_telegram_digest_followup(post, channel) -> str:
-    """Второе сообщение TG (гороскоп): HTML из поля + подпись канала."""
-    from channels.models import Channel as Ch
-    from html import escape
-
-    if channel.platform != Ch.PLATFORM_TELEGRAM:
-        return ''
-    raw = (getattr(post, 'telegram_followup_html', None) or '').strip()
-    if not raw:
-        return ''
-    text = raw.replace('\r\n', '\n')
-    if '<pre' not in text.lower():
-        text = _tg_preserve_spaces_telegram_html(text)
-    if post.ord_label:
-        ol = escape((post.ord_label or '').strip(), quote=False)
-        text = f'{ol}\n\n{text}'
-    else:
-        footer = (channel.tg_footer or '').strip()
-        if footer:
-            text = f'{text}\n\n{footer}'
-    text = _tg_strip_br_for_telegram_api(text)
-    return _tg_sanitize_entities_for_telegram_html(text)
 
 
 def _tg_file_for_telegram_upload(mf, *, attach: bool):
@@ -1628,9 +1599,7 @@ def _prepare_telegram_publish_bundle(post, channel):
     if not bot_token or not chat_id:
         raise ValueError('Не настроен токен бота или chat_id для Telegram')
 
-    tg_has_followup = bool((getattr(post, 'telegram_followup_html', None) or '').strip())
-    text = _build_text(post, channel, tg_skip_footer=tg_has_followup)
-    followup_tg = _build_telegram_digest_followup(post, channel) if tg_has_followup else ''
+    text = _build_text(post, channel)
     parse_mode = ParseMode.HTML
 
     media_rows = [
@@ -1660,7 +1629,6 @@ def _prepare_telegram_publish_bundle(post, channel):
         'parse_mode': parse_mode,
         'media': media_payload,
         'proxy_url': effective_telegram_bot_proxy_url(),
-        'telegram_followup': followup_tg,
     }
 
 
@@ -1676,7 +1644,6 @@ async def _publish_telegram_async_send(bundle: dict):
     text = bundle['text']
     parse_mode = bundle['parse_mode']
     media = bundle['media']
-    followup_tg = (bundle.get('telegram_followup') or '').strip()
     if media:
         cap_c, overflow_text = _tg_caption_html_and_overflow(text)
     else:
@@ -1699,13 +1666,6 @@ async def _publish_telegram_async_send(bundle: dict):
                     **common_kw,
                 )
                 msg_id = m.message_id
-                if followup_tg:
-                    await bot.send_message(
-                        text=followup_tg,
-                        parse_mode=parse_mode,
-                        disable_web_page_preview=True,
-                        **common_kw,
-                    )
             elif len(media) == 1:
                 row = media[0]
                 media_obj = row['upload']
@@ -1732,13 +1692,6 @@ async def _publish_telegram_async_send(bundle: dict):
                         parse_mode=parse_mode,
                         disable_web_page_preview=True,
                         reply_to_message_id=m.message_id,
-                        **common_kw,
-                    )
-                if followup_tg:
-                    await bot.send_message(
-                        text=followup_tg,
-                        parse_mode=parse_mode,
-                        disable_web_page_preview=True,
                         **common_kw,
                     )
             else:
@@ -1774,13 +1727,6 @@ async def _publish_telegram_async_send(bundle: dict):
                         parse_mode=parse_mode,
                         disable_web_page_preview=True,
                         reply_to_message_id=msgs[0].message_id,
-                        **common_kw,
-                    )
-                if followup_tg:
-                    await bot.send_message(
-                        text=followup_tg,
-                        parse_mode=parse_mode,
-                        disable_web_page_preview=True,
                         **common_kw,
                     )
 
@@ -2201,9 +2147,6 @@ def _publish_max(post, channel):
         main_raw = f'{post.ord_label}\n\n{post.text}'
     else:
         main_raw = post.text or ''
-    fu_plain = (getattr(post, 'telegram_followup_text', None) or '').strip()
-    if fu_plain:
-        main_raw = f'{main_raw}\n\n{fu_plain}' if (main_raw or '').strip() else fu_plain
 
     footer_text = ''
     if (not post.ord_label) and channel.platform == Ch.PLATFORM_MAX:
