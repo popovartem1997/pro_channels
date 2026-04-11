@@ -14,7 +14,8 @@
   <ul class="mb-0 ps-3">
     <li><strong>Погода</strong> — Open-Meteo (без ключа), по широте/долготе.</li>
     <li><strong>Солнце</strong> — публичный API sunrise-sunset.org.</li>
-    <li><strong>Праздники</strong> — библиотека <code>holidays</code> по коду страны.</li>
+    <li><strong>Праздники</strong> — государственные выходные (<code>holidays</code>), для РФ дополнительно памятные/профессиональные даты и переносимые православные (Пасха, Троица и др.); 🎊 — из библиотеки, 📌 — доп. справочник и вычисляемые даты.</li>
+    <li><strong>Вчера в канале</strong> — краткая сводка по постам, опубликованным вчера по часовому поясу дайджеста (при ключе DeepSeek — одно предложение).</li>
     <li><strong>Цитата, слово, гороскоп</strong> — при включённых опциях и ключе DeepSeek в «Ключи API» текст генерируется моделью; иначе подставляются нейтральные шаблоны.</li>
     <li><strong>Картинка</strong> — сервис picsum.photos по дате и seed (DeepSeek <strong>не генерирует изображения</strong>; для своих картинок позже можно подключить отдельный API).</li>
   </ul>
@@ -134,7 +135,19 @@
       <div class="col-md-4">
         <div class="form-check">
           <input class="form-check-input" type="checkbox" name="block_holidays" id="id_block_holidays" {% if digest.block_holidays %}checked{% endif %}>
-          <label class="form-check-label" for="id_block_holidays">Праздники</label>
+          <label class="form-check-label" for="id_block_holidays">Праздники сегодня</label>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="block_holidays_tomorrow" id="id_block_holidays_tomorrow" {% if digest.block_holidays_tomorrow %}checked{% endif %}>
+          <label class="form-check-label" for="id_block_holidays_tomorrow">Праздники завтра</label>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="block_yesterday_news" id="id_block_yesterday_news" {% if digest.block_yesterday_news %}checked{% endif %}>
+          <label class="form-check-label" for="id_block_yesterday_news">Сводка за вчера (посты канала)</label>
         </div>
       </div>
       <div class="col-md-4">
@@ -173,6 +186,13 @@
           <input class="form-check-input" type="checkbox" name="use_ai_horoscope" id="id_use_ai_horoscope"
                  {% if digest.use_ai_horoscope %}checked{% endif %}>
           <label class="form-check-label" for="id_use_ai_horoscope">Гороскоп через AI</label>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="use_ai_yesterday_news" id="id_use_ai_yesterday_news"
+                 {% if digest.use_ai_yesterday_news %}checked{% endif %}>
+          <label class="form-check-label" for="id_use_ai_yesterday_news">Сводку за вчера через AI</label>
         </div>
       </div>
     </div>

@@ -391,12 +391,15 @@ class ChannelMorningDigest(models.Model):
     block_quote = models.BooleanField('Цитата дня', default=True)
     block_english = models.BooleanField('Английское слово', default=True)
     block_holidays = models.BooleanField('Праздники сегодня', default=True)
+    block_holidays_tomorrow = models.BooleanField('Праздники завтра', default=True)
+    block_yesterday_news = models.BooleanField('Сводка по вчерашним постам канала', default=True)
     block_horoscope = models.BooleanField('Гороскоп на сегодня', default=True)
     block_image = models.BooleanField('Картинка к посту', default=True)
 
     use_ai_quote = models.BooleanField('Цитату генерировать через DeepSeek', default=True)
     use_ai_english = models.BooleanField('Слово дня — через DeepSeek', default=True)
     use_ai_horoscope = models.BooleanField('Гороскоп — через DeepSeek', default=True)
+    use_ai_yesterday_news = models.BooleanField('Сводку за вчера — через DeepSeek', default=True)
 
     image_seed_extra = models.CharField(
         'Доп. seed для картинки',

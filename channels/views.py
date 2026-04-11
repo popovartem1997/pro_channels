@@ -1175,12 +1175,15 @@ def _apply_morning_digest_from_post(request, digest) -> Optional[str]:
     digest.block_quote = request.POST.get('block_quote') == 'on'
     digest.block_english = request.POST.get('block_english') == 'on'
     digest.block_holidays = request.POST.get('block_holidays') == 'on'
+    digest.block_holidays_tomorrow = request.POST.get('block_holidays_tomorrow') == 'on'
+    digest.block_yesterday_news = request.POST.get('block_yesterday_news') == 'on'
     digest.block_horoscope = request.POST.get('block_horoscope') == 'on'
     digest.block_image = request.POST.get('block_image') == 'on'
 
     digest.use_ai_quote = request.POST.get('use_ai_quote') == 'on'
     digest.use_ai_english = request.POST.get('use_ai_english') == 'on'
     digest.use_ai_horoscope = request.POST.get('use_ai_horoscope') == 'on'
+    digest.use_ai_yesterday_news = request.POST.get('use_ai_yesterday_news') == 'on'
     digest.image_seed_extra = (request.POST.get('image_seed_extra') or '')[:80]
     return None
 
