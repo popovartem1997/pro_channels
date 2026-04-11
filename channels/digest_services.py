@@ -6,12 +6,14 @@
 - Праздники: библиотека holidays.
 - Цитата / слово / гороскоп: DeepSeek (текст), если включено и задан ключ в «Ключи API».
   Гороскоп: при «Общий» — по всем знакам зодиака; при выборе знака — только для него.
-- Картинка: picsum.photos по seed; при недоступности (часто на хостинге в РФ) — запасной JPEG через Pillow.
+- Картинка: picsum.photos по seed; при недоступности — локальный JPEG в Pillow (цвета/градиент от seed; без DeepSeek — у DeepSeek нет API изображений в этой интеграции).
   Если задан HTTP/SOCKS-прокси в «Ключи API», скачивание picsum идёт через него.
 """
 from __future__ import annotations
 
+import colorsys
 import datetime as dt
+import hashlib
 import json
 import logging
 import re
@@ -401,23 +403,60 @@ def geocode_place_label(query: str) -> tuple[float | None, float | None]:
         return None, None
 
 
+def _digest_color_tuple_from_seed(seed: str) -> tuple[tuple[int, int, int], ...]:
+    """Детерминированная палитра из seed: верх/низ градиента, цвета текста."""
+    dig = hashlib.sha256((seed or 'morning').encode('utf-8')).digest()
+    h0 = dig[0] / 255.0
+    h1 = (h0 + 0.07 + dig[1] / 2000.0) % 1.0
+    sat = 0.07 + (dig[2] % 28) / 400.0
+    v_hi = 0.82 + (dig[3] % 18) / 200.0
+    v_lo = 0.48 + (dig[4] % 22) / 200.0
+    r1, g1, b1 = colorsys.hsv_to_rgb(h0, sat, v_hi)
+    r2, g2, b2 = colorsys.hsv_to_rgb(h1, min(0.45, sat + 0.12), v_lo)
+    top = (int(r1 * 255), int(g1 * 255), int(b1 * 255))
+    bot = (int(r2 * 255), int(g2 * 255), int(b2 * 255))
+    th, ts, tv = (h0 + 0.52) % 1.0, 0.4, 0.18
+    tr, tg, tb = colorsys.hsv_to_rgb(th, ts, tv)
+    title_c = (int(tr * 255), int(tg * 255), int(tb * 255))
+    sh, ss, sv = (h0 + 0.15) % 1.0, 0.12, 0.38
+    sr, sg, sb = colorsys.hsv_to_rgb(sh, ss, sv)
+    sub_c = (int(sr * 255), int(sg * 255), int(sb * 255))
+    nh, ns, nv = (h0 + 0.35) % 1.0, 0.08, 0.48
+    nr, ng, nb = colorsys.hsv_to_rgb(nh, ns, nv)
+    note_c = (int(nr * 255), int(ng * 255), int(nb * 255))
+    return top, bot, title_c, sub_c, note_c
+
+
+def _lerp_rgb(
+    a: tuple[int, int, int], b: tuple[int, int, int], t: float
+) -> tuple[int, int, int]:
+    t = max(0.0, min(1.0, t))
+    return (
+        int(a[0] + (b[0] - a[0]) * t),
+        int(a[1] + (b[1] - a[1]) * t),
+        int(a[2] + (b[2] - a[2]) * t),
+    )
+
+
 def _digest_fallback_image_jpeg(seed: str) -> bytes:
-    """Локальная картинка без внешних CDN — для хостинга, где picsum недоступен."""
+    """Локальная картинка без внешних CDN; вид зависит от seed (день, канал, доп. seed)."""
     import io
 
     from PIL import Image, ImageDraw, ImageFont
 
     w, h = 1200, 800
-    base = (248, 250, 253)
-    im = Image.new('RGB', (w, h), color=base)
+    dig = hashlib.sha256((seed or 'morning').encode('utf-8')).digest()
+    top, bot, title_c, sub_c, note_c = _digest_color_tuple_from_seed(seed)
+
+    im = Image.new('RGB', (w, h), color=top)
     draw = ImageDraw.Draw(im)
+    # Вертикальный градиент + лёгкий сдвиг «полос» по горизонтали (быстро, без перебора всех пикселей)
+    bend = (dig[5] % 31) / 5000.0
     for y in range(h):
-        t = y / max(h - 1, 1)
-        c = (
-            int(240 + 8 * t),
-            int(244 + 6 * t),
-            int(252 - 4 * t),
-        )
+        ty = y / max(h - 1, 1)
+        t = ty + bend * (1.0 - abs(ty - 0.5) * 2)
+        t = max(0.0, min(1.0, t))
+        c = _lerp_rgb(top, bot, t)
         draw.line([(0, y), (w, y)], fill=c)
 
     font_paths = [
@@ -439,13 +478,13 @@ def _digest_fallback_image_jpeg(seed: str) -> bytes:
     title = 'Утренний дайджест'
     sub = (seed or '')[:90]
     tw, th = draw.textbbox((0, 0), title, font=font_lg)[2:]
-    draw.text(((w - tw) // 2, h // 2 - 50), title, fill=(35, 48, 62), font=font_lg)
+    draw.text(((w - tw) // 2, h // 2 - 50), title, fill=title_c, font=font_lg)
     if sub:
         sw, sh = draw.textbbox((0, 0), sub, font=font_sm)[2:]
-        draw.text(((w - sw) // 2, h // 2 + 20), sub, fill=(75, 88, 102), font=font_sm)
-    note = 'Локальная заглушка (внешний сервис картинок недоступен)'
+        draw.text(((w - sw) // 2, h // 2 + 20), sub, fill=sub_c, font=font_sm)
+    note = 'Локальная картинка · без внешнего CDN'
     nw, nh = draw.textbbox((0, 0), note, font=font_sm)[2:]
-    draw.text(((w - nw) // 2, h - 48), note, fill=(120, 130, 145), font=font_sm)
+    draw.text(((w - nw) // 2, h - 48), note, fill=note_c, font=font_sm)
 
     buf = io.BytesIO()
     im.save(buf, format='JPEG', quality=88, optimize=True)
