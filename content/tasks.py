@@ -1661,9 +1661,6 @@ def _prepare_telegram_publish_bundle(post, channel):
         'media': media_payload,
         'proxy_url': effective_telegram_bot_proxy_url(),
         'telegram_followup': followup_tg,
-        'telegram_first_message_media_only': bool(
-            getattr(post, 'telegram_first_message_media_only', False)
-        ),
     }
 
 
@@ -1680,10 +1677,7 @@ async def _publish_telegram_async_send(bundle: dict):
     parse_mode = bundle['parse_mode']
     media = bundle['media']
     followup_tg = (bundle.get('telegram_followup') or '').strip()
-    telegram_media_only = bool(bundle.get('telegram_first_message_media_only')) and bool(media)
-    if telegram_media_only:
-        cap_c, overflow_text = '', None
-    elif media:
+    if media:
         cap_c, overflow_text = _tg_caption_html_and_overflow(text)
     else:
         cap_c, overflow_text = (text, None)
@@ -1705,55 +1699,6 @@ async def _publish_telegram_async_send(bundle: dict):
                     **common_kw,
                 )
                 msg_id = m.message_id
-                if followup_tg:
-                    await bot.send_message(
-                        text=followup_tg,
-                        parse_mode=parse_mode,
-                        disable_web_page_preview=True,
-                        **common_kw,
-                    )
-            elif telegram_media_only:
-                if len(media) == 1:
-                    row = media[0]
-                    media_obj = row['upload']
-                    cap_kw = {**common_kw}
-                    mt = row['type']
-                    if mt == 'photo':
-                        m = await bot.send_photo(photo=media_obj, **cap_kw)
-                    elif mt == 'video':
-                        vk = {**cap_kw, 'supports_streaming': True}
-                        w, h = row.get('width'), row.get('height')
-                        if w and h:
-                            vk['width'] = int(w)
-                            vk['height'] = int(h)
-                        m = await bot.send_video(video=media_obj, **vk)
-                    else:
-                        m = await bot.send_document(document=media_obj, **cap_kw)
-                    msg_id = m.message_id
-                else:
-                    group = []
-                    for row in media:
-                        media_obj = row['upload']
-                        mt = row['type']
-                        w, h = row.get('width'), row.get('height')
-                        item = _tg_input_media_for_group_item(
-                            media_obj,
-                            mt,
-                            caption=None,
-                            parse_mode=None,
-                            width=w,
-                            height=h,
-                        )
-                        group.append(item)
-                    msgs = await bot.send_media_group(media=group, **common_kw)
-                    msg_id = msgs[0].message_id if msgs else None
-                if text.strip():
-                    await bot.send_message(
-                        text=text,
-                        parse_mode=parse_mode,
-                        disable_web_page_preview=True,
-                        **common_kw,
-                    )
                 if followup_tg:
                     await bot.send_message(
                         text=followup_tg,

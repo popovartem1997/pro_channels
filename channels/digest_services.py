@@ -1392,7 +1392,6 @@ def _create_morning_digest_draft_post(cfg, *, day: dt.date, local_now: dt.dateti
         text_html=html,
         telegram_followup_text=hp,
         telegram_followup_html=hh,
-        telegram_first_message_media_only=bool(cfg.block_image),
         status=Post.STATUS_DRAFT,
         ord_label='',
     )
