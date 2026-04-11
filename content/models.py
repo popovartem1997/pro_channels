@@ -41,6 +41,11 @@ class Post(models.Model):
     text = models.TextField(verbose_name='Текст поста')
     # text_html: HTML (для Telegram parse_mode=HTML и предпросмотра)
     text_html = models.TextField(blank=True, verbose_name='Текст поста (HTML для Telegram)')
+    # Утренний дайджест: гороскоп отдельно от основного текста (второе сообщение в Telegram)
+    telegram_followup_text = models.TextField(blank=True, verbose_name='Доп. текст (plain, гороскоп)')
+    telegram_followup_html = models.TextField(blank=True, verbose_name='Доп. текст HTML (гороскоп для TG)')
+    # True: в Telegram сначала только медиа без подписи, затем текст(ы) отдельными сообщениями
+    telegram_first_message_media_only = models.BooleanField(default=False, verbose_name='TG: сначала только медиа')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True, verbose_name='Статус')
 
     # Планирование

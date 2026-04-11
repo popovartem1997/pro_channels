@@ -1149,7 +1149,10 @@ def is_digest_due_now(cfg, local_now: dt.datetime) -> bool:
     return _digest_local_time_in_window(local_now, st, window)
 
 
-def compose_digest_text(cfg, *, local_now: dt.datetime, day: dt.date, lat: float, lon: float) -> tuple[str, str]:
+def compose_digest_text(
+    cfg, *, local_now: dt.datetime, day: dt.date, lat: float, lon: float
+) -> tuple[str, str, str, str]:
+    """plain, html, horoscope_plain, horoscope_html (последние два пустые, если гороскоп выключен)."""
     from core.models import get_global_api_keys
 
     tz_name = cfg.timezone_name or 'Europe/Moscow'
@@ -1331,6 +1334,8 @@ def compose_digest_text(cfg, *, local_now: dt.datetime, day: dt.date, lat: float
                 f'<b>{html_escape(head_t)}:</b>\n{html_escape(sub_t)}',
             )
 
+    horoscope_plain = ''
+    horoscope_html = ''
     if cfg.block_horoscope:
         sign_cfg = (cfg.horoscope_sign or 'general').strip() or 'general'
         fb_hs = static_horoscope_by_sign_fallback()
@@ -1350,7 +1355,8 @@ def compose_digest_text(cfg, *, local_now: dt.datetime, day: dt.date, lat: float
                 hlines.append(
                     f'     {emoji} <b>{html_escape(label)}</b> — {html_escape(txt)}'
                 )
-            add_block('\n'.join(plines), '\n'.join(hlines))
+            horoscope_plain = '\n'.join(plines).strip()
+            horoscope_html = '\n'.join(hlines).strip()
         else:
             label = ZODIAC_LABELS.get(sign_cfg, sign_cfg)
             head = f'✨ Гороскоп на сегодня: {label}'
@@ -1360,11 +1366,12 @@ def compose_digest_text(cfg, *, local_now: dt.datetime, day: dt.date, lat: float
                 ho = fb['horoscope_ru']
             body_plain = f'     {ho}'
             body_html = f'     {html_escape(ho)}'
-            add_block(f'{head}\n{body_plain}', f'<b>{html_escape(head)}</b>\n{body_html}')
+            horoscope_plain = f'{head}\n{body_plain}'.strip()
+            horoscope_html = f'<b>{html_escape(head)}</b>\n{body_html}'.strip()
 
     plain = '\n\n'.join(blocks_plain).strip()
     html = '\n\n'.join(blocks_html).strip()
-    return plain, html
+    return plain, html, horoscope_plain, horoscope_html
 
 
 def _create_morning_digest_draft_post(cfg, *, day: dt.date, local_now: dt.datetime):
@@ -1377,12 +1384,15 @@ def _create_morning_digest_draft_post(cfg, *, day: dt.date, local_now: dt.dateti
     channel = cfg.channel
     lat = float(cfg.latitude)
     lon = float(cfg.longitude)
-    plain, html = compose_digest_text(cfg, local_now=local_now, day=day, lat=lat, lon=lon)
+    plain, html, hp, hh = compose_digest_text(cfg, local_now=local_now, day=day, lat=lat, lon=lon)
 
     post = Post.objects.create(
         author=channel.owner,
         text=plain,
         text_html=html,
+        telegram_followup_text=hp,
+        telegram_followup_html=hh,
+        telegram_first_message_media_only=bool(cfg.block_image),
         status=Post.STATUS_DRAFT,
         ord_label='',
     )
