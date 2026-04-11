@@ -8,6 +8,7 @@
 - Цитата / слово / гороскоп: DeepSeek (текст), если включено и задан ключ в «Ключи API».
   Гороскоп: при «Общий» — по всем знакам зодиака; при выборе знака — только для него.
 - Картинка: picsum.photos по seed; при недоступности — локальный JPEG в Pillow (цвета/градиент от seed; без DeepSeek — у DeepSeek нет API изображений в этой интеграции).
+  На картинку накладывается полупрозрачный водяной знак с названием канала (красивый шрифт при наличии в системе).
   Если задан HTTP/SOCKS-прокси в «Ключи API», скачивание picsum идёт через него.
 """
 from __future__ import annotations
@@ -720,7 +721,74 @@ def _lerp_rgb(
     )
 
 
-def _digest_fallback_image_jpeg(seed: str) -> bytes:
+def _digest_load_watermark_font(size: int):
+    """Шрифт для водяного знака: serif / italic, с поддержкой кириллицы (первый доступный из списка)."""
+    from PIL import ImageFont
+
+    candidates = [
+        Path('/Library/Fonts/Georgia.ttf'),
+        Path('/System/Library/Fonts/Supplemental/Georgia.ttf'),
+        Path('/System/Library/Fonts/Supplemental/Georgia Italic.ttf'),
+        Path('/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf'),
+        Path('/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf'),
+        Path('/usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf'),
+        Path('/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf'),
+        Path('/usr/share/fonts/truetype/noto/NotoSerif-Italic.ttf'),
+        Path('/usr/share/fonts/truetype/noto/NotoSerif-Regular.ttf'),
+    ]
+    for fp in candidates:
+        if fp.is_file():
+            try:
+                return ImageFont.truetype(str(fp), size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
+
+
+def _digest_apply_channel_watermark_rgb(im, channel_name: str):
+    """
+    Накладывает название канала в правом нижнем углу: лёгкая тень + полупрозрачный светлый текст.
+    Возвращает RGB для сохранения в JPEG.
+    """
+    from PIL import ImageDraw
+
+    name = (channel_name or '').strip()
+    if not name:
+        return im.convert('RGB')
+    if len(name) > 52:
+        name = name[:50] + '…'
+
+    w, h = im.size
+    base = im.convert('RGBA')
+    overlay = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    margin = max(20, min(44, w // 28))
+    max_tw = w - 2 * margin
+    size = max(24, min(52, w // 20))
+    bbox = (0, 0, 0, 0)
+    while size > 14:
+        font = _digest_load_watermark_font(size)
+        bbox = draw.textbbox((0, 0), name, font=font)
+        tw = bbox[2] - bbox[0]
+        if tw <= max_tw:
+            break
+        size -= 2
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+    x = w - tw - margin
+    y = h - th - margin
+    x = max(margin, min(x, w - tw - margin))
+    y = max(margin, min(y, h - th - margin))
+    shadow_a = 72
+    text_a = 132
+    for ox, oy in ((3, 3), (2, 2), (1, 1)):
+        draw.text((x + ox, y + oy), name, font=font, fill=(0, 0, 0, shadow_a))
+    draw.text((x, y), name, font=font, fill=(255, 255, 255, text_a))
+    out = Image.alpha_composite(base, overlay)
+    return out.convert('RGB')
+
+
+def _digest_fallback_image_jpeg(seed: str, *, channel_name: str = '') -> bytes:
     """Локальная картинка без внешних CDN; вид зависит от seed (день, канал, доп. seed)."""
     import io
 
@@ -768,12 +836,13 @@ def _digest_fallback_image_jpeg(seed: str) -> bytes:
     nw, nh = draw.textbbox((0, 0), note, font=font_sm)[2:]
     draw.text(((w - nw) // 2, h - 48), note, fill=note_c, font=font_sm)
 
+    im = _digest_apply_channel_watermark_rgb(im, channel_name)
     buf = io.BytesIO()
     im.save(buf, format='JPEG', quality=88, optimize=True)
     return buf.getvalue()
 
 
-def download_digest_image_bytes(seed: str) -> bytes | None:
+def download_digest_image_bytes(seed: str, *, channel_name: str = '') -> bytes | None:
     safe = re.sub(r'[^a-zA-Z0-9_-]', '_', seed)[:80]
     url = f'https://picsum.photos/seed/{safe}/1200/800'
     headers = {'User-Agent': 'ProChannelsMorningDigest/1.0 (+https://prochannels.ru)'}
@@ -796,13 +865,27 @@ def download_digest_image_bytes(seed: str) -> bytes | None:
         r.raise_for_status()
         data = r.content or b''
         if len(data) > 512:
-            return data
+            try:
+                import io
+
+                from PIL import Image
+
+                bio = io.BytesIO(data)
+                im = Image.open(bio)
+                im = im.convert('RGB')
+                im = _digest_apply_channel_watermark_rgb(im, channel_name)
+                out = io.BytesIO()
+                im.save(out, format='JPEG', quality=88, optimize=True)
+                return out.getvalue()
+            except Exception as exc:
+                logger.warning('digest image watermark (picsum): %s', exc)
+                return data
         logger.warning('digest image: picsum ответ слишком короткий (%s байт)', len(data))
     except Exception as exc:
         logger.warning('digest image (picsum): %s', exc)
 
     try:
-        out = _digest_fallback_image_jpeg(seed)
+        out = _digest_fallback_image_jpeg(seed, channel_name=channel_name)
         logger.info('digest image: использована локальная заглушка Pillow (seed=%s)', safe[:40])
         return out
     except Exception as exc:
@@ -1103,7 +1186,7 @@ def _create_morning_digest_draft_post(cfg, *, day: dt.date, local_now: dt.dateti
 
     if cfg.block_image:
         seed = f'{day.isoformat()}-{channel.pk}-{cfg.image_seed_extra or "d"}'
-        blob = download_digest_image_bytes(seed)
+        blob = download_digest_image_bytes(seed, channel_name=(channel.name or '').strip())
         if blob:
             PostMedia.objects.create(
                 post=post,
