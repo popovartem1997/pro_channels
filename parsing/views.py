@@ -4,6 +4,7 @@
 from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
+from datetime import timedelta
 from urllib.parse import urlencode
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -1471,6 +1472,11 @@ def keyword_harvest_detail(request, pk):
         harvest_skipped_existing_count = max(0, suggested_nonempty - len(visible_keywords))
 
     tw = int(getattr(settings, 'TELETHON_REDIS_LOCK_WAIT', 600) or 600)
+    harvest_running_stale = False
+    if job.status == KeywordHarvestJob.STATUS_RUNNING:
+        stale_after = timezone.now() - timedelta(minutes=18)
+        if job.updated_at < stale_after:
+            harvest_running_stale = True
     return render(
         request,
         'parsing/keyword_harvest_detail.html',
@@ -1482,5 +1488,6 @@ def keyword_harvest_detail(request, pk):
             'suggested_rows_for_display': suggested_rows_for_display,
             'telethon_lock_wait_minutes': max(1, (tw + 59) // 60),
             'deepseek_http_timeout_sec': int(getattr(settings, 'DEEPSEEK_HTTP_TIMEOUT', 120) or 120),
+            'harvest_running_stale': harvest_running_stale,
         },
     )

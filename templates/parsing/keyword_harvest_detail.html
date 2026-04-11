@@ -25,11 +25,18 @@
 <div class="alert alert-info">
   <i class="bi bi-hourglass-split me-1"></i>
   Задача в очереди воркера <code>parse</code> (Telegram → DeepSeek). Обычно это несколько минут; дольше — нормально, если много задач в очереди, параллельно идёт парсинг/импорт с той же сессией Telegram (ожидание блокировки до ~{{ telethon_lock_wait_minutes }}&nbsp;мин) или выгружается много каналов и постов.
-  <span class="d-block small mt-1 text-muted">Запрос к DeepSeek обрывается по сети через {{ deepseek_http_timeout_sec }}&nbsp;с; полная задача — не дольше ~15&nbsp;мин на воркере.</span>
+  <span class="d-block small mt-1 text-muted">Запрос к DeepSeek обрывается по сети через {{ deepseek_http_timeout_sec }}&nbsp;с; на воркере у задачи лимит ~15&nbsp;мин — при превышении она должна перейти в «Ошибка» с пояснением.</span>
+  <span class="d-block small mt-1 text-muted">Если статус «Выполняется» <strong>дольше ~18–20&nbsp;мин</strong> без смены — чаще всего воркер не доиграл (перезапуск, сбой) или задача зависла: снимите её в админке Django (действие «Завершить как ошибку») и запустите сбор заново.</span>
   Обновите страницу через минуту.
   {% if not telethon_ok %}
   <div class="mt-2 small"><strong>Внимание:</strong> для владельца группы не найдена сессия Telethon — задача, скорее всего, завершится ошибкой.</div>
   {% endif %}
+</div>
+{% endif %}
+{% if job.status == 'running' and harvest_running_stale %}
+<div class="alert alert-warning">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  Долго в статусе «Выполняется» (последнее обновление записи: {{ job.updated_at|date:"d.m.Y H:i" }}). Это уже не ожидаемая задержка — вероятно, задача «сирота» в базе или зависание. Попросите администратора в админке <em>Parsing → Задача: ключевики с примера канала</em> пометить задачу как ошибку и при необходимости поставить в очередь снова.
 </div>
 {% endif %}
 

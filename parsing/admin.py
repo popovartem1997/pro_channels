@@ -9,6 +9,35 @@ class KeywordHarvestJobAdmin(admin.ModelAdmin):
     list_filter = ['status']
     search_fields = ['example_channel', 'region_prompt', 'created_by__email']
     readonly_fields = ['created_at', 'updated_at', 'applied_at', 'posts_snapshot', 'suggested_keywords']
+    actions = ['mark_failed_stuck', 'requeue_failed']
+
+    @admin.action(description='Завершить как ошибку (если зависла в «Выполняется»)')
+    def mark_failed_stuck(self, request, queryset):
+        qs = queryset.filter(status=KeywordHarvestJob.STATUS_RUNNING)
+        n = qs.update(
+            status=KeywordHarvestJob.STATUS_FAILED,
+            error_message='Снято вручную: задача зависла в статусе «Выполняется».',
+        )
+        self.message_user(request, f'Обновлено записей: {n}.', level=messages.SUCCESS)
+
+    @admin.action(description='Вернуть в очередь и запустить заново (из «Ошибка»)')
+    def requeue_failed(self, request, queryset):
+        from parsing.tasks import run_keyword_harvest_job
+
+        jobs = list(queryset.filter(status=KeywordHarvestJob.STATUS_FAILED))
+        for job in jobs:
+            KeywordHarvestJob.objects.filter(pk=job.pk).update(
+                status=KeywordHarvestJob.STATUS_PENDING,
+                error_message='',
+                posts_snapshot=[],
+                suggested_keywords=[],
+            )
+            run_keyword_harvest_job.delay(job.pk)
+        self.message_user(
+            request,
+            f'В очередь parse поставлено задач: {len(jobs)}.',
+            level=messages.SUCCESS,
+        )
 
 
 @admin.register(ParseTask)
