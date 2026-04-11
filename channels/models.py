@@ -322,7 +322,7 @@ class ChannelMorningDigest(models.Model):
 
     ZODIAC_GENERAL = 'general'
     ZODIAC_CHOICES = [
-        (ZODIAC_GENERAL, 'Общий (без знака)'),
+        (ZODIAC_GENERAL, 'Все знаки зодиака (12)'),
         ('aries', 'Овен'),
         ('taurus', 'Телец'),
         ('gemini', 'Близнецы'),
@@ -382,6 +382,7 @@ class ChannelMorningDigest(models.Model):
         max_length=20,
         choices=ZODIAC_CHOICES,
         default='general',
+        help_text='«Общий» — гороскоп по всем 12 знакам зодиака; иначе — один блок для выбранного знака.',
     )
 
     block_date = models.BooleanField('Дата', default=True)

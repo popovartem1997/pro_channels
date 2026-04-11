@@ -5,6 +5,7 @@
 - Солнце: sunrise-sunset.org (без ключа).
 - Праздники: библиотека holidays.
 - Цитата / слово / гороскоп: DeepSeek (текст), если включено и задан ключ в «Ключи API».
+  Гороскоп: при «Общий» — по всем знакам зодиака; при выборе знака — только для него.
 - Картинка: picsum.photos по seed; при недоступности (часто на хостинге в РФ) — запасной JPEG через Pillow.
   Если задан HTTP/SOCKS-прокси в «Ключи API», скачивание picsum идёт через него.
 """
@@ -70,6 +71,22 @@ ZODIAC_LABELS = {
     'aquarius': 'Водолей',
     'pisces': 'Рыбы',
 }
+
+# Порядок вывода в дайджесте (общий гороскоп по всем знакам)
+ZODIAC_ORDER: list[tuple[str, str, str]] = [
+    ('aries', '♈', 'Овен'),
+    ('taurus', '♉', 'Телец'),
+    ('gemini', '♊', 'Близнецы'),
+    ('cancer', '♋', 'Рак'),
+    ('leo', '♌', 'Лев'),
+    ('virgo', '♍', 'Дева'),
+    ('libra', '♎', 'Весы'),
+    ('scorpio', '♏', 'Скорпион'),
+    ('sagittarius', '♐', 'Стрелец'),
+    ('capricorn', '♑', 'Козерог'),
+    ('aquarius', '♒', 'Водолей'),
+    ('pisces', '♓', 'Рыбы'),
+]
 
 PERIOD_LABELS = [
     ('mor', 'Утром', 'утром'),
@@ -262,26 +279,69 @@ def _strip_json_fence(raw: str) -> str:
     return s.strip()
 
 
+def _parse_ai_digest_json(data: dict) -> dict:
+    """Плоские строки + вложенный horoscope_by_sign (все знаки)."""
+    if not isinstance(data, dict):
+        return {}
+    out: dict = {}
+    for k, v in data.items():
+        sk = str(k)
+        if sk == 'horoscope_by_sign' and isinstance(v, dict):
+            out[sk] = {
+                str(xk).strip().lower(): str(xv).strip()
+                for xk, xv in v.items()
+                if str(xv or '').strip()
+            }
+        elif isinstance(v, dict):
+            continue
+        elif isinstance(v, list):
+            continue
+        else:
+            out[sk] = str(v).strip()
+    return out
+
+
 def fetch_ai_blocks(
     *,
     date_str: str,
     sign_key: str,
     api_key: str,
-) -> dict[str, str]:
+) -> dict:
     from django.conf import settings
 
     from parsing.deepseek_snippet import build_deepseek_client
 
+    sign_key = (sign_key or 'general').strip() or 'general'
     sign_label = ZODIAC_LABELS.get(sign_key, sign_key)
-    user = (
-        f'Дата: {date_str}. Знак для гороскопа: {sign_label} (ключ {sign_key}).\n'
-        'Верни один JSON-объект с ключами: '
-        'quote_ru, quote_author, english_word, ipa, gloss_ru, horoscope_ru.\n'
-        'quote_ru — короткая жизнеутверждающая цитата на русском (1–2 предложения), '
-        'quote_author — автор; english_word — одно слово для изучения; ipa — транскрипция IPA (латиница); '
-        'gloss_ru — краткий перевод через « / »; horoscope_ru — 2–4 предложения, спокойный тон, без катастроф.\n'
-        'Только JSON, без markdown.'
-    )
+
+    if sign_key == 'general':
+        user = (
+            f'Дата: {date_str}. Нужен утренний дайджест для аудитории в России.\n'
+            'Верни один JSON-объект с ключами: '
+            'quote_ru, quote_author, english_word, ipa, gloss_ru, horoscope_by_sign.\n'
+            'quote_ru — короткая жизнеутверждающая цитата на русском (1–2 предложения); '
+            'quote_author — автор; english_word — одно слово для изучения; ipa — транскрипция IPA (латиница); '
+            'gloss_ru — краткий перевод через « / ».\n'
+            'horoscope_by_sign — объект: ровно ключи aries, taurus, gemini, cancer, leo, virgo, libra, '
+            'scorpio, sagittarius, capricorn, aquarius, pisces. '
+            'Каждое значение — 1–2 предложения на русском: краткий гороскоп на сегодня для этого знака зодиака, '
+            'спокойный доброжелательный тон, без катастроф и медицинских советов.\n'
+            'Только JSON, без markdown.'
+        )
+        max_tokens = 4500
+    else:
+        user = (
+            f'Дата: {date_str}. Знак зодиака для гороскопа: {sign_label} (ключ {sign_key}).\n'
+            'Верни один JSON-объект с ключами: '
+            'quote_ru, quote_author, english_word, ipa, gloss_ru, horoscope_ru.\n'
+            'quote_ru — короткая жизнеутверждающая цитата на русском (1–2 предложения), '
+            'quote_author — автор; english_word — одно слово для изучения; ipa — транскрипция IPA (латиница); '
+            'gloss_ru — краткий перевод через « / »; '
+            f'horoscope_ru — 2–4 предложения на русском для знака «{sign_label}», спокойный тон, без катастроф.\n'
+            'Только JSON, без markdown.'
+        )
+        max_tokens = 1200
+
     client = build_deepseek_client(api_key)
     model = getattr(settings, 'DEEPSEEK_MODEL', 'deepseek-chat')
     resp = client.chat.completions.create(
@@ -290,14 +350,21 @@ def fetch_ai_blocks(
             {'role': 'system', 'content': 'Отвечай только валидным JSON-объектом, без текста вне JSON.'},
             {'role': 'user', 'content': user},
         ],
-        max_tokens=1200,
-        temperature=0.7,
+        max_tokens=max_tokens,
+        temperature=0.65,
     )
     raw = (resp.choices[0].message.content or '').strip()
     data = json.loads(_strip_json_fence(raw))
-    if not isinstance(data, dict):
-        return {}
-    return {str(k): str(v).strip() for k, v in data.items()}
+    return _parse_ai_digest_json(data if isinstance(data, dict) else {})
+
+
+def static_horoscope_by_sign_fallback() -> dict[str, str]:
+    """Если AI недоступен — нейтральная строка на каждый знак."""
+    line = (
+        'День подходит для спокойных решений и заботы о себе; не распыляйтесь на споры — '
+        'лучше завершить одно дело до конца.'
+    )
+    return {key: line for key, _, _ in ZODIAC_ORDER}
 
 
 def static_ai_fallback() -> dict[str, str]:
@@ -609,14 +676,35 @@ def compose_digest_text(cfg, *, local_now: dt.datetime, day: dt.date, lat: float
             )
 
     if cfg.block_horoscope:
-        head = '✨ Гороскоп на сегодня'
-        if cfg.use_ai_horoscope and api_key and (ai.get('horoscope_ru') or '').strip():
-            ho = ai['horoscope_ru'].strip()
+        sign_cfg = (cfg.horoscope_sign or 'general').strip() or 'general'
+        fb_hs = static_horoscope_by_sign_fallback()
+
+        if sign_cfg == 'general':
+            head = '✨ Гороскоп на сегодня (по знакам зодиака)'
+            hmap = ai.get('horoscope_by_sign') if isinstance(ai.get('horoscope_by_sign'), dict) else {}
+            plines = [head]
+            hlines = [f'<b>{html_escape(head)}</b>']
+            for key, emoji, label in ZODIAC_ORDER:
+                raw_txt = (hmap.get(key) or hmap.get(key.lower()) or '').strip()
+                if cfg.use_ai_horoscope and api_key and raw_txt:
+                    txt = raw_txt
+                else:
+                    txt = fb_hs.get(key) or fb['horoscope_ru']
+                plines.append(f'     {emoji} {label} — {txt}')
+                hlines.append(
+                    f'     {emoji} <b>{html_escape(label)}</b> — {html_escape(txt)}'
+                )
+            add_block('\n'.join(plines), '\n'.join(hlines))
         else:
-            ho = fb['horoscope_ru']
-        body_plain = f'     {ho}'
-        body_html = f'     {html_escape(ho)}'
-        add_block(f'{head}\n{body_plain}', f'<b>{html_escape(head)}</b>\n{body_html}')
+            label = ZODIAC_LABELS.get(sign_cfg, sign_cfg)
+            head = f'✨ Гороскоп на сегодня: {label}'
+            if cfg.use_ai_horoscope and api_key and (ai.get('horoscope_ru') or '').strip():
+                ho = ai['horoscope_ru'].strip()
+            else:
+                ho = fb['horoscope_ru']
+            body_plain = f'     {ho}'
+            body_html = f'     {html_escape(ho)}'
+            add_block(f'{head}\n{body_plain}', f'<b>{html_escape(head)}</b>\n{body_html}')
 
     plain = '\n\n'.join(blocks_plain).strip()
     html = '\n\n'.join(blocks_html).strip()
