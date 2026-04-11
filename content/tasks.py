@@ -1281,6 +1281,54 @@ def _tg_strip_br_for_telegram_api(html: str) -> str:
     return re.sub(r'<br\s*/?>', '\n', html, flags=re.IGNORECASE)
 
 
+# Подпись к фото/видео/документу и к первому элементу альбома — не длиннее (Telegram Bot API).
+TG_MEDIA_CAPTION_CHAR_LIMIT = 1024
+
+
+def _tg_visible_plain_from_html(html: str) -> str:
+    """HTML поста → видимый текст для короткой подписи под медиа."""
+    import re
+    from html import unescape
+
+    s = re.sub(r'<[^>]+>', ' ', html or '')
+    s = unescape(s)
+    s = re.sub(r'[\s\xa0]+', ' ', s).strip()
+    return s
+
+
+def _tg_caption_html_and_overflow(full_html: str) -> tuple[str | None, str | None]:
+    """
+    Возвращает (caption_html, overflow_html). Если текст помещается в лимит подписи — (full, None).
+    Иначе подпись — укороченный видимый текст (безопасный HTML); overflow — полный HTML для второго сообщения.
+    """
+    from html import escape
+
+    full_html = full_html or ''
+    if len(full_html) <= TG_MEDIA_CAPTION_CHAR_LIMIT:
+        return full_html, None
+
+    plain = _tg_visible_plain_from_html(full_html)
+    ell = '…'
+    if not plain:
+        return escape(ell, quote=False), full_html
+
+    lo, hi = 0, len(plain)
+    best = ''
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        chunk = plain[:mid]
+        if mid < len(plain):
+            chunk = chunk + ell
+        esc = escape(chunk, quote=False)
+        if len(esc) <= TG_MEDIA_CAPTION_CHAR_LIMIT:
+            best = esc
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    caption_h = best if best else escape(ell, quote=False)
+    return caption_h, full_html
+
+
 def _tg_sanitize_entities_for_telegram_html(text: str) -> str:
     """
     В HTML-режиме Bot API поддерживается узкий набор тегов; сущности вроде &nbsp; не разбираются
@@ -1596,6 +1644,9 @@ async def _publish_telegram_async_send(bundle: dict):
     text = bundle['text']
     parse_mode = bundle['parse_mode']
     media = bundle['media']
+    cap_c, overflow_text = (text, None)
+    if media:
+        cap_c, overflow_text = _tg_caption_html_and_overflow(text)
 
     # connection_pool_size по умолчанию 1 — частая причина TimedOut при двух запросах подряд (send + pin).
     request = build_telegram_bot_http_request(proxy_url=bundle.get('proxy_url', ''))
@@ -1617,7 +1668,10 @@ async def _publish_telegram_async_send(bundle: dict):
             elif len(media) == 1:
                 row = media[0]
                 media_obj = row['upload']
-                cap_kw = {**common_kw, 'caption': text, 'parse_mode': parse_mode}
+                cap_kw = {**common_kw}
+                if cap_c:
+                    cap_kw['caption'] = cap_c
+                    cap_kw['parse_mode'] = parse_mode
                 mt = row['type']
                 if mt == 'photo':
                     m = await bot.send_photo(photo=media_obj, **cap_kw)
@@ -1631,6 +1685,14 @@ async def _publish_telegram_async_send(bundle: dict):
                 else:
                     m = await bot.send_document(document=media_obj, **cap_kw)
                 msg_id = m.message_id
+                if overflow_text:
+                    await bot.send_message(
+                        text=overflow_text,
+                        parse_mode=parse_mode,
+                        disable_web_page_preview=True,
+                        reply_to_message_id=m.message_id,
+                        **common_kw,
+                    )
             else:
                 group = []
                 for i, row in enumerate(media):
@@ -1641,8 +1703,8 @@ async def _publish_telegram_async_send(bundle: dict):
                         item = _tg_input_media_for_group_item(
                             media_obj,
                             mt,
-                            caption=text,
-                            parse_mode=parse_mode,
+                            caption=cap_c if cap_c else None,
+                            parse_mode=parse_mode if cap_c else None,
                             width=w,
                             height=h,
                         )
@@ -1658,6 +1720,14 @@ async def _publish_telegram_async_send(bundle: dict):
                     group.append(item)
                 msgs = await bot.send_media_group(media=group, **common_kw)
                 msg_id = msgs[0].message_id if msgs else None
+                if overflow_text and msgs:
+                    await bot.send_message(
+                        text=overflow_text,
+                        parse_mode=parse_mode,
+                        disable_web_page_preview=True,
+                        reply_to_message_id=msgs[0].message_id,
+                        **common_kw,
+                    )
 
             if pin_message and msg_id:
                 try:
