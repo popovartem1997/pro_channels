@@ -919,8 +919,8 @@ def compose_digest_text(cfg, *, local_now: dt.datetime, day: dt.date, lat: float
             head = '🌤 Погода на сегодня'
             if loc:
                 head += f' ({loc})'
-            plines = [head, '']
-            hlines = [f'<b>{html_escape(head)}</b>', '']
+            plines = [head]
+            hlines = [f'<b>{html_escape(head)}</b>']
             for key, cap, _low, period_emoji in PERIOD_LABELS:
                 a = agg.get(key) or {}
                 if not a:
@@ -928,36 +928,29 @@ def compose_digest_text(cfg, *, local_now: dt.datetime, day: dt.date, lat: float
                         [
                             f'     {period_emoji} {cap}',
                             '        нет данных по прогнозу',
-                            '',
                         ]
                     )
                     hlines.extend(
                         [
                             f'     {period_emoji} <b>{html_escape(cap)}</b>',
                             f'        {html_escape("нет данных по прогнозу")}',
-                            '',
                         ]
                     )
-                    continue
-                t1, t2 = a['tmin'], a['tmax']
-                span = _digest_temp_span(t1, t2)
-                wx = a.get('wx', '—')
-                line1 = f'     {period_emoji} {cap}'
-                line2 = f'        {span} · {wx}'
-                line3 = f'        {_weather_detail_line(a)}'
-                plines.extend([line1, line2, line3, ''])
-                hlines.extend(
-                    [
-                        f'     {period_emoji} <b>{html_escape(cap)}</b>',
-                        f'        {html_escape(f"{span} · {wx}")}',
-                        f'        {html_escape(_weather_detail_line(a))}',
-                        '',
-                    ]
-                )
-            if plines and plines[-1] == '':
-                plines.pop()
-            if hlines and hlines[-1] == '':
-                hlines.pop()
+                else:
+                    t1, t2 = a['tmin'], a['tmax']
+                    span = _digest_temp_span(t1, t2)
+                    wx = a.get('wx', '—')
+                    line1 = f'     {period_emoji} {cap}'
+                    line2 = f'        {span} · {wx}'
+                    line3 = f'        {_weather_detail_line(a)}'
+                    plines.extend([line1, line2, line3])
+                    hlines.extend(
+                        [
+                            f'     {period_emoji} <b>{html_escape(cap)}</b>',
+                            f'        {html_escape(f"{span} · {wx}")}',
+                            f'        {html_escape(_weather_detail_line(a))}',
+                        ]
+                    )
             add_block('\n'.join(plines), '\n'.join(hlines))
         else:
             msg = '⛅ Погода: не удалось загрузить прогноз.'
