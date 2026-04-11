@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from django.utils import timezone
 from asgiref.sync import sync_to_async
 
@@ -1172,7 +1173,7 @@ def _run_harvest_telethon_fetch(owner_id: int, channel_ref: str, limit: int) -> 
     return rows
 
 
-@shared_task
+@shared_task(soft_time_limit=900, time_limit=960)
 def run_keyword_harvest_job(job_id: int):
     """Очередь: выгрузка постов примеров → DeepSeek → suggested_keywords, статус ready."""
     from .harvest_services import extract_ranked_keywords_with_deepseek, harvest_example_channel_refs
@@ -1201,65 +1202,83 @@ def run_keyword_harvest_job(job_id: int):
     lim = max(5, min(int(job.max_posts or 20), 65535))
 
     try:
-        posts = _run_harvest_telethon_fetch_multi(owner_id, refs, lim)
-    except Exception as exc:
-        logger.exception('keyword harvest fetch job_id=%s', job_id)
-        job.status = KeywordHarvestJob.STATUS_FAILED
-        job.error_message = str(exc)[:2000]
-        job.save(update_fields=['status', 'error_message', 'updated_at'])
-        return
+        try:
+            posts = _run_harvest_telethon_fetch_multi(owner_id, refs, lim)
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception as exc:
+            logger.exception('keyword harvest fetch job_id=%s', job_id)
+            job.status = KeywordHarvestJob.STATUS_FAILED
+            job.error_message = str(exc)[:2000]
+            job.save(update_fields=['status', 'error_message', 'updated_at'])
+            return
 
-    if not posts:
-        job.status = KeywordHarvestJob.STATUS_FAILED
-        job.error_message = (
-            'Не удалось получить текст постов: каналы недоступны, нет текстовых сообщений в лимите '
-            'или нет доступа. Проверьте @username и что аккаунт Telethon видит каналы.'
+        if not posts:
+            job.status = KeywordHarvestJob.STATUS_FAILED
+            job.error_message = (
+                'Не удалось получить текст постов: каналы недоступны, нет текстовых сообщений в лимите '
+                'или нет доступа. Проверьте @username и что аккаунт Telethon видит каналы.'
+            )
+            job.save(update_fields=['status', 'error_message', 'updated_at'])
+            return
+
+        digest_lines = []
+        snapshot = []
+        for i, p in enumerate(posts):
+            tid = p.get('id')
+            cref = (p.get('channel_ref') or '')[:120]
+            txt = (p.get('text') or '')[:1500]
+            digest_lines.append(f'--- Канал {cref} · пост #{i + 1} (id {tid}) ---\n{txt}')
+            snapshot.append(
+                {
+                    'id': tid,
+                    'channel': cref,
+                    'snippet': (p.get('text') or '')[:400],
+                }
+            )
+        combined = '\n\n'.join(digest_lines)
+
+        from core.models import get_global_api_keys
+
+        keys = get_global_api_keys()
+        api_key = (keys.get_deepseek_api_key() or '').strip()
+        job.posts_snapshot = snapshot[:2000]
+        job.save(update_fields=['posts_snapshot', 'updated_at'])
+
+        if not api_key:
+            job.status = KeywordHarvestJob.STATUS_FAILED
+            job.error_message = 'Не задан ключ DeepSeek (раздел «Ключи API»).'
+            job.save(update_fields=['status', 'error_message', 'updated_at'])
+            return
+
+        try:
+            kws = extract_ranked_keywords_with_deepseek(
+                posts_digest_text=combined,
+                region_prompt=job.region_prompt,
+                api_key=api_key,
+            )
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception as exc:
+            logger.exception('keyword harvest deepseek job_id=%s', job_id)
+            job.status = KeywordHarvestJob.STATUS_FAILED
+            job.error_message = f'DeepSeek: {exc}'[:2000]
+            job.save(update_fields=['status', 'error_message', 'updated_at'])
+            return
+
+        job.suggested_keywords = kws
+        job.status = KeywordHarvestJob.STATUS_READY
+        job.save(update_fields=['suggested_keywords', 'status', 'updated_at'])
+    except SoftTimeLimitExceeded:
+        msg = (
+            'Превышено время выполнения задачи (лимит воркера, 15 мин). '
+            'Часто из‑за очереди parse, ожидания блокировки Telethon (параллельный парсинг/импорт) '
+            'или долгого ответа API. Повторите позже или проверьте логи воркера celery.'
         )
-        job.save(update_fields=['status', 'error_message', 'updated_at'])
-        return
-
-    digest_lines = []
-    snapshot = []
-    for i, p in enumerate(posts):
-        tid = p.get('id')
-        cref = (p.get('channel_ref') or '')[:120]
-        txt = (p.get('text') or '')[:1500]
-        digest_lines.append(f'--- Канал {cref} · пост #{i + 1} (id {tid}) ---\n{txt}')
-        snapshot.append(
-            {
-                'id': tid,
-                'channel': cref,
-                'snippet': (p.get('text') or '')[:400],
-            }
-        )
-    combined = '\n\n'.join(digest_lines)
-
-    from core.models import get_global_api_keys
-
-    keys = get_global_api_keys()
-    api_key = (keys.get_deepseek_api_key() or '').strip()
-    job.posts_snapshot = snapshot[:2000]
-    job.save(update_fields=['posts_snapshot', 'updated_at'])
-
-    if not api_key:
-        job.status = KeywordHarvestJob.STATUS_FAILED
-        job.error_message = 'Не задан ключ DeepSeek (раздел «Ключи API»).'
-        job.save(update_fields=['status', 'error_message', 'updated_at'])
-        return
-
-    try:
-        kws = extract_ranked_keywords_with_deepseek(
-            posts_digest_text=combined,
-            region_prompt=job.region_prompt,
-            api_key=api_key,
-        )
-    except Exception as exc:
-        logger.exception('keyword harvest deepseek job_id=%s', job_id)
-        job.status = KeywordHarvestJob.STATUS_FAILED
-        job.error_message = f'DeepSeek: {exc}'[:2000]
-        job.save(update_fields=['status', 'error_message', 'updated_at'])
-        return
-
-    job.suggested_keywords = kws
-    job.status = KeywordHarvestJob.STATUS_READY
-    job.save(update_fields=['suggested_keywords', 'status', 'updated_at'])
+        try:
+            j = KeywordHarvestJob.objects.get(pk=job_id)
+            j.status = KeywordHarvestJob.STATUS_FAILED
+            j.error_message = msg
+            j.save(update_fields=['status', 'error_message', 'updated_at'])
+        except Exception:
+            logger.exception('keyword harvest soft limit: failed to mark job_id=%s failed', job_id)

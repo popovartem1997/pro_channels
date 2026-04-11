@@ -1,6 +1,7 @@
 """
 Парсинг каналов по ключевикам + AI рерайт.
 """
+from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from urllib.parse import urlencode
@@ -1469,6 +1470,7 @@ def keyword_harvest_detail(request, pk):
         visible_keywords = _keyword_harvest_visible_suggestions(job)
         harvest_skipped_existing_count = max(0, suggested_nonempty - len(visible_keywords))
 
+    tw = int(getattr(settings, 'TELETHON_REDIS_LOCK_WAIT', 600) or 600)
     return render(
         request,
         'parsing/keyword_harvest_detail.html',
@@ -1478,5 +1480,7 @@ def keyword_harvest_detail(request, pk):
             'visible_keywords': visible_keywords,
             'harvest_skipped_existing_count': harvest_skipped_existing_count,
             'suggested_rows_for_display': suggested_rows_for_display,
+            'telethon_lock_wait_minutes': max(1, (tw + 59) // 60),
+            'deepseek_http_timeout_sec': int(getattr(settings, 'DEEPSEEK_HTTP_TIMEOUT', 120) or 120),
         },
     )

@@ -99,7 +99,8 @@ def build_deepseek_client(api_key: str):
     from openai import OpenAI
 
     base = (getattr(settings, 'DEEPSEEK_API_BASE', '') or 'https://api.deepseek.com').rstrip('/')
-    return OpenAI(api_key=api_key, base_url=base)
+    timeout = float(getattr(settings, 'DEEPSEEK_HTTP_TIMEOUT', 120) or 120)
+    return OpenAI(api_key=api_key, base_url=base, timeout=timeout)
 
 
 def _strip_json_fence(raw: str) -> str:

@@ -24,7 +24,9 @@
 {% if job.status == 'pending' or job.status == 'running' %}
 <div class="alert alert-info">
   <i class="bi bi-hourglass-split me-1"></i>
-  Задача выполняется воркером (очередь <code>parse</code>). Обновите страницу через минуту.
+  Задача в очереди воркера <code>parse</code> (Telegram → DeepSeek). Обычно это несколько минут; дольше — нормально, если много задач в очереди, параллельно идёт парсинг/импорт с той же сессией Telegram (ожидание блокировки до ~{{ telethon_lock_wait_minutes }}&nbsp;мин) или выгружается много каналов и постов.
+  <span class="d-block small mt-1 text-muted">Запрос к DeepSeek обрывается по сети через {{ deepseek_http_timeout_sec }}&nbsp;с; полная задача — не дольше ~15&nbsp;мин на воркере.</span>
+  Обновите страницу через минуту.
   {% if not telethon_ok %}
   <div class="mt-2 small"><strong>Внимание:</strong> для владельца группы не найдена сессия Telethon — задача, скорее всего, завершится ошибкой.</div>
   {% endif %}

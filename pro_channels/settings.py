@@ -243,6 +243,8 @@ CACHES = {
 DEEPSEEK_API_KEY = config('DEEPSEEK_API_KEY', default='')
 DEEPSEEK_API_BASE = config('DEEPSEEK_API_BASE', default='https://api.deepseek.com')
 DEEPSEEK_MODEL = config('DEEPSEEK_MODEL', default='deepseek-chat')
+# Сек.; HTTP-клиент OpenAI-совместимый — без таймаута запрос мог «висеть» неограниченно.
+DEEPSEEK_HTTP_TIMEOUT = config('DEEPSEEK_HTTP_TIMEOUT', default=120, cast=int)
 AI_REWRITE_ENABLED = config('AI_REWRITE_ENABLED', default=False, cast=bool)
 
 # ─── TBank ────────────────────────────────────────────────────────────────────
