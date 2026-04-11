@@ -1299,7 +1299,8 @@ def _tg_visible_plain_from_html(html: str) -> str:
 def _tg_caption_html_and_overflow(full_html: str) -> tuple[str | None, str | None]:
     """
     Возвращает (caption_html, overflow_html). Если текст помещается в лимит подписи — (full, None).
-    Иначе подпись — укороченный видимый текст (безопасный HTML); overflow — полный HTML для второго сообщения.
+    Иначе подпись — начало видимого текста (HTML-экранирование); overflow — только продолжение того же текста,
+    без повторения начала (иначе в канале два почти одинаковых сообщения).
     """
     from html import escape
 
@@ -1310,10 +1311,10 @@ def _tg_caption_html_and_overflow(full_html: str) -> tuple[str | None, str | Non
     plain = _tg_visible_plain_from_html(full_html)
     ell = '…'
     if not plain:
-        return escape(ell, quote=False), full_html
+        return escape(ell, quote=False), None
 
     lo, hi = 0, len(plain)
-    best = ''
+    best_mid = 0
     while lo <= hi:
         mid = (lo + hi) // 2
         chunk = plain[:mid]
@@ -1321,12 +1322,18 @@ def _tg_caption_html_and_overflow(full_html: str) -> tuple[str | None, str | Non
             chunk = chunk + ell
         esc = escape(chunk, quote=False)
         if len(esc) <= TG_MEDIA_CAPTION_CHAR_LIMIT:
-            best = esc
+            best_mid = mid
             lo = mid + 1
         else:
             hi = mid - 1
-    caption_h = best if best else escape(ell, quote=False)
-    return caption_h, full_html
+
+    caption_plain = plain[:best_mid] + (ell if best_mid < len(plain) else '')
+    caption_h = escape(caption_plain, quote=False)
+    suffix_plain = plain[best_mid:].strip()
+    if not suffix_plain:
+        return caption_h, None
+    overflow_h = _tg_plain_to_html_caption(suffix_plain)
+    return caption_h, overflow_h
 
 
 def _tg_sanitize_entities_for_telegram_html(text: str) -> str:
