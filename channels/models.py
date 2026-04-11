@@ -317,12 +317,12 @@ class ChannelAdAddon(models.Model):
 class ChannelMorningDigest(models.Model):
     """
     Автоматическая публикация «утреннего дайджеста» в канал (погода, солнце, праздники,
-    цитата / слово / общий гороскоп через DeepSeek при наличии ключа, картинка по seed).
+    цитата / слово / гороскоп через DeepSeek при наличии ключа, картинка по seed).
     """
 
     ZODIAC_GENERAL = 'general'
     ZODIAC_CHOICES = [
-        (ZODIAC_GENERAL, 'Общий гороскоп (один текст для всех)'),
+        (ZODIAC_GENERAL, 'Все знаки зодиака (12)'),
         ('aries', 'Овен'),
         ('taurus', 'Телец'),
         ('gemini', 'Близнецы'),
@@ -382,7 +382,7 @@ class ChannelMorningDigest(models.Model):
         max_length=20,
         choices=ZODIAC_CHOICES,
         default='general',
-        help_text='В дайджесте всегда один общий гороскоп; поле зарезервировано для совместимости.',
+        help_text='Устарело: в дайджесте гороскоп всегда по всем 12 знакам (поле не используется).',
     )
 
     block_date = models.BooleanField('Дата', default=True)

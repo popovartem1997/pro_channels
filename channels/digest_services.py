@@ -6,7 +6,7 @@
 - Праздники: библиотека holidays + для РФ доп. фиксированные даты и переносимые православные (Пасха, Троица и др.).
 - Сводка по вчерашним постам канала: при включённом блоке и ключе DeepSeek — одно предложение; иначе краткий fallback.
 - Цитата / слово / гороскоп: DeepSeek (текст), если включено и задан ключ в «Ключи API».
-  Гороскоп — один общий текст на всех (в том же посте, что и остальные блоки).
+  Гороскоп — всегда по всем 12 знакам зодиака (отдельная строка на каждый знак).
 - Картинка: picsum.photos по seed (seed зависит от сезона, погоды по прогнозу Open-Meteo и времени генерации);
   при недоступности — локальный JPEG в Pillow с градиентом под сезон и погоду.
   На картинку накладывается полупрозрачный водяной знак с названием канала (красивый шрифт при наличии в системе).
@@ -66,6 +66,22 @@ PERIOD_LABELS = [
     ('day', 'Днём', 'днём', '☀️'),
     ('eve', 'Вечером', 'вечером', '🌇'),
     ('night', 'Ночью', 'ночью', '🌙'),
+]
+
+# Порядок строк в блоке гороскопа (все 12 знаков)
+ZODIAC_ORDER: list[tuple[str, str, str]] = [
+    ('aries', '♈', 'Овен'),
+    ('taurus', '♉', 'Телец'),
+    ('gemini', '♊', 'Близнецы'),
+    ('cancer', '♋', 'Рак'),
+    ('leo', '♌', 'Лев'),
+    ('virgo', '♍', 'Дева'),
+    ('libra', '♎', 'Весы'),
+    ('scorpio', '♏', 'Скорпион'),
+    ('sagittarius', '♐', 'Стрелец'),
+    ('capricorn', '♑', 'Козерог'),
+    ('aquarius', '♒', 'Водолей'),
+    ('pisces', '♓', 'Рыбы'),
 ]
 
 
@@ -448,16 +464,24 @@ def _strip_json_fence(raw: str) -> str:
 
 
 def _parse_ai_digest_json(data: dict) -> dict:
-    """Плоские строки из JSON ответа DeepSeek."""
+    """Плоские строки + вложенный horoscope_by_sign (все знаки)."""
     if not isinstance(data, dict):
         return {}
     out: dict = {}
     for k, v in data.items():
-        if isinstance(v, dict):
+        sk = str(k)
+        if sk == 'horoscope_by_sign' and isinstance(v, dict):
+            out[sk] = {
+                str(xk).strip().lower(): str(xv).strip()
+                for xk, xv in v.items()
+                if str(xv or '').strip()
+            }
+        elif isinstance(v, dict):
             continue
-        if isinstance(v, list):
+        elif isinstance(v, list):
             continue
-        out[str(k)] = str(v).strip()
+        else:
+            out[sk] = str(v).strip()
     return out
 
 
@@ -473,15 +497,17 @@ def fetch_ai_blocks(
     user = (
         f'Дата: {date_str}. Нужен утренний дайджест для аудитории в России.\n'
         'Верни один JSON-объект с ключами: '
-        'quote_ru, quote_author, english_word, ipa, gloss_ru, horoscope_unified.\n'
+        'quote_ru, quote_author, english_word, ipa, gloss_ru, horoscope_by_sign.\n'
         'quote_ru — короткая жизнеутверждающая цитата на русском (1–2 предложения); '
         'quote_author — автор; english_word — одно слово для изучения; ipa — транскрипция IPA (латиница); '
         'gloss_ru — краткий перевод через « / ».\n'
-        'horoscope_unified — 3–6 предложений на русском: один общий гороскоп на сегодня для всех читателей '
-        '(не по знакам зодиака, без списка знаков), спокойный доброжелательный тон, без катастроф и медицинских советов.\n'
+        'horoscope_by_sign — объект: обязательно все двенадцать ключей — aries, taurus, gemini, cancer, leo, virgo, '
+        'libra, scorpio, sagittarius, capricorn, aquarius, pisces — без пропусков. '
+        'Каждое значение — 1–2 предложения на русском: краткий гороскоп на сегодня для этого знака зодиака, '
+        'спокойный доброжелательный тон, без катастроф и медицинских советов.\n'
         'Только JSON, без markdown.'
     )
-    max_tokens = 3500
+    max_tokens = 4500
 
     client = build_deepseek_client(api_key)
     model = getattr(settings, 'DEEPSEEK_MODEL', 'deepseek-chat')
@@ -499,6 +525,15 @@ def fetch_ai_blocks(
     return _parse_ai_digest_json(data if isinstance(data, dict) else {})
 
 
+def static_horoscope_by_sign_fallback() -> dict[str, str]:
+    """Если AI недоступен — нейтральная строка на каждый знак."""
+    line = (
+        'День подходит для спокойных решений и заботы о себе; не распыляйтесь на споры — '
+        'лучше завершить одно дело до конца.'
+    )
+    return {key: line for key, _, _ in ZODIAC_ORDER}
+
+
 def static_ai_fallback() -> dict[str, str]:
     _ho = (
         'Сегодня хороший день для спокойных решений и заботы о себе. '
@@ -511,7 +546,6 @@ def static_ai_fallback() -> dict[str, str]:
         'ipa': 'speɪs',
         'gloss_ru': 'пространство / космос',
         'horoscope_ru': _ho,
-        'horoscope_unified': _ho,
     }
 
 
@@ -1202,7 +1236,7 @@ def compose_digest_text(
         or (cfg.use_ai_english and cfg.block_english)
         or (cfg.use_ai_horoscope and cfg.block_horoscope)
     )
-    ai: dict[str, str] = {}
+    ai: dict = {}
     if want_ai and api_key:
         try:
             ai = fetch_ai_blocks(date_str=date_fmt, api_key=api_key)
@@ -1266,14 +1300,22 @@ def compose_digest_text(
             )
 
     if cfg.block_horoscope:
-        head = '✨ Гороскоп на сегодня'
-        if cfg.use_ai_horoscope and api_key and (ai.get('horoscope_unified') or '').strip():
-            ho = ai['horoscope_unified'].strip()
-        else:
-            ho = (fb.get('horoscope_unified') or fb.get('horoscope_ru') or '').strip()
-        body_plain = f'     {ho}'
-        body_html = f'     {html_escape(ho)}'
-        add_block(f'{head}\n{body_plain}', f'<b>{html_escape(head)}</b>\n{body_html}')
+        fb_hs = static_horoscope_by_sign_fallback()
+        head = '✨ Гороскоп на сегодня (по знакам зодиака)'
+        hmap = ai.get('horoscope_by_sign') if isinstance(ai.get('horoscope_by_sign'), dict) else {}
+        plines = [head]
+        hlines = [f'<b>{html_escape(head)}</b>']
+        for key, emoji, label in ZODIAC_ORDER:
+            raw_txt = (hmap.get(key) or hmap.get(key.lower()) or '').strip()
+            if cfg.use_ai_horoscope and api_key and raw_txt:
+                txt = raw_txt
+            else:
+                txt = fb_hs.get(key) or fb['horoscope_ru']
+            plines.append(f'     {emoji} {label} — {txt}')
+            hlines.append(
+                f'     {emoji} <b>{html_escape(label)}</b> — {html_escape(txt)}'
+            )
+        add_block('\n'.join(plines), '\n'.join(hlines))
 
     plain = '\n\n'.join(blocks_plain).strip()
     html = '\n\n'.join(blocks_html).strip()
