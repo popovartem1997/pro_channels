@@ -255,7 +255,7 @@ class KeywordHarvestJob(models.Model):
     max_posts = models.PositiveSmallIntegerField(
         'Последних постов с каждого канала-примера',
         default=20,
-        help_text='На каждый указанный канал; не больше 80',
+        help_text='На каждый указанный канал (до 65535 — лимит поля БД)',
     )
     status = models.CharField('Статус', max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
     error_message = models.TextField('Текст ошибки', blank=True)

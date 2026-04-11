@@ -1117,7 +1117,7 @@ def _run_harvest_telethon_fetch_multi(owner_id: int, channel_refs: list[str], li
     if not api_id or not api_hash:
         raise ValueError('TELEGRAM_API_ID / TELEGRAM_API_HASH не заданы (Ключи API → Парсинг Telegram).')
 
-    lim = max(1, min(int(limit_per_channel), 80))
+    lim = max(1, min(int(limit_per_channel), 65535))
 
     async def _fetch():
         from telethon import TelegramClient
@@ -1198,7 +1198,7 @@ def run_keyword_harvest_job(job_id: int):
         return
 
     owner_id = job.channel_group.owner_id
-    lim = max(5, min(int(job.max_posts or 20), 80))
+    lim = max(5, min(int(job.max_posts or 20), 65535))
 
     try:
         posts = _run_harvest_telethon_fetch_multi(owner_id, refs, lim)
@@ -1238,7 +1238,7 @@ def run_keyword_harvest_job(job_id: int):
 
     keys = get_global_api_keys()
     api_key = (keys.get_deepseek_api_key() or '').strip()
-    job.posts_snapshot = snapshot[:80]
+    job.posts_snapshot = snapshot[:2000]
     job.save(update_fields=['posts_snapshot', 'updated_at'])
 
     if not api_key:

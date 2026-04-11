@@ -1350,7 +1350,7 @@ def keyword_harvest_create(request):
             max_posts = int((request.POST.get('max_posts') or '20').strip() or 20)
         except ValueError:
             max_posts = 20
-        max_posts = max(5, min(max_posts, 80))
+        max_posts = max(5, min(max_posts, 65535))
         target_ch_pk = (request.POST.get('target_channel') or '').strip()
 
         if not gid.isdigit():
