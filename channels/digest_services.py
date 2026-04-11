@@ -747,43 +747,52 @@ def _digest_load_watermark_font(size: int):
 
 def _digest_apply_channel_watermark_rgb(im, channel_name: str):
     """
-    Накладывает название канала в правом нижнем углу: лёгкая тень + полупрозрачный светлый текст.
+    Накладывает название канала в правом нижнем углу: обводка + полупрозрачный светлый текст.
+    Якорь anchor='rb' — иначе в Pillow 9+ координаты по умолчанию (базовая линия) уводят текст за кадр.
     Возвращает RGB для сохранения в JPEG.
     """
-    from PIL import ImageDraw
+    from PIL import Image, ImageDraw
 
     name = (channel_name or '').strip()
     if not name:
         return im.convert('RGB')
-    if len(name) > 52:
-        name = name[:50] + '…'
+    if len(name) > 48:
+        name = name[:46] + '…'
 
     w, h = im.size
     base = im.convert('RGBA')
     overlay = Image.new('RGBA', (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-    margin = max(20, min(44, w // 28))
+    margin = max(28, min(56, w // 22))
     max_tw = w - 2 * margin
-    size = max(24, min(52, w // 20))
-    bbox = (0, 0, 0, 0)
-    while size > 14:
+    # Крупный знак: ~7.2% ширины кадра (на 1200px ≈ 86pt, в пределах 44–110)
+    size = max(44, min(110, int(w * 0.072)))
+    font = None
+    while size > 22:
         font = _digest_load_watermark_font(size)
-        bbox = draw.textbbox((0, 0), name, font=font)
+        bbox = draw.textbbox((0, 0), name, font=font, anchor='lt')
         tw = bbox[2] - bbox[0]
         if tw <= max_tw:
             break
-        size -= 2
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
-    x = w - tw - margin
-    y = h - th - margin
-    x = max(margin, min(x, w - tw - margin))
-    y = max(margin, min(y, h - th - margin))
-    shadow_a = 72
-    text_a = 132
-    for ox, oy in ((3, 3), (2, 2), (1, 1)):
-        draw.text((x + ox, y + oy), name, font=font, fill=(0, 0, 0, shadow_a))
-    draw.text((x, y), name, font=font, fill=(255, 255, 255, text_a))
+        size -= 3
+
+    # Правый нижний угол: (x, y) — правый нижний край строки (Pillow 9+ anchor='rb')
+    x, y = w - margin, h - margin
+    sw = max(3, min(8, size // 14))
+    # stroke_fill только RGB — иначе часть сборок Pillow бросает исключение, и picsum отдаётся без знака
+    draw.text(
+        (x, y),
+        name,
+        font=font,
+        anchor='rb',
+        fill=(255, 255, 255, 255),
+        stroke_width=sw,
+        stroke_fill=(0, 0, 0),
+    )
+    # Делаем весь слой текста слегка прозрачным (читаемо на любом фоне)
+    r_o, g_o, b_o, a_o = overlay.split()
+    a_o = a_o.point(lambda p: min(255, int(p * 0.72)))
+    overlay = Image.merge('RGBA', (r_o, g_o, b_o, a_o))
     out = Image.alpha_composite(base, overlay)
     return out.convert('RGB')
 
@@ -872,6 +881,7 @@ def download_digest_image_bytes(seed: str, *, channel_name: str = '') -> bytes |
 
                 bio = io.BytesIO(data)
                 im = Image.open(bio)
+                im.load()
                 im = im.convert('RGB')
                 im = _digest_apply_channel_watermark_rgb(im, channel_name)
                 out = io.BytesIO()
