@@ -1109,6 +1109,49 @@ def feed_ai_moods_save(request):
     return redirect(nxt)
 
 @login_required
+def parsing_journal(request):
+    """Журнал ошибок парсинга (записи AuditLog с действием parsing.error)."""
+    from bots.models import AuditLog
+
+    scope = _get_parse_scope(request)
+    if request.user.role in ('manager', 'assistant_admin'):
+        owner_ids = _parsing_channel_owner_ids(request.user)
+    else:
+        owner_ids = [request.user.pk]
+
+    if not owner_ids:
+        qs = AuditLog.objects.none()
+    else:
+        qs = (
+            AuditLog.objects.filter(action='parsing.error', owner_id__in=owner_ids)
+            .select_related('owner')
+            .order_by('-created_at')
+        )
+
+    if scope.get('channel_ids') is not None:
+        src_ids = list(_parse_sources_qs(request.user, scope).values_list('pk', flat=True))
+        if not src_ids:
+            qs = AuditLog.objects.none()
+        else:
+            qs = qs.filter(data__source_id__in=src_ids)
+
+    from django.core.paginator import Paginator
+
+    try:
+        page_num = int((request.GET.get('page') or '').strip() or 1)
+    except ValueError:
+        page_num = 1
+    paginator = Paginator(qs, 25)
+    page_obj = paginator.get_page(page_num)
+
+    ctx = {
+        'journal_page': page_obj,
+    }
+    ctx.update(_parsing_template_extra(request, scope))
+    return render(request, 'parsing/journal.html', ctx)
+
+
+@login_required
 def parse_tasks_list(request):
     """Список задач парсинга пользователя."""
     scope = _get_parse_scope(request)

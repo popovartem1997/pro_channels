@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+{% block title %}Журнал парсинга{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+  <div>
+    <a href="{% url 'parsing:sources' %}{{ parsing_scope_query }}" class="btn btn-link text-muted p-0 mb-2 text-decoration-none small">
+      <i class="bi bi-arrow-left me-1"></i> К источникам
+    </a>
+    <h1><i class="bi bi-journal-text me-2" style="color:var(--brand)"></i>Журнал парсинга</h1>
+    <p class="text-muted small mb-0">
+      Ошибки при обходе источников (сеть, Telethon, доступ к каналу). Новые записи появляются при сбоях парсинга.
+    </p>
+  </div>
+  <a href="{% url 'parsing:parse_tasks' %}{{ parsing_scope_query }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-repeat me-1"></i> Задачи парсинга
+  </a>
+</div>
+
+{% include 'parsing/includes/chgroup_filter.html' %}
+
+{% if journal_page.paginator.count == 0 %}
+<div class="alert alert-light border mt-3">
+  <i class="bi bi-check-circle text-success me-1"></i>
+  Записей нет — либо ошибок парсинга не было, либо они вне выбранного фильтра группы каналов.
+</div>
+{% else %}
+<div class="card mt-3">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th class="px-4 text-nowrap">Время</th>
+            <th>Задача</th>
+            <th>Источник</th>
+            <th>Платформа</th>
+            <th class="pe-4">Ошибка</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in journal_page %}
+          <tr>
+            <td class="px-4 small text-muted text-nowrap">{{ entry.created_at|date:"d.m.Y H:i" }}</td>
+            <td class="small">{{ entry.data.task_name|default:"—" }}</td>
+            <td class="small fw-semibold">{{ entry.data.source_name|default:"—" }}</td>
+            <td><span class="badge bg-light text-dark border">{{ entry.data.source_platform|default:"—" }}</span></td>
+            <td class="pe-4 small">
+              <span class="text-danger">{{ entry.data.error|default:""|truncatechars:200 }}</span>
+              {% if entry.data.traceback %}
+              <details class="mt-1">
+                <summary class="small text-muted" style="cursor:pointer">Трассировка</summary>
+                <pre class="small bg-light border rounded p-2 mt-1 mb-0" style="max-height:220px;overflow:auto;white-space:pre-wrap;">{{ entry.data.traceback|truncatechars:4000 }}</pre>
+              </details>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if journal_page.has_other_pages %}
+<nav class="mt-3" aria-label="Страницы журнала">
+  <ul class="pagination pagination-sm justify-content-center flex-wrap mb-0">
+    {% if journal_page.has_previous %}
+    <li class="page-item">
+      <a class="page-link" href="?page={{ journal_page.previous_page_number }}{% if parse_scope.chgroup_param != 'all' %}&chgroup={{ parse_scope.chgroup_param }}{% endif %}">Назад</a>
+    </li>
+    {% endif %}
+    <li class="page-item disabled"><span class="page-link">{{ journal_page.number }} / {{ journal_page.paginator.num_pages }}</span></li>
+    {% if journal_page.has_next %}
+    <li class="page-item">
+      <a class="page-link" href="?page={{ journal_page.next_page_number }}{% if parse_scope.chgroup_param != 'all' %}&chgroup={{ parse_scope.chgroup_param }}{% endif %}">Вперёд</a>
+    </li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}
+{% endif %}
+{% endblock %}

@@ -58,6 +58,9 @@
   <a href="{% url 'core:feed' %}?kind=parsing{% if parse_scope.chgroup_param != 'all' %}&chgroup={{ parse_scope.chgroup_param }}{% endif %}" class="btn btn-outline-primary">
     <i class="bi bi-layout-text-window-reverse me-1"></i> В ленте (парсинг)
   </a>
+  <a href="{% url 'parsing:journal' %}{{ parsing_scope_query }}" class="btn btn-outline-secondary">
+    <i class="bi bi-journal-text me-1"></i> Журнал парсинга
+  </a>
   <a href="{% url 'parsing:parse_tasks' %}{{ parsing_scope_query }}" class="btn btn-outline-secondary">
     <i class="bi bi-arrow-repeat me-1"></i> Задачи парсинга
   </a>

@@ -80,6 +80,8 @@ services:
     restart: unless-stopped
 
   # Парсинг, импорт TG→MAX, прочее — без конкуренции с публикацией.
+  # Важно: порядок -Q = приоритет. Раньше parse был последним — очередь parse могла не разгребаться
+  # при постоянной работе import_history/celery. Сначала parse, затем импорт, затем общая celery.
   celery:
     build: .
     env_file: .env
@@ -88,7 +90,7 @@ services:
       DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
       TELETHON_SESSION_LOCK_BACKEND: redis
       CELERY_TASK_ALWAYS_EAGER: "false"
-    command: celery -A pro_channels worker -l INFO -n bg@%h -Q import_history,celery,parse -c 4
+    command: celery -A pro_channels worker -l INFO -n bg@%h -Q parse,import_history,celery -c 4
     depends_on:
       redis:
         condition: service_started

@@ -194,8 +194,8 @@ CELERY_TASK_ROUTES = {
     'channels.tasks.channel_interesting_facts_tick': {'queue': 'prio'},
     # Отдельная очередь: иначе импорт TG→MAX висит в «Ожидание воркера» за сотнями publish_post_task в prio.
     'channels.tasks.import_tg_history_to_max_task': {'queue': CELERY_IMPORT_HISTORY_QUEUE},
-    # Парсинг ленты (ParseTask): отдельная очередь «parse» — последняя в списке воркера (см. docker-compose),
-    # чтобы после перезапуска и при фоне импорта в MAX воркер сначала разбирал import_history → prio → celery.
+    # Парсинг ленты (ParseTask): очередь «parse» — в docker-compose воркер слушает parse,import_history,celery
+    # с приоритетом parse первым (иначе хвост parse не разгребается при загруженных import_history/celery).
     'parsing.tasks.execute_parse_task': {'queue': 'parse'},
     'parsing.tasks.check_parse_tasks': {'queue': 'parse'},
     'parsing.tasks.purge_parse_media_retention': {'queue': 'parse'},

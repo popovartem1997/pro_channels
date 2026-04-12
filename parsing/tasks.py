@@ -508,7 +508,13 @@ def ai_rewrite_task(self, job_id: int):
 
 # ─── Парсинг контента ────────────────────────────────────────────────────────
 
-@shared_task(bind=True, max_retries=2, default_retry_delay=120)
+@shared_task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=120,
+    soft_time_limit=1200,
+    time_limit=1260,
+)
 def execute_parse_task(self, task_id: int):
     """Выполняет задачу парсинга: обходит все источники, ищет по ключевикам."""
     from django.db.models import Max
@@ -536,74 +542,88 @@ def execute_parse_task(self, task_id: int):
 
     logger.info('ParseTask #%s старт: sources=%s keywords=%s', task_id, task.sources.count(), task.keywords.filter(is_active=True).count())
 
-    for source in task.sources.filter(is_active=True):
-        max_id_before = ParsedItem.objects.filter(source=source).aggregate(m=Max('pk'))['m'] or 0
-        try:
-            logger.info(
-                'ParseTask #%s: source #%s %s platform=%s source_id=%s',
-                task_id,
-                source.pk,
-                source.name,
-                source.platform,
-                (source.source_id or '')[:120],
-            )
-            if source.platform == source.PLATFORM_TELEGRAM:
-                found = _parse_telegram(source, keywords, keyword_objects)
-            elif source.platform == source.PLATFORM_VK:
-                found = _parse_vk(source, keywords, keyword_objects)
-            elif source.platform == source.PLATFORM_RSS:
-                found = _parse_rss(source, keywords, keyword_objects)
-            elif source.platform == source.PLATFORM_DZEN:
-                found = _parse_dzen(source, keywords, keyword_objects)
-            else:
-                logger.warning(f'Неизвестная платформа: {source.platform}')
-                found = 0
-
-            new_qs = ParsedItem.objects.filter(source=source, pk__gt=max_id_before)
-            ParseSource.objects.filter(pk=source.pk).update(
-                last_parsed_at=timezone.now(),
-                last_parse_new_items=new_qs.count(),
-                last_parse_keywords_matched=new_qs.values('keyword_id').distinct().count(),
-            )
-
-            total_found += found
-            logger.info(f'ParseTask #{task_id}, источник "{source.name}": найдено {found}')
-        except Exception as exc:
-            logger.exception('Ошибка парсинга источника "%s" (%s): %s', source.name, source.platform, exc)
-            ParseSource.objects.filter(pk=source.pk).update(last_parsed_at=timezone.now())
-            # Audit log (best-effort): сохраняем ошибки парсинга в журнал действий
+    try:
+        for source in task.sources.filter(is_active=True):
+            max_id_before = ParsedItem.objects.filter(source=source).aggregate(m=Max('pk'))['m'] or 0
             try:
-                from bots.models import AuditLog
-
-                tb = traceback.format_exc()
-                if len(tb) > 8000:
-                    tb = tb[:8000] + "\n…(truncated)…"
-                AuditLog.objects.create(
-                    actor=None,
-                    owner=task.owner,
-                    action='parsing.error',
-                    object_type='ParseSource',
-                    object_id=str(source.pk),
-                    data={
-                        'task_id': task.pk,
-                        'task_name': task.name,
-                        'source_id': source.pk,
-                        'source_name': source.name,
-                        'source_platform': source.platform,
-                        'source_source_id': (source.source_id or '')[:500],
-                        'error': str(exc)[:1000],
-                        'traceback': tb,
-                    },
+                logger.info(
+                    'ParseTask #%s: source #%s %s platform=%s source_id=%s',
+                    task_id,
+                    source.pk,
+                    source.name,
+                    source.platform,
+                    (source.source_id or '')[:120],
                 )
-            except Exception:
-                pass
+                if source.platform == source.PLATFORM_TELEGRAM:
+                    found = _parse_telegram(source, keywords, keyword_objects)
+                elif source.platform == source.PLATFORM_VK:
+                    found = _parse_vk(source, keywords, keyword_objects)
+                elif source.platform == source.PLATFORM_RSS:
+                    found = _parse_rss(source, keywords, keyword_objects)
+                elif source.platform == source.PLATFORM_DZEN:
+                    found = _parse_dzen(source, keywords, keyword_objects)
+                else:
+                    logger.warning(f'Неизвестная платформа: {source.platform}')
+                    found = 0
 
-    task.last_run_at = timezone.now()
-    task.items_found_total += total_found
-    task.save(update_fields=['last_run_at', 'items_found_total'])
+                new_qs = ParsedItem.objects.filter(source=source, pk__gt=max_id_before)
+                ParseSource.objects.filter(pk=source.pk).update(
+                    last_parsed_at=timezone.now(),
+                    last_parse_new_items=new_qs.count(),
+                    last_parse_keywords_matched=new_qs.values('keyword_id').distinct().count(),
+                )
 
-    logger.info(f'ParseTask #{task_id} завершена: найдено {total_found} новых материалов')
-    return total_found
+                total_found += found
+                logger.info(f'ParseTask #{task_id}, источник "{source.name}": найдено {found}')
+            except Exception as exc:
+                logger.exception('Ошибка парсинга источника "%s" (%s): %s', source.name, source.platform, exc)
+                ParseSource.objects.filter(pk=source.pk).update(last_parsed_at=timezone.now())
+                # Audit log (best-effort): сохраняем ошибки парсинга в журнал действий
+                try:
+                    from bots.models import AuditLog
+
+                    tb = traceback.format_exc()
+                    if len(tb) > 8000:
+                        tb = tb[:8000] + "\n…(truncated)…"
+                    AuditLog.objects.create(
+                        actor=None,
+                        owner=task.owner,
+                        action='parsing.error',
+                        object_type='ParseSource',
+                        object_id=str(source.pk),
+                        data={
+                            'task_id': task.pk,
+                            'task_name': task.name,
+                            'source_id': source.pk,
+                            'source_name': source.name,
+                            'source_platform': source.platform,
+                            'source_source_id': (source.source_id or '')[:500],
+                            'error': str(exc)[:1000],
+                            'traceback': tb,
+                        },
+                    )
+                except Exception:
+                    pass
+
+        task.last_run_at = timezone.now()
+        task.items_found_total += total_found
+        task.save(update_fields=['last_run_at', 'items_found_total'])
+
+        logger.info(f'ParseTask #{task_id} завершена: найдено {total_found} новых материалов')
+        return total_found
+    except SoftTimeLimitExceeded:
+        from django.db.models import F
+
+        logger.error(
+            'ParseTask #%s: soft time limit (20 мин) — прервано, освобождаем воркер. '
+            'Уменьшите источники или проверьте сеть/Telethon.',
+            task_id,
+        )
+        ParseTask.objects.filter(pk=task_id).update(
+            last_run_at=timezone.now(),
+            items_found_total=F('items_found_total') + total_found,
+        )
+        raise
 
 
 def _match_keywords(text, keywords):
