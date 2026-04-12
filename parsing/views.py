@@ -367,7 +367,10 @@ def telethon_connect(request):
 
             async def _send():
                 from telethon import TelegramClient
-                client = TelegramClient(session_path, int(api_id), api_hash)
+
+                from parsing.tasks import _telethon_client_kwargs
+
+                client = TelegramClient(session_path, int(api_id), api_hash, **_telethon_client_kwargs())
                 await client.connect()
                 res = await client.send_code_request(phone)
                 await client.disconnect()
@@ -408,7 +411,10 @@ def telethon_connect(request):
             async def _confirm():
                 from telethon import TelegramClient
                 from telethon.errors import SessionPasswordNeededError
-                client = TelegramClient(session_path, int(api_id), api_hash)
+
+                from parsing.tasks import _telethon_client_kwargs
+
+                client = TelegramClient(session_path, int(api_id), api_hash, **_telethon_client_kwargs())
                 await client.connect()
                 try:
                     await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)

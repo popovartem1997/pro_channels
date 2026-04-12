@@ -47,6 +47,7 @@ class GlobalApiKeysForm(forms.ModelForm):
         if pq is not None:
             pq.widget.attrs.setdefault('min', 0)
             pq.widget.attrs.setdefault('step', 1)
+        # Подписи к telegram_bot_proxy_url — в модели GlobalApiKeys (Bot API + Telethon).
         # Bootstrap classes
         for name, field in self.fields.items():
             widget = field.widget

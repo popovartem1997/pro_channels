@@ -268,12 +268,10 @@ def execute_after_running(
 
         # receive_updates=False — меньше фоновых задач; timeout/ретраи — чтобы не зависать бесконечно
         # (см. документацию Telethon: timeout касается connect, не каждого RPC — поэтому wait_for на шаги iter).
-        _tc_kw = dict(
-            connection_retries=5,
-            request_retries=5,
-            timeout=int(connect_timeout),
-            receive_updates=False,
-        )
+        from parsing.tasks import _telethon_client_kwargs
+
+        _tc_kw = _telethon_client_kwargs()
+        _tc_kw['timeout'] = int(connect_timeout)
         try:
             client = TelegramClient(session_path, int(api_id), api_hash, **_tc_kw)
             try:

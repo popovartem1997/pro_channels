@@ -52,13 +52,16 @@ def _telethon_client_kwargs():
     """Единые параметры клиента Telethon: меньше фоновых задач и предсказуемые ретраи (как в импорте TG→MAX)."""
     from django.conf import settings
 
+    from core.telethon_proxy import merge_telethon_proxy_from_settings
+
     connect_timeout = int(getattr(settings, 'TG_HISTORY_IMPORT_TELETHON_CONNECT_TIMEOUT', 90) or 90)
-    return dict(
+    base = dict(
         connection_retries=5,
         request_retries=5,
         timeout=int(connect_timeout),
         receive_updates=False,
     )
+    return merge_telethon_proxy_from_settings(base)
 
 
 def _telethon_sess_hash(owner_id: int) -> str:

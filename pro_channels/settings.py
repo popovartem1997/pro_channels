@@ -266,6 +266,9 @@ TELEGRAM_BOT_PROXY_URL = (config('TELEGRAM_BOT_PROXY_URL', default='') or '').st
 # ─── Telegram Парсинг (Telethon — user API) ──────────────────────────────────
 TELEGRAM_API_ID = config('TELEGRAM_API_ID', default='')
 TELEGRAM_API_HASH = config('TELEGRAM_API_HASH', default='')
+# Опционально: прокси только для Telethon (перекрывает поле «Прокси для Telegram Bot API» в Ключи API).
+# Если пусто — Telethon использует тот же URL, что Bot API (БД + TELEGRAM_BOT_PROXY_URL).
+TELETHON_PROXY_URL = (config('TELETHON_PROXY_URL', default='') or '').strip()
 # Сериализация доступа к файлу *.session Telethon (см. parsing.tasks._telethon_session_lock).
 # file — fcntl на общем volume (Docker на одном хосте, без «залипших» ключей Redis).
 # redis — SET NX + фоновое продление TTL у держателя; при kill -9 ключ истечёт через TELETHON_REDIS_LOCK_TTL.

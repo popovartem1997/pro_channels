@@ -30,7 +30,10 @@ class Command(BaseCommand):
 
         async def _login():
             from telethon import TelegramClient
-            client = TelegramClient(session_path, int(api_id), api_hash)
+
+            from parsing.tasks import _telethon_client_kwargs
+
+            client = TelegramClient(session_path, int(api_id), api_hash, **_telethon_client_kwargs())
             await client.start()  # интерактивно спросит телефон/код при необходимости
             me = await client.get_me()
             await client.disconnect()

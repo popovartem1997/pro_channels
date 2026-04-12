@@ -73,13 +73,13 @@ class GlobalApiKeys(models.Model):
     telegram_api_id = models.CharField(max_length=50, blank=True, verbose_name='TELEGRAM_API_ID')
     telegram_api_hash_enc = models.TextField(blank=True, verbose_name='TELEGRAM_API_HASH (enc)')
 
-    # Telegram Bot API (python-telegram-bot: публикация в каналы, бот-предложка) — HTTP(S)/SOCKS прокси
+    # Bot API (HTTPS) и Telethon (MTProto) — один URL; переопределить только Telethon: TELETHON_PROXY_URL в .env
     telegram_bot_proxy_url = models.CharField(
         max_length=512,
         blank=True,
-        verbose_name='Прокси для Telegram Bot API',
-        help_text='Один URL: http://host:port, http://user:pass@host:port, socks5://host:port. Пусто — без прокси. '
-        'Для SOCKS5 в образе должен быть установлен extra python-telegram-bot[socks].',
+        verbose_name='Прокси для Telegram (Bot API и Telethon)',
+        help_text='Один URL для api.telegram.org и для Telethon (парсинг, импорт): http(s):// или socks5://… '
+        'Пусто — без прокси. TELETHON_PROXY_URL в .env задаёт другой прокси только для Telethon.',
     )
 
     # VK parsing
