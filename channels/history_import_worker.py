@@ -2,7 +2,7 @@
 Импорт истории Telegram → MAX внутри Celery.
 
 Один внешний asyncio.run; Django/HTTP через asyncio.to_thread; чтение Telethon под lock —
-в отдельном потоке с вложенным asyncio.run (отдельный цикл только для Telethon).
+в отдельном потоке с вложенным _telethon_asyncio_run (отдельный цикл только для Telethon).
 
 У Telethon таймаут клиента в основном про установление TCP; зависание на отдельном RPC
 не всегда обрывается внешним wait_for — поэтому чтение канала идёт через wait_for на
@@ -544,6 +544,8 @@ def execute_after_running(
         def _sync_fetch_locked():
             from django.db import close_old_connections as _close
 
+            from parsing.tasks import _telethon_asyncio_run
+
             try:
                 tick = _on_telethon_lock_wait if not ph['batch_phase_started'] else None
                 with _telethon_session_lock(source.owner_id, on_lock_wait_tick=tick, **telethon_lock_kwargs):
@@ -557,7 +559,7 @@ def execute_after_running(
                         )
                         ph['batch_phase_started'] = True
                     try:
-                        return asyncio.run(
+                        return _telethon_asyncio_run(
                             asyncio.wait_for(
                                 _fetch_tg_import_batch(
                                     resume_after_id=st['last_tg_message_id'],

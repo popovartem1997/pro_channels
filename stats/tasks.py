@@ -315,7 +315,8 @@ def _get_tg_post_stats(channel, msg_id):
     Нельзя вызывать client.start() без сессии: в Celery нет stdin → «EOF when reading a line».
     """
     from django.conf import settings
-    import asyncio
+
+    from parsing.tasks import _telethon_asyncio_run, _telethon_client_kwargs, _telethon_session_lock
 
     try:
         from core.models import get_global_api_keys
@@ -331,6 +332,7 @@ def _get_tg_post_stats(channel, msg_id):
     async def _fetch():
         from telethon import TelegramClient
 
+        _tc_kw = _telethon_client_kwargs()
         session_dir = settings.BASE_DIR / 'media' / 'telethon_sessions'
         try:
             session_dir.mkdir(parents=True, exist_ok=True)
@@ -345,7 +347,7 @@ def _get_tg_post_stats(channel, msg_id):
 
         client = None
         for base in paths:
-            c = TelegramClient(str(base), int(api_id), api_hash)
+            c = TelegramClient(str(base), int(api_id), api_hash, **_tc_kw)
             await c.connect()
             if await c.is_user_authorized():
                 client = c
@@ -375,8 +377,11 @@ def _get_tg_post_stats(channel, msg_id):
             await client.disconnect()
         return None
 
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_fetch())
-    finally:
-        loop.close()
+    def _go():
+        return _telethon_asyncio_run(_fetch())
+
+    oid = getattr(channel, 'owner_id', None)
+    if oid is not None:
+        with _telethon_session_lock(int(oid), wait=180.0, wait_chunk=10.0):
+            return _go()
+    return _go()
