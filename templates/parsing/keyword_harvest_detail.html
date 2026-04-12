@@ -83,6 +83,7 @@
     <h6 class="mb-0 fw-bold">Кандидаты от AI</h6>
     <p class="small text-muted mb-0 mt-1">
       Отметьте галочками <strong>только те фразы</strong>, которые нужно добавить как ключевики. Без галочки строка не попадёт в парсинг.
+      Строки с оценкой повторяемости <strong>не ниже 5 из 10</strong> отмечены автоматически (можно снять галочку).
       Фразы, которые уже есть на выбранных для задачи каналах, <strong>не отображаются</strong>.
     </p>
   </div>
@@ -107,7 +108,8 @@
             <td class="small text-muted">{{ row.comment|default:"" }}</td>
             <td class="text-end">
               <div class="form-check d-inline-flex justify-content-end">
-                <input class="form-check-input" type="checkbox" name="include" value="{{ forloop.counter0 }}" id="in{{ forloop.counter0 }}">
+                <input class="form-check-input" type="checkbox" name="include" value="{{ forloop.counter0 }}" id="in{{ forloop.counter0 }}"
+                       {% if row.repeat_score and row.repeat_score >= 5 %}checked{% endif %}>
                 <label class="form-check-label visually-hidden" for="in{{ forloop.counter0 }}">Добавить</label>
               </div>
             </td>

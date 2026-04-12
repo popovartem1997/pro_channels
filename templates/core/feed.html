@@ -287,7 +287,7 @@
                 {% if it.status == 'pending' %}
                 <div class="mt-2 w-100">
                   {% url 'parsing:item_ai_to_post' it.obj.pk as parsing_ai_url %}
-                  {% include 'includes/ai_post_mood_block_parsing.html' with ai_form_url=parsing_ai_url ai_post_moods=it.parse_ai_moods %}
+                  {% include 'includes/ai_post_mood_block_parsing.html' with ai_form_url=parsing_ai_url ai_post_moods=it.parse_ai_moods ai_slider_uid=it.obj.pk %}
                 </div>
                 {% endif %}
               </div>

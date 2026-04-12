@@ -1006,7 +1006,7 @@ def item_ai_to_post(request, pk):
         )
         return redirect(request.META.get('HTTP_REFERER') or reverse('core:feed'))
 
-    from .deepseek_snippet import rewrite_for_feed_post
+    from .deepseek_snippet import ai_post_style_from_post, rewrite_for_feed_post
     from .feed_ai_moods import (
         ai_tone_label_for_owner,
         mood_instructions_map,
@@ -1019,6 +1019,7 @@ def item_ai_to_post(request, pk):
     tone_rule = mood_instructions_map(ws_owner).get(tone)
     with_headline = request.POST.get('ai_with_headline') == 'on'
     embed_source = request.POST.get('ai_embed_source') == 'on'
+    length_scale, warmth, rich_structure = ai_post_style_from_post(request.POST)
     try:
         plain, ht = rewrite_for_feed_post(
             original_text=item.text or '',
@@ -1029,6 +1030,9 @@ def item_ai_to_post(request, pk):
             tone_rule=tone_rule,
             with_headline=with_headline,
             embed_source_link=embed_source,
+            length_scale=length_scale,
+            warmth=warmth,
+            rich_structure=rich_structure,
         )
     except Exception as exc:
         messages.error(request, f'Не удалось сгенерировать текст: {exc}')

@@ -428,7 +428,12 @@ def post_ai_from_suggestion(request, tracking_id):
 
     from bots.models import Suggestion
     from core.models import get_global_api_keys
-    from parsing.deepseek_snippet import ai_tone_label, normalize_ai_tone, rewrite_for_feed_post
+    from parsing.deepseek_snippet import (
+        ai_post_style_from_post,
+        ai_tone_label,
+        normalize_ai_tone,
+        rewrite_for_feed_post,
+    )
 
     suggestion = get_object_or_404(
         Suggestion.objects.select_related('bot', 'bot__owner').prefetch_related('bot__channel_groups'),
@@ -462,6 +467,7 @@ def post_ai_from_suggestion(request, tracking_id):
         return redirect('content:edit', pk=existing.pk)
 
     tone = normalize_ai_tone(request.POST.get('tone'))
+    length_scale, warmth, rich_structure = ai_post_style_from_post(request.POST)
     try:
         source_url = _extract_first_http_url(suggestion.text or '')
         plain, ht = rewrite_for_feed_post(
@@ -471,6 +477,9 @@ def post_ai_from_suggestion(request, tracking_id):
             model_name=getattr(settings, 'DEEPSEEK_MODEL', 'deepseek-chat'),
             tone=tone,
             embed_source_link=True,
+            length_scale=length_scale,
+            warmth=warmth,
+            rich_structure=rich_structure,
         )
     except Exception as exc:
         messages.error(request, f'Не удалось сгенерировать текст: {exc}')

@@ -135,6 +135,107 @@ def _strip_meta_material_tail(s: str) -> str:
     return t
 
 
+AI_POST_LENGTH_MIN = 1
+AI_POST_LENGTH_MAX = 5
+AI_POST_WARMTH_MIN = 1
+AI_POST_WARMTH_MAX = 5
+
+
+def clamp_ai_post_length_scale(raw: int | str | None) -> int:
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        n = 3
+    return max(AI_POST_LENGTH_MIN, min(AI_POST_LENGTH_MAX, n))
+
+
+def clamp_ai_post_warmth(raw: int | str | None) -> int:
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        n = 3
+    return max(AI_POST_WARMTH_MIN, min(AI_POST_WARMTH_MAX, n))
+
+
+def ai_post_style_from_post(post) -> tuple[int, int, bool]:
+    """
+    Параметры стиля из формы: объём (1–5), живость (1–5), абзацы/связки.
+    Если полей нет (старые формы) — объём и живость по центру шкалы, абзацы вкл.
+    """
+    length_scale = clamp_ai_post_length_scale(post.get('ai_length'))
+    warmth = clamp_ai_post_warmth(post.get('ai_warmth'))
+    if 'ai_rich_structure' in post:
+        rich_structure = post.get('ai_rich_structure') == 'on'
+    else:
+        rich_structure = True
+    return length_scale, warmth, rich_structure
+
+
+def _length_scale_body_phrase(length_scale: int) -> str:
+    """Описание объёма тела поста для промпта."""
+    phrases = {
+        1: '1–2 очень коротких предложения, всего до ~50 слов — только суть.',
+        2: '2–3 коротких предложения, до ~90 слов.',
+        3: '3–5 предложений связным разговорным языком, до ~160 слов.',
+        4: '5–8 предложений, до ~260 слов; добавь контекст «почему это важно» если он есть в исходнике.',
+        5: '7–12 предложений, до ~400 слов; раскрой факты, мотивацию и вывод для читателя без воды.',
+    }
+    return phrases.get(length_scale, phrases[3])
+
+
+def _length_scale_single_block_phrase(length_scale: int) -> str:
+    """Единый текст без отдельного заголовка."""
+    phrases = {
+        1: '2–3 коротких предложения подряд, до ~60 слов.',
+        2: '3–4 предложения, до ~110 слов.',
+        3: '4–6 предложений, до ~180 слов.',
+        4: '6–10 предложений, до ~300 слов.',
+        5: '10–14 предложений, до ~450 слов; веди читателя от факта к смыслу.',
+    }
+    return phrases.get(length_scale, phrases[3])
+
+
+def _rich_structure_rule(rich_structure: bool, length_scale: int) -> str:
+    if not rich_structure:
+        return (
+            'Форма подачи: один или два цельных абзаца без дробления на много коротких блоков; '
+            'не используй искусственные связки ради объёма.'
+        )
+    if length_scale <= 2:
+        return (
+            'Абзацы: если по смыслу уместно — раздели тело на 2 коротких блока (в plain — пустая строка между ними; '
+            'в HTML — <br><br> между блоками). Если мысль одна — один плотный абзац.'
+        )
+    return (
+        'Абзацы и читабельность: разбей тело на 2–4 смысловых абзаца. '
+        'В body_plain между абзацами — двойной перевод строки; в body_html — <br><br> или короткие <p>...</p>. '
+        'Между абзацами допустимы естественные связки («При этом», «Отдельно», «Коротко о главном», «Важный нюанс —») — '
+        'умеренно, не в каждом абзаце и не шаблонным списком. Чередуй короткие и средние предложения для ритма.'
+    )
+
+
+def _warmth_addon(warmth: int) -> str:
+    """Дополнение к тону: насколько эмоционально и «живо» звучит текст."""
+    levels = {
+        1: 'Живость подачи: сдержанно, почти деловой нейтралитет, без разговорных вставок и без усиления эмоций.',
+        2: 'Живость: спокойная человеческая речь, лёгкая интонация без театральности.',
+        3: 'Живость: естественный голос автора; короткие вводные вроде «важно», «кстати» — только если уместны.',
+        4: 'Живость: больше личного присутствия, эмоциональных акцентов и вариации длины фраз; оставайся уважительным.',
+        5: 'Живость: максимально по-человечески и цепляюще — контраст фраз, яркие формулировки без крика, токсичности и кликбейта; '
+        'эмодзи строго в рамках выбранного тона кнопки.',
+    }
+    return levels.get(warmth, levels[3])
+
+
+def _rewrite_max_tokens(length_scale: int) -> int:
+    return {1: 520, 2: 650, 3: 900, 4: 1150, 5: 1500}.get(length_scale, 900)
+
+
+def _rewrite_temperature(warmth: int) -> float:
+    # чуть выше температура при большей «живости»
+    return round(0.62 + (warmth - 1) * 0.045, 3)
+
+
 def _compose_headline_post(*, headline: str, body_plain: str, body_html: str) -> tuple[str, str]:
     """Собирает итоговый plain и HTML из частей."""
     hl = (headline or '').strip()
@@ -167,17 +268,26 @@ def _build_rewrite_system_prompt(
     tone_rule: str,
     with_headline: bool,
     embed_source_link: bool,
+    length_scale: int = 3,
+    warmth: int = 3,
+    rich_structure: bool = True,
 ) -> str:
     base = (
         'Ты редактор постов для соцсетей. Пиши по-русски. '
         'Не упоминай «источник», парсинг и технические детали. '
-        'Не делай строки «источник:» и мета-отсылки к СМИ.'
+        'Не делай строки «источник:» и мета-отсылки к СМИ. '
+        'Цель — чтобы пост хотелось дочитать: ясная мысль, польза или эмоция для читателя, без штампов и «нейросетевой» сухости.'
     )
+
+    body_vol = _length_scale_body_phrase(length_scale)
+    single_vol = _length_scale_single_block_phrase(length_scale)
+    para = _rich_structure_rule(rich_structure, length_scale)
+    warm = _warmth_addon(warmth)
 
     if with_headline and embed_source_link:
         structure = (
             'Структура поста: (1) один громкий цепляющий ЗАГОЛОВОК — короткая строка, можно частично КАПСОМ и с 1–2 уместными эмодзи; '
-            '(2) ТЕЛО — 2–4 коротких предложения простым языком, без воды. '
+            f'(2) ТЕЛО — {body_vol} {para} '
             'Если передан URL оригинала: в body_html встрой ссылку РОВНО ОДИН раз в ПЕРВОМ или ВТОРОМ предложении тела, '
             'внутри факта: оберни в <a href="URL">…</a> обычную смысловую фразу из этого же предложения (3–7 слов), '
             'которая описывает событие или действие. Примеры хорошего якоря: «в округе появились новые учебные заведения», '
@@ -194,14 +304,14 @@ def _build_rewrite_system_prompt(
     elif with_headline and not embed_source_link:
         structure = (
             'Структура поста: (1) один громкий цепляющий ЗАГОЛОВОК — короткая строка, можно частично КАПСОМ и с 1–2 уместными эмодзи; '
-            '(2) ТЕЛО — 2–4 коротких предложения простым языком, без воды. '
+            f'(2) ТЕЛО — {body_vol} {para} '
             'Не вставляй в текст никаких URL и тегов <a>, даже если URL передан — он только для твоего контекста, в пост не включай. '
             'Ответ строго JSON без markdown-обёртки: '
             '{"headline": "заголовок", "body_plain": "только тело без заголовка", "body_html": "только тело в HTML, допускается <i>, без ссылок"}.'
         )
     elif not with_headline and embed_source_link:
         structure = (
-            'Пост — единый связный текст БЕЗ отдельной строки-заголовка: 2–5 коротких предложений простым языком. '
+            f'Пост — единый связный текст БЕЗ отдельной строки-заголовка: {single_vol} {para} '
             'Если передан URL оригинала: в body_html встрой ссылку РОВНО ОДИН раз в первом или втором предложении, '
             'внутри факта (<a href="URL">смысловая фраза 3–7 слов</a>), без отсылок к «статье» и «материалу». '
             'Для body_plain: то же без тегов; URL один раз в конце последнего предложения через пробел. Если URL нет — без ссылок. '
@@ -211,14 +321,16 @@ def _build_rewrite_system_prompt(
         )
     else:
         structure = (
-            'Пост — единый связный текст БЕЗ отдельного заголовка: 2–5 коротких предложений простым языком. '
+            f'Пост — единый связный текст БЕЗ отдельного заголовка: {single_vol} {para} '
             'Не вставляй URL и теги <a>, даже если URL передан контекстом. '
             'Ответ строго JSON: {"headline": "", "body_plain": "весь текст", "body_html": "весь текст в HTML без ссылок"}. '
             'Поле headline всегда пустая строка. '
             'Допустим {"plain": "...", "html": "..."} — весь пост целиком.'
         )
 
-    return f'{base}\n{structure}\n\nГЛАВНОЕ ПРАВИЛО ТОНА И СТИЛЯ (обязательно соблюдай): {tone_rule}'
+    return (
+        f'{base}\n{structure}\n\nГЛАВНОЕ ПРАВИЛО ТОНА И СТИЛЯ (обязательно соблюдай): {tone_rule}\n{warm}'
+    )
 
 
 def _build_rewrite_user_message(
@@ -228,6 +340,9 @@ def _build_rewrite_user_message(
     tone_key: str,
     with_headline: bool,
     embed_source_link: bool,
+    length_scale: int = 3,
+    warmth: int = 3,
+    rich_structure: bool = True,
 ) -> str:
     parts = [f'Исходный текст:\n{safe_text}\n']
     if embed_source_link:
@@ -242,7 +357,11 @@ def _build_rewrite_user_message(
             'В финальный пост ссылки и URL не включай.\n'
         )
     scope = 'заголовок и тело' if with_headline else 'весь пост'
-    parts.append(f'Выбранное настроение поста: «{tone_key}» — {scope} должны ему соответствовать.')
+    parts.append(f'Выбранное настроение поста: «{tone_key}» — {scope} должны ему соответствовать.\n')
+    rs = 'абзацы и связки между мыслями — да' if rich_structure else 'компактный текст без лишних абзацев — да'
+    parts.append(
+        f'Параметры оформления: объём текста — {length_scale} из 5; живость и эмоциональность — {warmth} из 5; {rs}.'
+    )
     return ''.join(parts)
 
 
@@ -280,6 +399,9 @@ def rewrite_for_feed_post(
         tone_rule=rule,
         with_headline=with_headline,
         embed_source_link=embed_source_link,
+        length_scale=length_scale,
+        warmth=warmth,
+        rich_structure=rich_structure,
     )
 
     user_msg = _build_rewrite_user_message(
@@ -288,6 +410,9 @@ def rewrite_for_feed_post(
         tone_key=tone_key,
         with_headline=with_headline,
         embed_source_link=embed_source_link,
+        length_scale=length_scale,
+        warmth=warmth,
+        rich_structure=rich_structure,
     )
 
     client = build_deepseek_client(api_key)
@@ -297,8 +422,8 @@ def rewrite_for_feed_post(
             {'role': 'system', 'content': system},
             {'role': 'user', 'content': user_msg},
         ],
-        max_tokens=900,
-        temperature=0.7,
+        max_tokens=_rewrite_max_tokens(length_scale),
+        temperature=_rewrite_temperature(warmth),
     )
     raw = (response.choices[0].message.content or '').strip()
     cleaned = _strip_json_fence(raw)

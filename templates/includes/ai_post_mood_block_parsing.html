@@ -1,4 +1,5 @@
-{# ai_form_url, ai_post_moods (на материал); feed_ai_can_edit_moods — из контекста ленты #}
+{# ai_form_url, ai_post_moods; ai_slider_uid — уникальный суффикс id ползунков (например pk материала) #}
+{% with uid=ai_slider_uid|default:0 %}
 <div class="ai-mood-block border rounded-2 p-2 bg-light w-100">
   <div class="small fw-semibold text-muted mb-2 d-flex flex-wrap align-items-center gap-2">
     <span><i class="bi bi-stars me-1" style="color:var(--brand)"></i>AI — интонация</span>
@@ -17,6 +18,32 @@
         </button>
       {% endfor %}
     </div>
+    <div class="row g-2 small mb-2">
+      <div class="col-12 col-md-6">
+        <label class="form-label d-flex justify-content-between align-items-center mb-1 text-muted" for="ai-length-{{ uid }}">
+          <span>Объём текста</span>
+          <span class="text-body"><output id="ai-length-out-{{ uid }}" for="ai-length-{{ uid }}">3</output>/5</span>
+        </label>
+        <input class="form-range" type="range" name="ai_length" id="ai-length-{{ uid }}" min="1" max="5" step="1" value="3"
+               oninput="document.getElementById('ai-length-out-{{ uid }}').textContent=this.value">
+        <div class="d-flex justify-content-between text-muted" style="font-size:0.7rem;margin-top:-0.25rem">
+          <span>Короче</span>
+          <span>Длиннее</span>
+        </div>
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label d-flex justify-content-between align-items-center mb-1 text-muted" for="ai-warmth-{{ uid }}">
+          <span>Живость</span>
+          <span class="text-body"><output id="ai-warmth-out-{{ uid }}" for="ai-warmth-{{ uid }}">3</output>/5</span>
+        </label>
+        <input class="form-range" type="range" name="ai_warmth" id="ai-warmth-{{ uid }}" min="1" max="5" step="1" value="3"
+               oninput="document.getElementById('ai-warmth-out-{{ uid }}').textContent=this.value">
+        <div class="d-flex justify-content-between text-muted" style="font-size:0.7rem;margin-top:-0.25rem">
+          <span>Сдержанно</span>
+          <span>Эмоционально</span>
+        </div>
+      </div>
+    </div>
     <div class="d-flex flex-column gap-1 small text-muted">
       <label class="d-flex align-items-start gap-2 mb-0">
         <input class="form-check-input mt-1" type="checkbox" name="ai_with_headline" checked>
@@ -26,6 +53,14 @@
         <input class="form-check-input mt-1" type="checkbox" name="ai_embed_source">
         <span>Добавить ссылку на источник внутрь поста</span>
       </label>
+      <div>
+        <input type="hidden" name="ai_rich_structure" value="off">
+        <label class="d-flex align-items-start gap-2 mb-0">
+          <input class="form-check-input mt-1" type="checkbox" name="ai_rich_structure" value="on" checked>
+          <span>Абзацы и связки между мыслями <span class="text-muted">(читабельнее в ленте)</span></span>
+        </label>
+      </div>
     </div>
   </form>
 </div>
+{% endwith %}
