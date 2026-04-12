@@ -71,6 +71,11 @@ def execute_after_running(
     connect_timeout = max(15.0, min(connect_timeout, 300.0))
     heartbeat_sec = int(getattr(settings, 'TG_HISTORY_IMPORT_HEARTBEAT_SEC', 45) or 0)
 
+    from parsing.tasks import _telethon_client_kwargs
+
+    _tc_kw_for_telethon = _telethon_client_kwargs()
+    _tc_kw_for_telethon['timeout'] = int(connect_timeout)
+
     def _cancel_req_sync() -> bool:
         try:
             rr = HistoryImportRun.objects.only('cancel_requested').get(pk=run_id)
@@ -268,10 +273,8 @@ def execute_after_running(
 
         # receive_updates=False — меньше фоновых задач; timeout/ретраи — чтобы не зависать бесконечно
         # (см. документацию Telethon: timeout касается connect, не каждого RPC — поэтому wait_for на шаги iter).
-        from parsing.tasks import _telethon_client_kwargs
-
-        _tc_kw = _telethon_client_kwargs()
-        _tc_kw['timeout'] = int(connect_timeout)
+        # _tc_kw_for_telethon собран в sync execute_after_running (ORM нельзя из async).
+        _tc_kw = _tc_kw_for_telethon
         try:
             client = TelegramClient(session_path, int(api_id), api_hash, **_tc_kw)
             try:

@@ -49,7 +49,11 @@ def _telethon_asyncio_run(coro):
 
 
 def _telethon_client_kwargs():
-    """Единые параметры клиента Telethon: меньше фоновых задач и предсказуемые ретраи (как в импорте TG→MAX)."""
+    """Единые параметры клиента Telethon: меньше фоновых задач и предсказуемые ретраи (как в импорте TG→MAX).
+
+    Вызывать только из **синхронного** кода (читает GlobalApiKeys / effective_telegram_bot_proxy_url).
+    Не вызывать изнутри ``async def`` под ``asyncio.run`` — будет SynchronousOnlyOperation.
+    """
     from django.conf import settings
 
     from core.telethon_proxy import merge_telethon_proxy_from_settings
@@ -679,6 +683,9 @@ def _parse_telegram(source, keywords, keyword_objects):
     if not api_id or not api_hash:
         raise ValueError('TELEGRAM_API_ID / TELEGRAM_API_HASH не заданы (Ключи API → Парсинг Telegram).')
 
+    # До asyncio: GlobalApiKeys / effective_telegram_bot_proxy_url — только в sync-контексте (не внутри async def).
+    _tc_kw = _telethon_client_kwargs()
+
     async def _fetch():
         from telethon import TelegramClient
         from pathlib import Path
@@ -690,7 +697,6 @@ def _parse_telegram(source, keywords, keyword_objects):
         except Exception:
             pass
         session_path = str(session_dir / f'user_{source.owner_id}')
-        _tc_kw = _telethon_client_kwargs()
         logger.info('TG parse: owner_id=%s session=%s', source.owner_id, session_path)
         client = None
         try:
@@ -1178,10 +1184,11 @@ def _run_harvest_telethon_fetch_multi(owner_id: int, channel_refs: list[str], li
 
     lim = max(1, min(int(limit_per_channel), 65535))
 
+    _tc_kw = _telethon_client_kwargs()
+
     async def _fetch():
         from telethon import TelegramClient
 
-        _tc_kw = _telethon_client_kwargs()
         session_dir = Path(settings.BASE_DIR) / 'media' / 'telethon_sessions'
         session_dir.mkdir(parents=True, exist_ok=True)
         session_path = str(session_dir / f'user_{int(owner_id)}')

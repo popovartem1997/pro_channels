@@ -28,12 +28,14 @@ class Command(BaseCommand):
         session_dir.mkdir(parents=True, exist_ok=True)
         session_path = str(session_dir / 'user_default')
 
+        from parsing.tasks import _telethon_client_kwargs
+
+        _tc_kw = _telethon_client_kwargs()
+
         async def _login():
             from telethon import TelegramClient
 
-            from parsing.tasks import _telethon_client_kwargs
-
-            client = TelegramClient(session_path, int(api_id), api_hash, **_telethon_client_kwargs())
+            client = TelegramClient(session_path, int(api_id), api_hash, **_tc_kw)
             await client.start()  # интерактивно спросит телефон/код при необходимости
             me = await client.get_me()
             await client.disconnect()

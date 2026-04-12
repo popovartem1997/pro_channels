@@ -329,10 +329,11 @@ def _get_tg_post_stats(channel, msg_id):
     if not api_id or not api_hash:
         return None
 
+    _tc_kw = _telethon_client_kwargs()
+
     async def _fetch():
         from telethon import TelegramClient
 
-        _tc_kw = _telethon_client_kwargs()
         session_dir = settings.BASE_DIR / 'media' / 'telethon_sessions'
         try:
             session_dir.mkdir(parents=True, exist_ok=True)
