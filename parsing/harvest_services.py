@@ -146,6 +146,24 @@ def normalize_telegram_channel_ref(raw: str) -> str:
     return '@' + s.lstrip('@')
 
 
+def canonical_parse_source_id_for_dedup(platform: str, raw: str) -> str:
+    """
+    Ключ для сравнения «тот же источник» в рамках одной группы каналов и платформы.
+    Telegram: @username и ссылки t.me/… приводятся к одному виду.
+    """
+    from .models import ParseSource
+
+    s = (raw or '').strip()
+    if not s:
+        return ''
+    if platform == ParseSource.PLATFORM_TELEGRAM:
+        r = normalize_telegram_channel_ref(s)
+        return (r or s).lower()
+    if platform == ParseSource.PLATFORM_RSS:
+        return s.rstrip('/')
+    return s.lower()
+
+
 def harvest_example_channel_refs(job) -> list[str]:
     """Список нормализованных @каналов из example_channels или legacy example_channel."""
     refs: list[str] = []

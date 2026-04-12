@@ -560,6 +560,25 @@ def source_create(request):
                 return redirect(_parse_url('parsing:source_create', scope))
 
             data_owner = _parsing_data_owner(request.user, anchor)
+            from .harvest_services import canonical_parse_source_id_for_dedup
+
+            key_new = canonical_parse_source_id_for_dedup(platform, source_id)
+            dup = None
+            for ps in ParseSource.objects.filter(
+                owner=data_owner,
+                channel_group=group,
+                platform=platform,
+            ).only('pk', 'name', 'source_id'):
+                if canonical_parse_source_id_for_dedup(platform, ps.source_id) == key_new:
+                    dup = ps
+                    break
+            if dup:
+                messages.warning(
+                    request,
+                    f'Источник с таким ID уже добавлен в эту группу («{dup.name}»). Повторно не создан.',
+                )
+                return redirect(_parsing_sources_redirect(request, scope))
+
             ParseSource.objects.create(
                 owner=data_owner,
                 channel=anchor,
