@@ -375,13 +375,20 @@ def rewrite_for_feed_post(
     tone_rule: str | None = None,
     with_headline: bool = True,
     embed_source_link: bool = False,
+    length_scale: int = 3,
+    warmth: int = 3,
+    rich_structure: bool = True,
 ) -> tuple[str, str]:
     """
     Возвращает (plain_text, html_for_telegram).
     Формат ответа модели — JSON с headline + телом; допускается старый формат plain/html.
     tone — ключ настроения; tone_rule — явная инструкция тона (кастомные кнопки в ленте).
     Если tone_rule передан, он главный; tone_key для подписи — как в запросе (id кнопки).
+    length_scale / warmth — шкалы 1–5; rich_structure — абзацы и переходы в теле.
     """
+    length_scale = clamp_ai_post_length_scale(length_scale)
+    warmth = clamp_ai_post_warmth(warmth)
+
     tr = (tone_rule or '').strip()
     raw = (tone or '').strip().lower()
     if tr:
