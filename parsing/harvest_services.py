@@ -328,9 +328,10 @@ def normalize_suggestion_list_for_ui(raw) -> list[dict]:
     return out
 
 
-def apply_harvest_keywords(job, keywords_to_add: list[str]) -> int:
+def apply_harvest_keywords(job, keywords_to_add: list) -> int:
     """
     Создаёт ParseKeyword по списку (уже без отклонённых пользователем).
+    Элементы — строки или dict с полем phrase (как в suggested_keywords).
     Возвращает число созданных записей.
     """
     from channels.models import Channel
@@ -383,8 +384,8 @@ def apply_harvest_keywords(job, keywords_to_add: list[str]) -> int:
 
     created = 0
     seen: set[str] = set()
-    for phrase in keywords_to_add:
-        kw = (phrase or '').strip()
+    for item in keywords_to_add:
+        kw = suggestion_row_phrase(item)
         if not kw:
             continue
         kw = kw[:KEYWORD_MAX_LEN]
