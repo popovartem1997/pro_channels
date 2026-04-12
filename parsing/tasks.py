@@ -517,6 +517,10 @@ def execute_parse_task(self, task_id: int):
         logger.error(f'ParseTask #{task_id} не найдена')
         return
 
+    # Сразу отмечаем «запуск», иначе check_parse_tasks (beat каждые ~5 мин) видит старый last_run_at,
+    # пока долгий Telethon ещё выполняется, и снова ставит execute_parse_task в очередь — parse раздувается.
+    ParseTask.objects.filter(pk=task_id).update(last_run_at=timezone.now())
+
     keywords = list(task.keywords.filter(is_active=True).values_list('keyword', flat=True))
     keyword_objects = {kw.keyword: kw for kw in task.keywords.filter(is_active=True)}
 
